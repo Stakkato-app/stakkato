@@ -43,7 +43,8 @@ supabase/migrations/        schema, RLS policies, RPC functions, storage bucket,
 ## Data model (Postgres, `public` schema)
 
 - `sessions`: one per song. `host_id` is the user who created it (and dropped the seed). `status` is `open` or `released`. Tempo/key/time live here (`bpm`, `music_key`, `key_alt`, `time_sig`, `meta_from`, `meta_sure`). `seed_role` is the instrument the host says the seed is (null = not one instrument). The seed takes one slot in that role (`role_cap()`), so a 1-slot role the seed plays can't get takes into the line-up; changing `seed_role` bumps the oldest takes if the role overflows (trigger), and is refused once the session is closed. `seed_take_id` points at the current seed; replaced seeds stay in `takes` but are ignored.
-- `takes`: every piece of audio. `role_id` is `seed`, `mix` or an instrument id. `status` is `seed | waiting | in | archived | mix`. `joined_at` orders the line-up (the oldest take in a full role is the one that gets pushed out). Audio lives in Storage at `storage_path`.
+- `takes`: every piece of audio. `role_id` is `seed`, `mix`, `part` or an instrument id. `status` is `seed | waiting | in | archived | mix | deleted`. `joined_at` orders the line-up (the oldest take in a full role is the one that gets pushed out). Audio lives in Storage at `storage_path`. `fade_in` / `fade_out` (seconds) and `xfade` (parts only) are set by the host through `set_fades()` and heard by everyone.
+- New parts: a take with `role_id = 'part'` and `part_pos` `before | after` is a piece of any length that makes the song longer. Pitched = `waiting`, kept = `in`, passed or dropped = `archived` with reason `passed`. Layers can sit on a kept part: `section_id` is that part's id (null = the seed). Slots count per section (`section_cap()`): the seed and each kept part have their own line-up, and the seed's instrument only takes a slot on the seed.
 - `votes`: `(take_id, voter_id)` → `up | down`. Only people with a take in the line-up can vote, and not on the take that would replace their own.
 - `versions`: a fan version is just `picks` (take ids) plus `ctl` (per-take vol/mute/solo and `hp`/`lp` filter cutoffs in Hz, keyed by take id, with the seed under the key `"seed"`). No audio is copied.
 - `version_likes`, `reactions`: one row per person, never deleted.
@@ -54,8 +55,8 @@ Storage bucket `takes` is public-read. Upload path: `{session_id}/{user_id}/{uui
 ## Rules that are easy to break
 
 - **Permissions live in the database.** RLS policies and the `let_in()` / `veto()` / `can_vote()` functions enforce who can do what. The UI hides buttons for convenience, but never rely on UI checks for security. If you add a write, add a policy.
-- **Host-only status changes go through RPCs.** There is deliberately no UPDATE policy on `takes`. Letting in, vetoing and bumping happen in `let_in()` / `veto()` so slot rules are atomic.
-- **Nothing is deleted.** Realtime `postgres_changes` can't filter DELETE events by column, so the app avoids deletes entirely (votes are upserted, likes and reactions are permanent). If you add deletes, the subscription in `data.js` needs rethinking.
+- **Host-only status changes go through RPCs.** There is deliberately no UPDATE policy on `takes`. Letting in, vetoing and bumping happen in `let_in()` / `veto()` so slot rules are atomic; parts are dropped with `drop_part()`, fades set with `set_fades()`, takes deleted with `delete_take()`.
+- **Nothing is deleted.** Realtime `postgres_changes` can't filter DELETE events by column, so the app avoids deletes entirely (votes are upserted, likes and reactions are permanent). "Deleting" a take sets its status to `deleted` (a part takes its layers with it); the app filters those out. If you add real deletes, the subscription in `data.js` needs rethinking.
 - **Realtime is a "something changed" signal.** Every event triggers a debounced full refetch (`refresh()` in app.js). Don't apply event payloads incrementally unless there's a measured reason to.
 - **The current seed is addressed as `'seed'` in the UI.** `applySnapshot()` renames the current seed's take object id to `'seed'`; everything else uses its database id (`dbId` always holds the real id). Mixer settings in versions rely on this.
 - **Roles are defined twice.** `src/roles.js` (labels, colours, icons, slots for display) and the `roles` table + the `role_id` check constraint on `takes` in the migration. Change them together, in a new migration.
@@ -79,6 +80,10 @@ Planned: real accounts and profiles. Supabase lets an anonymous user be upgraded
 - Keep the visual design as is unless asked; it's the original author's. Colours are CSS custom properties on `:root`.
 - New database changes go in a new, timestamped file in `supabase/migrations/`. Never edit a migration that has already been applied.
 
+## UI vocabulary
+
+The code says seed, host and line-up; the UI says **original track**, **creator** and **the project**, and calls a take on the floor a **layer**. Keep the copy in the UI's words.
+
 ## Testing
 
 There's no automated test suite yet. Before shipping a change, run through this with two browsers (or a normal and a private window, which get different anonymous users):
@@ -88,7 +93,9 @@ There's no automated test suite yet. Before shipping a change, run through this 
 3. A sees B's take appear without reloading, lets it in, and it shows in the line-up for both.
 4. A third user sends a take for the same or another role; B (now in the line-up) sees For/Against buttons and votes; A sees the tally.
 5. Someone builds and saves a version; others can play, like and fork it.
-6. A closes the session; everyone moves to the release view; a mix can be uploaded; reactions count once per person.
+6. B pitches a new part with the + on the song's edge; A hears it in place, keeps it, sets a crossfade and drags a fade handle; B sees the song get longer and can layer on that part. Recording in the page and the click-track download work.
+7. A deletes a take (two clicks on the bin); it disappears for everyone.
+8. A closes the session; everyone moves to the release view; a mix can be uploaded; reactions count once per person.
 
 ## After pushing a branch
 
@@ -117,3 +124,5 @@ Always end by telling the user the Vercel preview URL for the branch.
 - Anonymous sign-ins can be abused; turn on CAPTCHA (Supabase Auth settings) before promoting the app publicly.
 - Anyone with the link can read the session and its audio. There's no private-session mode.
 - The host can replace the seed with a different length after takes exist; nothing stops that.
+- Deleted takes keep their audio in Storage (public URL still works).
+- Recording in the page uses `ScriptProcessorNode` and needs headphones; latency is compensated only by the browser's reported output latency.

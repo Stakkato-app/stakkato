@@ -83,6 +83,21 @@ export async function veto(takeId) {
   return check(await supabase.rpc('veto', { p_take: takeId }));
 }
 
+/* A kept new part goes back out of the song (it stays in the database as passed). */
+export async function dropPart(takeId) {
+  return check(await supabase.rpc('drop_part', { p_take: takeId }));
+}
+
+/* Fades (and a new part's crossfade) are set by the host and heard by everyone. */
+export async function setFades(takeId, { fadeIn, fadeOut, xfade }) {
+  return check(await supabase.rpc('set_fades', { p_take: takeId, p_in: fadeIn, p_out: fadeOut, p_xfade: xfade }));
+}
+
+/* "Deleting" marks the take as deleted; the row stays so realtime can report it. */
+export async function deleteTake(takeId) {
+  return check(await supabase.rpc('delete_take', { p_take: takeId }));
+}
+
 export async function castVote({ takeId, sessionId, voterId, value }) {
   return check(await supabase.from('votes').upsert(
     { take_id: takeId, session_id: sessionId, voter_id: voterId, value, updated_at: new Date().toISOString() },
@@ -115,7 +130,8 @@ export async function react({ sessionId, userId, kind }) {
 
 /* Any change in this session triggers onChange. The app then refetches the whole
    snapshot, which keeps the client simple and always consistent with the database.
-   Nothing is ever deleted, so every event can be filtered by session. */
+   Nothing is ever deleted (a deleted take is an UPDATE to status 'deleted'), so every
+   event can be filtered by session. */
 export function subscribe(sessionId, onChange) {
   const bySession = `session_id=eq.${sessionId}`;
   const channel = supabase.channel(`session:${sessionId}`)
