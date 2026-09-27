@@ -13,7 +13,8 @@ export var ROLES = [
 ];
 
 export function role(id) {
-  if (id === 'seed') return { id:'seed', label:'Seed', slots:1, color:'--ember', icon:'seed' };
+  if (id === 'seed') return { id:'seed', label:'Original track', slots:1, color:'--ember', icon:'seed' };
+  if (id === 'part') return { id:'part', label:'New part', slots:0, color:'--cyan', icon:'part' };
   if (id === 'mix') return { id:'mix', label:'Mix', slots:1, color:'--cyan', icon:'prod' };
   return ROLES.filter(function (r) { return r.id === id; })[0];
 }

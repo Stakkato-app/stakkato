@@ -47,4 +47,5 @@ export var ICONS = {
       '<rect x="15.4" y="17" width="5.4" height="2.2" rx="1.1"/>'+
       '<rect x="21.6" y="18.6" width="5.4" height="2.2" rx="1.1"/></g></svg>'
   };
+ICONS.part = '<svg viewBox="0 0 28 28" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="4.5" height="18" rx="1.5"/><path d="M11 12.2h7.2V7l7.3 7-7.3 7v-5.2H11z"/></svg>';
 export function ico(id, color){ return '<span class="ico" style="color:' + color + '" aria-hidden="true">' + ICONS[id] + '</span>'; }

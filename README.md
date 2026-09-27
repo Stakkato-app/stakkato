@@ -22,7 +22,7 @@ You need Node 20.19+ and a free [Supabase](https://supabase.com) account.
 
 1. Create a new project in the Supabase dashboard.
 2. Under **Authentication**, in the sign-in providers settings, turn on **Allow anonymous sign-ins**. Every visitor gets an anonymous user, which can later be upgraded to a real account.
-3. Create the schema. Either paste `supabase/migrations/20260927000000_init.sql` into the **SQL Editor** and run it, or use the CLI:
+3. Create the schema. Either paste every file in `supabase/migrations/` into the **SQL Editor**, oldest first, and run them, or use the CLI:
 
    ```bash
    npx supabase login
