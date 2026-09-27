@@ -8,7 +8,8 @@ export var ROLES = [
   { id:'bass',   label:'Bass',          slots:1, color:'--bass',   icon:'bass'   },
   { id:'lead',   label:'Lead',          slots:2, color:'--lead',   icon:'guitar' },
   { id:'atmos',  label:'Atmosphere',    slots:2, color:'--atmos',  icon:'atmos'  },
-  { id:'wild',   label:'Wildcard',      slots:2, color:'--wild',   icon:'wild'   }
+  { id:'wild',   label:'Wildcard',      slots:2, color:'--wild',   icon:'wild'   },
+  { id:'vocals', label:'Vocals',        slots:2, color:'--vocals', icon:'vocals' }
 ];
 
 export function role(id) {

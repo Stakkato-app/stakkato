@@ -30,6 +30,12 @@ export var ICONS = {
       '<rect x="2.5" y="2.5" width="23" height="23" rx="5"/>'+
       '<g fill="var(--paper)"><circle cx="9" cy="9" r="2.1"/><circle cx="19" cy="9" r="2.1"/>'+
       '<circle cx="14" cy="14" r="2.1"/><circle cx="9" cy="19" r="2.1"/><circle cx="19" cy="19" r="2.1"/></g></svg>',
+    vocals:'<svg viewBox="0 0 28 28" fill="currentColor" aria-hidden="true">'+
+      '<circle cx="14" cy="8.2" r="6.2"/>'+
+      '<path d="M10.2 14.6h7.6l-2 10.6a1.3 1.3 0 0 1-1.3 1.1h-1a1.3 1.3 0 0 1-1.3-1.1Z"/>'+
+      '<g fill="var(--paper)"><rect x="7.8" y="7.4" width="12.4" height="1.7" rx=".85"/>'+
+      '<circle cx="11.6" cy="4.9" r=".9"/><circle cx="14" cy="4.2" r=".9"/><circle cx="16.4" cy="4.9" r=".9"/>'+
+      '<circle cx="11.6" cy="11.6" r=".9"/><circle cx="14" cy="12.3" r=".9"/><circle cx="16.4" cy="11.6" r=".9"/></g></svg>',
     seed:'<svg viewBox="0 0 28 28" fill="currentColor" aria-hidden="true">'+
       '<path d="M14 3.5a4.3 4.3 0 0 1 4.3 4.3v5.4a4.3 4.3 0 0 1-8.6 0V7.8A4.3 4.3 0 0 1 14 3.5Z"/>'+
       '<path d="M7 12.4a1.3 1.3 0 0 1 2.6 0 4.4 4.4 0 0 0 8.8 0 1.3 1.3 0 0 1 2.6 0 7 7 0 0 1-5.7 6.9v3.3h2.6a1.3 1.3 0 0 1 0 2.6h-7.8a1.3 1.3 0 0 1 0-2.6h2.6v-3.3A7 7 0 0 1 7 12.4Z"/></svg>',

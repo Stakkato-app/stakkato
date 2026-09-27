@@ -67,12 +67,22 @@ function blank() {
   return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], trial:null, title:'Untitled', mix:null,
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
-           meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, busy:false } };
+           meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
 var S = blank();
 
 function isHost() { return !!(S.session && me && S.session.host_id === me.id); }
 function isOpen() { return !S.session || S.session.status === 'open'; }
+/* the instrument the host says the seed is, or null when not set */
+function seedInstr() { return S.meta.seedRole ? role(S.meta.seedRole) || null : null; }
+function labelOf(t) {
+  var ri = t.id === 'seed' ? seedInstr() : null;
+  return ri ? 'Seed, ' + ri.label.toLowerCase() : role(t.roleId).label;
+}
+function seedRoleOptions(sel, none) {
+  return '<option value=""' + (sel ? '' : ' selected') + '>' + none + '</option>' +
+    ROLES.map(function (r) { return '<option value="' + r.id + '"' + (r.id === sel ? ' selected' : '') + '>' + r.label + '</option>'; }).join('');
+}
 function hasSeed() { return !!S.seed.dbId; }
 
 function inSong(id){ return S.members.filter(function (m) { return m.roleId === id; }); }
@@ -124,6 +134,7 @@ function applySnapshot(sess, snap) {
   S.title = sess.title;
   S.meta.bpm = sess.bpm; S.meta.key = sess.music_key; S.meta.alt = sess.key_alt;
   S.meta.time = sess.time_sig; S.meta.from = sess.meta_from; S.meta.sure = sess.meta_sure;
+  S.meta.seedRole = sess.seed_role || null;
 
   snap.takes.forEach(function (row) {
     var t = TAKES[row.id];
@@ -455,13 +466,13 @@ function uploadTake(file, buf, o) {
 /* ---------- downloads ---------- */
 function clean(s){ return String(s || 'take').replace(/[^\w\- ]+/g, '').trim() || 'take'; }
 function fileName(t, i) {
-  return (i !== undefined ? ('0' + (i + 1)).slice(-2) + ' ' : '') + clean(role(t.roleId).label) + ' - ' + clean(t.by || 'you') + '.' + extOf(t.fileName);
+  return (i !== undefined ? ('0' + (i + 1)).slice(-2) + ' ' : '') + clean(labelOf(t)) + ' - ' + clean(t.by || 'you') + '.' + extOf(t.fileName);
 }
 function sheet(list) {
   return 'Riffraff session sheet\r\n\r\n' +
     'Tempo: ' + (S.meta.bpm || '?') + ' bpm\r\nKey: ' + (S.meta.key || '?') + '\r\nTime: ' + S.meta.time +
     '\r\nLength: ' + fmt(target()) + '\r\n\r\nEvery file starts at bar 1. Drop them all at the very start of your project.\r\n\r\n' +
-    list.map(function (t, i) { return fileName(t, i) + '   (' + role(t.roleId).label + ', ' + (t.by || 'you') + ')'; }).join('\r\n') + '\r\n';
+    list.map(function (t, i) { return fileName(t, i) + '   (' + labelOf(t) + ', ' + (t.by || 'you') + ')'; }).join('\r\n') + '\r\n';
 }
 function hand(filename, blob) {
   var url = URL.createObjectURL(blob), a = document.createElement('a');
@@ -518,7 +529,7 @@ var I_PLAY  = '<svg width="12" height="12" viewBox="0 0 10 10" fill="currentColo
 var I_PAUSE = '<svg width="12" height="12" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 1h2.6v8H2zM5.4 1H8v8H5.4z"/></svg>';
 
 function renderSeed() {
-  var s = S.seed, host = isHost(), loading = loadingCount();
+  var s = S.seed, host = isHost(), loading = loadingCount(), ri = seedInstr();
   el('session-name').textContent = S.session ? S.title : 'New session';
   el('session-sub').textContent = (hasSeed() ? 'seed loaded, ' + fmt(s.len) : 'no seed yet') +
     (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', closed' : '');
@@ -527,7 +538,7 @@ function renderSeed() {
     el('seedpanel').innerHTML =
       '<button class="play' + (only === 'seed' ? ' on' : '') + '" type="button" data-prev="seed" aria-label="Play the seed"' + (s.buf ? '' : ' disabled') + '>' +
         (only === 'seed' ? I_PAUSE : I_PLAY) + '</button>' +
-      '<div><div class="kicker">The seed</div>' +
+      '<div><div class="kicker">The seed' + (ri ? ', ' + ri.label.toLowerCase() : '') + '</div>' +
       '<div class="who">' + (host ? 'Your track' : esc(s.by) + '\u2019s track') + ', ' + fmt(s.len) + (s.buf ? '' : ' <span class="tiny muted">loading</span>') + '</div>' +
       '<div class="viz live" id="seed-viz" aria-hidden="true">' + vizMarkup(44) + '</div></div>' +
       '<div class="seed-side"><div class="facts" id="facts"></div>' +
@@ -538,7 +549,8 @@ function renderSeed() {
       '<div class="who">Drop the seed</div>' +
       '<p class="tiny muted">A riff, a groove or a vocal. Whatever you load sets the length every other take has to match. ' +
       'You host the session and get a link to share.</p>' +
-      '<label class="field seed-name"><span>Your name</span><input type="text" id="seed-by" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label></div>' +
+      '<label class="field seed-name"><span>Your name</span><input type="text" id="seed-by" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
+      '<label class="field seed-name"><span>What is it</span><select id="seed-role">' + seedRoleOptions(S.meta.seedRole, 'Not one instrument') + '</select></label></div>' +
       '<button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
         (S.seedBusy ? 'Uploading...' : 'Load your seed') + '</button></div>';
   } else {
@@ -572,6 +584,7 @@ function renderSeed() {
       '<label class="mini"><span>time</span><select id="meta-time">' +
         TIMES.map(function (t) { return '<option' + (t === S.meta.time ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
       '</select></label>' +
+      '<label class="mini"><span>seed is</span><select id="meta-seedrole">' + seedRoleOptions(S.meta.seedRole, 'not one instrument') + '</select></label>' +
       '<span class="tiny muted">' + note + '</span>'
     : '<span class="tiny muted">' + note + '</span>';
 }
@@ -626,7 +639,7 @@ function renderDaw() {
         '<div class="t-name">' + ico(r.icon, col(r)) +
           '<div><b>' + esc(t.by || 'you') + (isTrial ? ' <span class="trybadge">trying out</span>' : '') +
           (status ? ' <span class="stag">' + status + '</span>' : '') + '</b>' +
-          '<span class="tiny muted">' + r.label + (t.id !== 'seed' ? ' ' + verTag(t.id) : '') + '</span></div>' +
+          '<span class="tiny muted">' + labelOf(t) + (t.id !== 'seed' ? ' ' + verTag(t.id) : '') + '</span></div>' +
           (building && t.id !== 'seed' ? '<button class="tbtn rm" type="button" data-pick="' + t.id + '" title="Take it out of your version" aria-label="Remove ' + esc(t.by) + ' from your version">&times;</button>' : '') +
         '</div>' +
         (isTrial ? voteBlock(t) + '<div class="t-try">' +
@@ -833,7 +846,7 @@ function renderLock() {
 }
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'meta-bpm'];
+var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -888,7 +901,7 @@ function renderRelease() {
         '<input type="text" id="mix-by" placeholder="your name" value="' + esc(savedName()) + '"></label>';
 
   el('credits').innerHTML =
-    (hasSeed() ? '<div class="credit">' + ico('seed', 'var(--ember)') + '<div><b>' + esc(host ? 'you' : S.seed.by) + '</b><small>the seed</small></div></div>' : '') +
+    (hasSeed() ? '<div class="credit">' + ico('seed', 'var(--ember)') + '<div><b>' + esc(host ? 'you' : S.seed.by) + '</b><small>the seed' + (seedInstr() ? ', ' + seedInstr().label.toLowerCase() : '') + '</small></div></div>' : '') +
     S.members.map(function (m) {
       var r = role(m.roleId);
       return '<div class="credit">' + ico(r.icon, col(r)) +
@@ -932,6 +945,7 @@ function syncPhase() {
 function loadSeed(file) {
   var nameEl = el('seed-by');
   var name = ((nameEl && nameEl.value) || S.seed.by || savedName()).trim();
+  var roleEl = el('seed-role');
   if (!name) { flash('Add your name first, it goes in the credits.'); if (nameEl) nameEl.focus(); return; }
   if (!me) { flash('Still connecting, try again in a second.'); return; }
   rememberName(name);
@@ -950,6 +964,7 @@ function loadSeed(file) {
     });
   }).then(function (res) {
     var an = res.analysis, patch = { seed_take_id: res.row.id };
+    if (roleEl) patch.seed_role = roleEl.value || null;
     if (an && (an.tempo || an.key)) {
       patch.bpm = an.tempo ? an.tempo.bpm : null;
       patch.music_key = an.key ? an.key.key : null;
@@ -1199,6 +1214,7 @@ document.addEventListener('input', function (e) {
 });
 document.addEventListener('change', function (e) {
   if (e.target.id === 'meta-key' && isHost())  { S.meta.key = e.target.value; S.meta.from = 'you'; patchSession({ music_key:S.meta.key, meta_from:'you' }); renderSeed(); }
+  if (e.target.id === 'meta-seedrole' && isHost()) { S.meta.seedRole = e.target.value || null; patchSession({ seed_role:S.meta.seedRole }); render(); }
   if (e.target.id === 'meta-time' && isHost()) { S.meta.time = e.target.value; patchSession({ time_sig:S.meta.time }); renderSeed(); renderDaw(); }
   if (e.target.id === 'mix-file' && e.target.files[0]) {
     var f = e.target.files[0], by = ((el('mix-by') && el('mix-by').value) || '').trim();
