@@ -90,6 +90,19 @@ There's no automated test suite yet. Before shipping a change, run through this 
 5. Someone builds and saves a version; others can play, like and fork it.
 6. A closes the session; everyone moves to the release view; a mix can be uploaded; reactions count once per person.
 
+## After pushing a branch
+
+Always end by telling the user the Vercel preview URL for the branch.
+
+- If the Vercel MCP tools are available, find the latest deployment for the branch,
+  wait until it is ready, and report its URL. If the build fails, read the build
+  log, fix the problem, push again, and report the new URL.
+- Otherwise, report the branch URL:
+  https://<project>-git-<branch-slug>-<team>.vercel.app
+  where <branch-slug> is the branch name lowercased, with every character that is
+  not a letter or digit replaced by "-". Mention that it goes live once the build
+  finishes, usually in a minute or two.
+
 ## Known limitations
 
 - Every client downloads and decodes every take's full audio. Fine for a handful of takes; long sessions with many large WAVs will get heavy. Compressed previews or streaming would fix it.
