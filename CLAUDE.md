@@ -95,13 +95,20 @@ There's no automated test suite yet. Before shipping a change, run through this 
 Always end by telling the user the Vercel preview URL for the branch.
 
 - If the Vercel MCP tools are available, find the latest deployment for the branch,
-  wait until it is ready, and report its URL. If the build fails, read the build
-  log, fix the problem, push again, and report the new URL.
+  wait until it is ready, and report two URLs: the branch URL, taken from the
+  deployment's `alias` list (it always points at the branch's latest build), and
+  the deployment's own URL (pinned to that commit). If the build fails, read the
+  build log, fix the problem, push again, and report the new URLs.
 - Otherwise, report the branch URL:
   https://<project>-git-<branch-slug>-<team>.vercel.app
   where <branch-slug> is the branch name lowercased, with every character that is
   not a letter or digit replaced by "-". Mention that it goes live once the build
   finishes, usually in a minute or two.
+- The formula only works when the part before `.vercel.app` is at most 63
+  characters. Longer names get the branch part shortened and a hash added (e.g.
+  `riffraff-git-claude-wizardly-pas-5195e0-yarne-hermanns-projects`), which can't
+  be predicted. In that case say the formula URL may not resolve and point the
+  user to the branch's deployment in the Vercel dashboard instead.
 
 ## Known limitations
 
