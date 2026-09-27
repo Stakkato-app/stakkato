@@ -1,0 +1,21 @@
+{
+  "name": "riffraff",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Make a song with strangers. One seed, the room stacks layers on top.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
