@@ -45,7 +45,7 @@ supabase/migrations/        schema, RLS policies, RPC functions, storage bucket,
 - `sessions`: one per song. `host_id` is the user who created it (and dropped the seed). `status` is `open` or `released`. Tempo/key/time live here (`bpm`, `music_key`, `key_alt`, `time_sig`, `meta_from`, `meta_sure`). `seed_role` is the instrument the host says the seed is (null = not one instrument). The seed takes one slot in that role (`role_cap()`), so a 1-slot role the seed plays can't get takes into the line-up; changing `seed_role` bumps the oldest takes if the role overflows (trigger), and is refused once the session is closed. `seed_take_id` points at the current seed; replaced seeds stay in `takes` but are ignored.
 - `takes`: every piece of audio. `role_id` is `seed`, `mix` or an instrument id. `status` is `seed | waiting | in | archived | mix`. `joined_at` orders the line-up (the oldest take in a full role is the one that gets pushed out). Audio lives in Storage at `storage_path`.
 - `votes`: `(take_id, voter_id)` → `up | down`. Only people with a take in the line-up can vote, and not on the take that would replace their own.
-- `versions`: a fan version is just `picks` (take ids) plus `ctl` (per-take vol/mute/solo, keyed by take id, with the seed under the key `"seed"`). No audio is copied.
+- `versions`: a fan version is just `picks` (take ids) plus `ctl` (per-take vol/mute/solo and `hp`/`lp` filter cutoffs in Hz, keyed by take id, with the seed under the key `"seed"`). No audio is copied.
 - `version_likes`, `reactions`: one row per person, never deleted.
 - `roles`: slot counts per instrument. **Authoritative for slots.**
 
@@ -106,7 +106,7 @@ Always end by telling the user the Vercel preview URL for the branch.
   finishes, usually in a minute or two.
 - The formula only works when the part before `.vercel.app` is at most 63
   characters. Longer names get the branch part shortened and a hash added (e.g.
-  `riffraff-git-claude-wizardly-pas-5195e0-yarne-hermanns-projects`), which can't
+  `riffraff-git-claude-wizardly-pas-5195e0-paceflo-projects`), which can't
   be predicted. In that case say the formula URL may not resolve and point the
   user to the branch's deployment in the Vercel dashboard instead.
 
