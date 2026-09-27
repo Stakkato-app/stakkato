@@ -86,6 +86,9 @@ function seedRoleOptions(sel, none) {
 function hasSeed() { return !!S.seed.dbId; }
 
 function inSong(id){ return S.members.filter(function (m) { return m.roleId === id; }); }
+/* slots left for takes in a role; the seed's instrument takes one (mirrors public.role_cap()) */
+function cap(id) { return role(id).slots - (S.meta.seedRole === id ? 1 : 0); }
+function seedHolds(id) { return cap(id) < 1; }
 function waitingFor(id){ return S.applicants.filter(function (a) { return a.roleId === id; }); }
 function findTake(id) {
   if (id === 'seed') return S.seed;
@@ -253,8 +256,8 @@ function loadingCount() {
 
 /* ---------- line-up votes ---------- */
 function atStake(t) {
-  var r = role(t.roleId), here = inSong(t.roleId);
-  return here.length >= r.slots ? here[0] : null;
+  var here = inSong(t.roleId);
+  return here.length && here.length >= cap(t.roleId) ? here[0] : null;
 }
 function tallyOf(t) {
   var stake = atStake(t), up = 0, down = 0, voters = 0, seen = {};
@@ -269,11 +272,12 @@ function tallyOf(t) {
 }
 /* mirrors public.can_vote() in the database */
 function canVote(t) {
-  if (!me || !isOpen() || t.status !== 'waiting') return false;
+  if (!me || !isOpen() || t.status !== 'waiting' || seedHolds(t.roleId)) return false;
   var stake = atStake(t);
   return S.members.some(function (m) { return m.authorId === me.id && !(stake && stake.id === m.id); });
 }
 function voteBlock(t) {
+  if (seedHolds(t.roleId)) return '<div class="lvotes"><span class="tiny muted">The seed plays this part, so this take can only go in versions.</span></div>';
   if (!S.members.length) return '<div class="lvotes"><span class="tiny muted">No line-up yet to weigh in.</span></div>';
   var stake = atStake(t), tl = tallyOf(t);
   var chips = S.members.map(function (m) {
@@ -507,7 +511,8 @@ function downloadAll() {
 function letIn(t) {
   if (!t || !isHost()) return;
   var r = role(t.roleId), here = inSong(t.roleId);
-  var msg = here.length >= r.slots
+  if (seedHolds(t.roleId)) { flash('The seed plays ' + r.label.toLowerCase() + ', so there is no spot to let a take into.'); return; }
+  var msg = here.length >= cap(t.roleId)
     ? t.by + ' takes over on ' + r.label.toLowerCase() + '. ' + here[0].by + ' is back in the waiting list.'
     : t.by + ' is in on ' + r.label.toLowerCase() + '.';
   if (S.trial === t.id) S.trial = null;
@@ -584,7 +589,7 @@ function renderSeed() {
       '<label class="mini"><span>time</span><select id="meta-time">' +
         TIMES.map(function (t) { return '<option' + (t === S.meta.time ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
       '</select></label>' +
-      '<label class="mini"><span>seed is</span><select id="meta-seedrole">' + seedRoleOptions(S.meta.seedRole, 'not one instrument') + '</select></label>' +
+      (isOpen() ? '<label class="mini"><span>seed is</span><select id="meta-seedrole">' + seedRoleOptions(S.meta.seedRole, 'not one instrument') + '</select></label>' : '') +
       '<span class="tiny muted">' + note + '</span>'
     : '<span class="tiny muted">' + note + '</span>';
 }
@@ -782,7 +787,7 @@ function anLine(t) {
   return '<div class="an' + (off ? ' off' : '') + '">' + t.an.bpm + ' bpm, ' + t.an.key + (off ? ' — off the session tempo' : '') + '</div>';
 }
 function applyCard(r) {
-  var list = waitingFor(r.id), free = r.slots - inSong(r.id).length, host = isHost();
+  var list = waitingFor(r.id), free = cap(r.id) - inSong(r.id).length, host = isHost(), held = seedHolds(r.id);
   var body = list.length ? list.map(function (t) {
     var on = only === t.id && running;
     return '<li class="app">' +
@@ -798,7 +803,7 @@ function applyCard(r) {
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
       (host && isOpen()
         ? '<div class="app-foot"><span class="acts">' +
-          '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Let it in</button>' +
+          (held ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Let it in</button>') +
           '<button class="btn btn-sm btn-veto" type="button" data-no="' + t.id + '">Veto</button></span></div>'
         : '<div class="app-foot"><span class="tiny muted">The host lets it in or vetoes it.</span></div>') +
       '</li>';
@@ -807,7 +812,7 @@ function applyCard(r) {
   return '<article class="gate apply" style="color:' + col(r) + '">' +
     '<div class="g-top"><div class="g-name">' + ico(r.icon, col(r)) + '<h3>' + r.label + '</h3>' +
     '<span class="count">' + list.length + '</span></div>' +
-    '<div class="tiny muted">' + (free > 0 ? free + ' spot(s) free' : 'Taken, a new take can push it out') + '</div></div>' +
+    '<div class="tiny muted">' + (held ? 'The seed plays this part' : free > 0 ? free + ' spot(s) free' : 'Taken, a new take can push it out') + '</div></div>' +
     '<ul class="takes">' + body + '</ul>' +
     '<div class="g-foot"><button class="btn btn-ember btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Send a take</button></div></article>';
 }
@@ -998,16 +1003,18 @@ el('attach-file').addEventListener('change', function () {
 var lastFocus = null;
 function fillRoles(sel) {
   el('take-role').innerHTML = ROLES.map(function (r) {
-    var free = r.slots - inSong(r.id).length;
+    var free = cap(r.id) - inSong(r.id).length;
     return '<option value="' + r.id + '"' + (r.id === sel ? ' selected' : '') + '>' +
-      r.label + (free > 0 ? ' (' + free + ' free)' : ' (taken)') + '</option>';
+      r.label + (seedHolds(r.id) ? ' (the seed)' : free > 0 ? ' (' + free + ' free)' : ' (taken)') + '</option>';
   }).join('');
   roleHint();
 }
 function roleHint() {
-  var id = el('take-role').value, r = role(id), free = r.slots - inSong(id).length;
+  var id = el('take-role').value, r = role(id), free = cap(id) - inSong(id).length;
   el('modal-ico').innerHTML = ico(r.icon, col(r));
-  el('role-hint').textContent = free > 0
+  el('role-hint').textContent = seedHolds(id)
+    ? 'The seed plays this part, so it cannot join the line-up. People can still use it in their own versions.'
+    : free > 0
     ? 'There is room here. It lands in the waiting list for this instrument.'
     : 'Taken right now. Get let in and you push that take back to the waiting list.';
 }
@@ -1051,6 +1058,17 @@ el('modal-send').addEventListener('click', function () {
       }, function (e) { console.error(e); fail((e && e.message) || 'The upload failed. Try again.'); });
   }).catch(function () { fail('That file could not be read.'); });
 });
+
+/* the seed takes a slot in its instrument; the database bumps the oldest takes if that overfills it */
+function setSeedRole(id) {
+  var out = id ? inSong(id).slice(0, Math.max(0, inSong(id).length - (role(id).slots - 1))) : [];
+  S.meta.seedRole = id;
+  render();
+  patchSession({ seed_role:id }).then(function () {
+    if (out.length && S.session.seed_role === id) flash(out.map(function (t) { return t.by; }).join(' and ') + (out.length > 1 ? ' are' : ' is') + ' back in the waiting list, the seed plays ' + role(id).label.toLowerCase() + '.');
+    return refresh();
+  });
+}
 
 /* ---------- events ---------- */
 var titleTimer = 0, bpmTimer = 0;
@@ -1214,7 +1232,7 @@ document.addEventListener('input', function (e) {
 });
 document.addEventListener('change', function (e) {
   if (e.target.id === 'meta-key' && isHost())  { S.meta.key = e.target.value; S.meta.from = 'you'; patchSession({ music_key:S.meta.key, meta_from:'you' }); renderSeed(); }
-  if (e.target.id === 'meta-seedrole' && isHost()) { S.meta.seedRole = e.target.value || null; patchSession({ seed_role:S.meta.seedRole }); render(); }
+  if (e.target.id === 'meta-seedrole' && isHost()) setSeedRole(e.target.value || null);
   if (e.target.id === 'meta-time' && isHost()) { S.meta.time = e.target.value; patchSession({ time_sig:S.meta.time }); renderSeed(); renderDaw(); }
   if (e.target.id === 'mix-file' && e.target.files[0]) {
     var f = e.target.files[0], by = ((el('mix-by') && el('mix-by').value) || '').trim();
