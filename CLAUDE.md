@@ -110,6 +110,18 @@ Always end by telling the user the Vercel preview URL for the branch.
   be predicted. In that case say the formula URL may not resolve and point the
   user to the branch's deployment in the Vercel dashboard instead.
 
+Then email the preview URL to the collaborator:
+
+- The recipient is in the environment variable `RIFFRAFF_PREVIEW_EMAIL_TO`, set
+  in each person's own cloud environment (each points at the other person).
+  Never write the address into the repo.
+- If it's set and the Gmail connector is available, send one short email to that
+  address: subject `Riffraff preview: <branch>`, body with the preview URL(s),
+  the branch name and a one-line summary of what changed. Send it only after the
+  preview URL is confirmed or reported, and once per push.
+- If the variable is unset or Gmail isn't connected, skip the email and tell the
+  user it wasn't sent and why.
+
 ## Known limitations
 
 - Every client downloads and decodes every take's full audio. Fine for a handful of takes; long sessions with many large WAVs will get heavy. Compressed previews or streaming would fix it.
