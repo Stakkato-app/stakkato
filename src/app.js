@@ -123,6 +123,15 @@ function ctl(t) {
   return c[t.id];
 }
 function volOf(t){ var v = ctl(t).vol; return v === undefined ? 1 : v; }
+/* filter cutoffs in Hz. Fully open (hp at the bottom, lp at the top) means the filter does nothing. */
+var F_MIN = 20, F_MAX = 20000;
+function cutOf(t, kind) {
+  var v = ctl(t)[kind];
+  return typeof v === 'number' ? v : (kind === 'hp' ? F_MIN : F_MAX);
+}
+function hzToKnob(hz){ return Math.log(hz / F_MIN) / Math.log(F_MAX / F_MIN); }
+function knobToHz(k){ return Math.round(F_MIN * Math.pow(F_MAX / F_MIN, Math.max(0, Math.min(1, k)))); }
+function fmtHz(hz){ return hz >= 1000 ? (Math.round(hz / 100) / 10) + ' kHz' : hz + ' Hz'; }
 function inVersions(id) {
   return S.versions.filter(function (v) { return v.picks.indexOf(id) > -1; }).length;
 }
@@ -322,14 +331,27 @@ function audible(t) {
   if (anySolo() && !ctl(t).solo) return false;
   return true;
 }
+/* Each track runs source -> high-pass -> low-pass -> gain -> master. Returns the chain's input. */
 function gainFor(t) {
-  if (!gains[t.id]) {
-    var g = ac().createGain();
-    g.connect(master);
-    gains[t.id] = g;
+  var ch = gains[t.id];
+  if (!ch) {
+    var hp = ac().createBiquadFilter(), lp = ac().createBiquadFilter(), g = ac().createGain();
+    hp.type = 'highpass'; lp.type = 'lowpass';
+    hp.Q.value = lp.Q.value = Math.SQRT1_2;
+    hp.frequency.value = cutOf(t, 'hp');
+    lp.frequency.value = cutOf(t, 'lp');
+    hp.connect(lp); lp.connect(g); g.connect(master);
+    ch = gains[t.id] = { hp:hp, lp:lp, g:g };
   }
-  gains[t.id].gain.value = audible(t) ? volOf(t) : 0;
-  return gains[t.id];
+  ch.g.gain.value = audible(t) ? volOf(t) : 0;
+  setCut(ch.hp, cutOf(t, 'hp'));
+  setCut(ch.lp, cutOf(t, 'lp'));
+  return ch.hp;
+}
+/* glide to the new cutoff so turning a knob during playback doesn't click */
+function setCut(node, hz) {
+  if (Math.abs(node.frequency.value - hz) < .5) return;
+  node.frequency.setTargetAtTime(hz, ac().currentTime, .015);
 }
 function refreshGains(){ tracks().forEach(gainFor); }
 function position() {
@@ -658,6 +680,7 @@ function renderDaw() {
           '<input type="range" min="0" max="1" step="0.02" value="' + v + '" data-vol="' + t.id + '" aria-label="Volume for ' + esc(t.by) + '">' +
           '<button class="tbtn" type="button" data-dl="' + t.id + '" title="Download this take">' + I_DL + '</button>' +
         '</div>' +
+        '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' +
       '</div>' +
       '<div class="t-lane" data-seek="1">' +
         '<canvas data-wave="' + t.id + '" height="72"></canvas>' +
@@ -849,6 +872,72 @@ function renderLock() {
   btn.style.display = isHost() && isOpen() ? '' : 'none';
   btn.disabled = !(hasSeed() && S.members.length);
 }
+
+/* Filter knobs. Drag up/down (or use the arrow keys) to turn, double-click to open the filter again. */
+var KNOB = { hp:{ label:'Low cut', long:'Low cut (high-pass filter)' }, lp:{ label:'High cut', long:'High cut (low-pass filter)' } };
+function knob(t, kind) {
+  var hz = cutOf(t, kind), k = hzToKnob(hz), open = kind === 'hp' ? hz <= F_MIN : hz >= F_MAX;
+  return '<div class="kn' + (open ? '' : ' act') + '">' +
+    '<span class="knob" id="knob-' + kind + '-' + t.id + '" role="slider" tabindex="0" data-knob="' + kind + '" data-take="' + t.id + '"' +
+      ' aria-label="' + KNOB[kind].long + ' for ' + esc(t.by || 'you') + '" aria-valuemin="' + F_MIN + '" aria-valuemax="' + F_MAX + '"' +
+      ' aria-valuenow="' + hz + '" aria-valuetext="' + (open ? 'off' : fmtHz(hz)) + '" title="' + KNOB[kind].long + '. Double-click to reset."' +
+      ' style="--a:' + (k * 270 - 135) + 'deg"><i></i></span>' +
+    '<span class="kn-l"><b>' + KNOB[kind].label + '</b><span class="tiny muted" data-knobval="' + kind + '-' + t.id + '">' + (open ? 'off' : fmtHz(hz)) + '</span></span>' +
+  '</div>';
+}
+function setKnob(t, kind, hz) {
+  hz = Math.max(F_MIN, Math.min(F_MAX, Math.round(hz)));
+  ctl(t)[kind] = hz;
+  if (gains[t.id]) setCut(gains[t.id][kind], hz);
+  var open = kind === 'hp' ? hz <= F_MIN : hz >= F_MAX, txt = open ? 'off' : fmtHz(hz);
+  var kn = el('knob-' + kind + '-' + t.id), lab = document.querySelector('[data-knobval="' + kind + '-' + t.id + '"]');
+  if (kn) {
+    kn.style.setProperty('--a', (hzToKnob(hz) * 270 - 135) + 'deg');
+    kn.setAttribute('aria-valuenow', hz);
+    kn.setAttribute('aria-valuetext', txt);
+    kn.parentNode.classList.toggle('act', !open);
+  }
+  if (lab) lab.textContent = txt;
+}
+var knobDrag = null;
+document.addEventListener('pointerdown', function (e) {
+  var kn = e.target.closest('[data-knob]');
+  if (!kn || e.button !== 0) return;
+  var t = findTake(kn.dataset.take);
+  if (!t) return;
+  e.preventDefault();
+  kn.focus();
+  knobDrag = { t:t, kind:kn.dataset.knob, y:e.clientY, k:hzToKnob(cutOf(t, kn.dataset.knob)) };
+  document.body.classList.add('turning');
+});
+document.addEventListener('pointermove', function (e) {
+  if (!knobDrag) return;
+  var k = knobDrag.k + (knobDrag.y - e.clientY) / (e.shiftKey ? 600 : 150);
+  setKnob(knobDrag.t, knobDrag.kind, knobToHz(k));
+});
+function endKnobDrag(){ if (knobDrag) { knobDrag = null; document.body.classList.remove('turning'); } }
+document.addEventListener('pointerup', endKnobDrag);
+document.addEventListener('pointercancel', endKnobDrag);
+document.addEventListener('dblclick', function (e) {
+  var kn = e.target.closest('[data-knob]');
+  if (!kn) return;
+  var t = findTake(kn.dataset.take);
+  if (t) setKnob(t, kn.dataset.knob, kn.dataset.knob === 'hp' ? F_MIN : F_MAX);
+});
+document.addEventListener('keydown', function (e) {
+  var kn = e.target.closest && e.target.closest('[data-knob]');
+  if (!kn) return;
+  var t = findTake(kn.dataset.take), kind = kn.dataset.knob;
+  if (!t) return;
+  var step = { ArrowUp:1, ArrowRight:1, ArrowDown:-1, ArrowLeft:-1, PageUp:5, PageDown:-5 }[e.key];
+  var hz = null;
+  if (step) hz = knobToHz(hzToKnob(cutOf(t, kind)) + step * (e.shiftKey ? .005 : .02));
+  else if (e.key === 'Home') hz = F_MIN;
+  else if (e.key === 'End') hz = F_MAX;
+  if (hz === null) return;
+  e.preventDefault();
+  setKnob(t, kind, hz);
+});
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
 var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm'];
