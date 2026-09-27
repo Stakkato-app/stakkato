@@ -106,7 +106,7 @@ Always end by telling the user the Vercel preview URL for the branch.
   finishes, usually in a minute or two.
 - The formula only works when the part before `.vercel.app` is at most 63
   characters. Longer names get the branch part shortened and a hash added (e.g.
-  `riffraff-git-claude-wizardly-pas-5195e0-yarne-hermanns-projects`), which can't
+  `riffraff-git-claude-wizardly-pas-5195e0-paceflo-projects`), which can't
   be predicted. In that case say the formula URL may not resolve and point the
   user to the branch's deployment in the Vercel dashboard instead.
 
