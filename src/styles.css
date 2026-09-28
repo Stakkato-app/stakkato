@@ -160,6 +160,9 @@
   .field label{font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
   .field input[type=text],.field textarea{background:var(--paper);border:2px solid var(--line);border-radius:3px;min-height:44px;padding:10px 12px}
   .field textarea{min-height:70px;resize:vertical}
+  .field select{background:var(--paper) url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%23655E6C%22%3E%3Cpath d=%22M5.5 7.5l4.5 5 4.5-5z%22/%3E%3C/svg%3E') no-repeat right 12px center/16px;
+    color:var(--ink);border:2px solid var(--line);border-radius:3px;min-height:44px;padding:10px 36px 10px 12px;
+    -webkit-appearance:none;-moz-appearance:none;appearance:none}
   .check{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;font-size:14px}
   .check input{width:19px;height:19px;accent-color:var(--cyan);margin-top:2px}
 
