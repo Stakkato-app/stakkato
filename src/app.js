@@ -1381,7 +1381,7 @@ function anLine(t) {
   return '<div class="an' + (off ? ' off' : '') + '">' + t.an.bpm + ' bpm, ' + t.an.key + (off ? ' — off the session tempo' : '') + '</div>';
 }
 function applyCard(r) {
-  var list = waitingFor(r.id), free = cap(r.id) - inSong(r.id, 'core').length, host = isHost(), held = seedHolds(r.id);
+  var list = waitingFor(r.id), host = isHost(), held = seedHolds(r.id);
   var body = list.length ? list.map(function (t) {
     var on = only === t.id && running;
     return '<li class="app">' +
@@ -1409,7 +1409,7 @@ function applyCard(r) {
   return '<article class="gate apply" style="color:' + col(r) + '">' +
     '<div class="g-top"><div class="g-name">' + ico(r.icon, col(r)) + '<h3>' + r.label + '</h3>' +
     '<span class="count">' + list.length + '</span></div>' +
-    '<div class="tiny muted">' + (held ? 'The original track plays this part' : free > 0 ? free + ' spot(s) free' : 'Taken, a new layer can push it out') + '</div></div>' +
+    '<div class="tiny muted">' + (held ? 'The original track plays this part' : 'No limit, the creator decides') + '</div></div>' +
     '<ul class="takes">' + body + '</ul>' +
     '<div class="g-foot"><button class="btn btn-ember btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Send a take</button></div></article>';
 }
@@ -1690,9 +1690,8 @@ var lastFocus = null;
 var M = { mode:'layer', pos:'after', src:'file', sec:'core' };
 function fillRoles(sel) {
   el('take-role').innerHTML = ROLES.map(function (r) {
-    var free = cap(r.id, M.sec) - inSong(r.id, M.sec).length;
     return '<option value="' + r.id + '"' + (r.id === sel ? ' selected' : '') + '>' +
-      r.label + (seedHolds(r.id, M.sec) ? ' (the original track)' : free > 0 ? ' (' + free + ' free)' : ' (taken)') + '</option>';
+      r.label + (seedHolds(r.id, M.sec) ? ' (the original track)' : '') + '</option>';
   }).join('');
   roleHint();
 }
