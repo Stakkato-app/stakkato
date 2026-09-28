@@ -500,6 +500,12 @@ function play(from, soloId) {
   startLoop();
   render();
 }
+/* play/pause for a take or part that is being heard in the mix */
+function mixToggle(what) {
+  var on = running && !only;
+  return '<button class="btn btn-sm mixtgl' + (on ? ' on' : '') + '" type="button" data-mixtgl="1" aria-label="' +
+    (on ? 'Pause' : 'Play') + ' the mix with ' + what + '">' + (on ? I_PAUSE + ' Pause' : I_PLAY + ' Play') + '</button>';
+}
 function toggleTransport(){ running ? stopAll(true) : play(); }
 function preview(t) {
   if (!t || !t.buf) { if (t && t.loading) flash('Still loading that take.'); return; }
@@ -1086,7 +1092,7 @@ function barSeconds() {
 function dawTabs() {
   var building = S.view === 'build' && !S.override;
   return '<div class="dawtabs" role="tablist" aria-label="What plays">' +
-    '<button type="button" role="tab" data-view="lineup" aria-selected="' + (!building && !S.override) + '">The project</button>' +
+    '<button type="button" role="tab" data-view="lineup" aria-selected="' + (!building && !S.override) + '">Main project</button>' +
     '<button type="button" role="tab" data-view="build" aria-selected="' + building + '">Build your own<span class="long"> version</span></button>' +
     '</div>';
 }
@@ -1096,7 +1102,7 @@ function renderDaw() {
   if (S.override) {
     banner = '<div class="listening"><span>Listening to <b>' + esc(S.override.name) + '</b> by ' + esc(S.override.by) + '</span>' +
       '<button class="btn btn-sm" type="button" data-fork="' + S.override.id + '">Build on this one</button>' +
-      '<button class="btn btn-sm" type="button" data-view="lineup">Back to the project</button></div>';
+      '<button class="btn btn-sm" type="button" data-view="lineup">Back to the main project</button></div>';
   } else if (S.view === 'build') {
     banner = '<div class="listening build"><span><b>Your version.</b> The original track is always in. Pick any take below, ' +
       'including ones that were vetoed or are still waiting.</span></div>';
@@ -1253,7 +1259,8 @@ function renderPitches() {
         '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear the part by ' + esc(t.by) + ' on its own"' + (t.buf ? '' : ' disabled') + '>' + (on ? I_PAUSE : I_PLAY) + '</button>' +
         '<div class="pt-who"><b>' + esc(t.by) + '</b><span class="tiny muted">' + fmt(t.len) + ', ' + (t.pos === 'before' ? 'before' : 'after') + ' the track</span>' +
         (t.note ? '<span class="note">&ldquo;' + esc(t.note) + '&rdquo;</span>' : '') + '</div>' +
-        '<button class="btn btn-sm' + (tr ? ' btn-ember' : '') + '" type="button" data-trypitch="' + t.id + '"' + (t.buf ? '' : ' disabled') + '>' + (tr ? 'Playing in place' : 'Hear it in place') + '</button>' +
+        (tr ? mixToggle('this part') : '') +
+        '<button class="btn btn-sm' + (tr ? ' trybtn on' : '') + '" type="button" data-trypitch="' + t.id + '"' + (t.buf ? '' : ' disabled') + '>' + (tr ? 'Take it out' : 'Hear it in place') + '</button>' +
         delBtn(t.id) +
         (boss ? '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
         '<button class="btn btn-sm btn-veto" type="button" data-passpitch="' + t.id + '">Pass</button>' : '<span class="tiny muted">The creator decides</span>') + '</div>';
@@ -1314,7 +1321,7 @@ function officialCard() {
   return '<article class="vcard official">' +
     '<div class="vc-top"><button class="play' + (on ? ' on' : '') + '" type="button" data-playofficial="1" aria-label="Play the official project">' +
       (on ? I_PAUSE : I_PLAY) + '</button>' +
-    '<div><b>The project</b><span class="tiny muted">official, chosen by the creator</span></div></div>' +
+    '<div><b>Main project</b><span class="tiny muted">official, chosen by the creator</span></div></div>' +
     '<div class="vc-chips">' + S.members.filter(onKeptSection).map(function (t) {
       var r = role(t.roleId);
       return '<span class="vchip">' + ico(r.icon, col(r)) + esc(t.by) + '</span>';
@@ -1386,8 +1393,10 @@ function applyCard(r) {
         delBtn(t.id) +
       '</div>' + anLine(t) + (secTag(t) || inVersions(t.id) ? '<div class="vline">' + secTag(t) + verTag(t.id) + '</div>' : '') +
       voteBlock(t) +
-      '<button class="btn btn-sm trybtn' + (S.trial === t.id ? ' on' : '') + '" type="button" data-try="' + t.id + '">' +
-        (S.trial === t.id ? 'Take out of the mix' : 'Hear it in the mix') + '</button>' +
+      (S.trial === t.id
+        ? '<div class="trypair">' + mixToggle('this take') +
+          '<button class="btn btn-sm trybtn on" type="button" data-try="' + t.id + '">Take out of the mix</button></div>'
+        : '<button class="btn btn-sm trybtn" type="button" data-try="' + t.id + '">Hear it in the mix</button>') +
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
       (host && isOpen()
         ? '<div class="app-foot"><span class="acts">' +
@@ -1411,7 +1420,7 @@ function renderBoards() {
     ? S.members.length + ' layer(s) on top of the original track.'
     : 'Nothing in the song yet. Everything starts in the waiting list below.';
   el('apply-sub').textContent = !S.applicants.length
-    ? 'Empty. Use "Send a take" on any instrument to put one on the floor.'
+    ? 'Empty. Use "Send a take" on any instrument to send one in.'
     : isHost()
       ? 'You dropped the track, so your yes or veto is final. Everyone in the project votes along to steer you. Whoever holds a spot does not vote on their own replacement.'
       : 'The creator decides. If you have a layer in the project, your vote steers them.';
@@ -1545,7 +1554,7 @@ function renderRelease() {
     '<div class="rawrow">' +
       '<button class="btn btn-ember" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : 'Play it raw') + '</button>' +
       '<span class="tiny muted">' + list.length + ' track(s), unmixed, straight out of the session</span></div>' +
-    '<p class="tiny muted">Balance it with the faders on the floor if you want, that is what the room hears.</p>' +
+    '<p class="tiny muted">Balance it with the faders in the mix if you want, that is what the room hears.</p>' +
     '<button class="btn btn-sm" type="button" id="dl-all2">' + I_DL + ' Download the stems</button>';
 
   el('mix-box').innerHTML = S.mix
@@ -1713,7 +1722,7 @@ function secHint() {
   el('file-name').textContent = el('take-file').files.length ? el('take-file').files[0].name : 'wav or mp3, dry, ' + fmt(s.len) + ' long';
   if (REC.state === 'idle') renderRec();
 }
-function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : 'Put it on the floor'; }
+function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : 'Send it in'; }
 function setSrc(src) {
   M.src = src;
   [].forEach.call(document.querySelectorAll('[data-src]'), function (b) {
@@ -1834,7 +1843,7 @@ el('modal-send').addEventListener('click', function () {
                                            sec:M.sec === 'core' ? null : M.sec, analyse:true })
       .then(function () {
         closeModal();
-        flash('On the floor. The creator lets it in or vetoes it.');
+        flash('It is waiting now. The creator lets it in or vetoes it.');
         return refresh();
       }, upFail);
   }).catch(function () { fail('That file could not be read.'); });
@@ -1887,6 +1896,7 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('#dl-click')) { downloadClick(); return; }
+  if (e.target.closest('[data-mixtgl]')) { toggleTransport(); return; }
   var tp = e.target.closest('[data-trypitch]');
   if (tp) {
     var pid2 = tp.dataset.trypitch;
@@ -1920,7 +1930,7 @@ document.addEventListener('click', function (e) {
     S.override = null; S.view = vw.dataset.view;
     if (S.view === 'build') S.trial = null;
     refreshGains(); render();
-    flash(S.view === 'build' ? 'Pick takes from every instrument, then save your version.' : 'Back to the project.');
+    flash(S.view === 'build' ? 'Pick takes from every instrument, then save your version.' : 'Back to the main project.');
     return;
   }
   var pk = e.target.closest('[data-pick]');
@@ -1987,7 +1997,7 @@ document.addEventListener('click', function (e) {
     S.override = null; S.view = 'lineup';
     stopAll(); render();
     if (S.trial) { play(0); flash('Playing the project with this take on top.'); }
-    else flash('Back to the project as it stands.');
+    else flash('Back to the main project as it stands.');
     return;
   }
   if (e.target.closest('[data-untrial]')) { S.trial = null; stopAll(); render(); return; }
@@ -2140,7 +2150,7 @@ function boot() {
       S.session = sess;
       watch(sess.id);
       return refresh().then(function () {
-        flash(isHost() ? 'You started this session. Copy the invite link to bring people in.' : 'You are on the floor. Add a layer on any instrument, or pitch a new part.');
+        flash(isHost() ? 'You started this session. Copy the invite link to bring people in.' : 'You are in the mix. Add a layer on any instrument, or pitch a new part.');
       });
     });
   }).catch(oops);
