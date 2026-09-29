@@ -48,6 +48,18 @@ export async function loadSnapshot(sessionId) {
   };
 }
 
+/* Every song with an original track, newest first, for the songs page. `seed` is the
+   current original track (who made it), `layers` counts takes in the project. */
+export async function listSongs() {
+  return check(await supabase.from('sessions')
+    .select('slug, title, status, bpm, music_key, time_sig, seed_role, created_at, released_at,' +
+      ' seed:takes!sessions_seed_take_fk(author_name),' +
+      ' layers:takes!takes_session_id_fkey(count)')
+    .not('seed_take_id', 'is', null)
+    .eq('layers.status', 'in')
+    .order('created_at', { ascending: false }));
+}
+
 export function publicUrl(path) {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }

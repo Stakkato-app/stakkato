@@ -70,7 +70,7 @@ git push -u origin main
 
 - Turn on CAPTCHA protection for sign-ins in Supabase Auth settings, since anyone can create anonymous users.
 - Keep an eye on Storage usage. Every take is kept, and WAV files are large.
-- Session links are unlisted, not private: anyone with a link can listen and download.
+- Sessions are public: every song is listed at `/songs`, and anyone can listen and download.
 
 ## Project structure
 

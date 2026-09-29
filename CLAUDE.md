@@ -12,7 +12,7 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 
 - **Frontend:** plain JavaScript (ES modules, no framework), bundled by **Vite**. The UI renders HTML strings into containers; there is no virtual DOM.
 - **Backend:** **Supabase** (Postgres + Row Level Security, Storage for audio, Realtime for live updates, Auth with anonymous sign-ins). There is no server code of our own.
-- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html`.
+- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html` and `/songs` to `songs.html` (the list of all songs, a second Vite entry; `vite.config.js` does the same rewrite for dev and preview).
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`). Nothing audio-related runs on a server.
 
 ## Commands
@@ -30,6 +30,7 @@ Apply database changes with the Supabase CLI (`npx supabase db push`) or by past
 
 ```
 index.html                  page markup (static shell; most content is rendered by app.js)
+songs.html, src/songs.js    the /songs page: every session with an original track, linking to /s/<slug>
 src/app.js                  the whole UI: state, rendering, audio engine, event handlers
 src/data.js                 every Supabase call; app.js never uses the client directly
 src/supabase.js             client setup from env vars
@@ -134,7 +135,7 @@ Then email the preview URL to the collaborator:
 - Every client downloads and decodes every take's full audio. Fine for a handful of takes; long sessions with many large WAVs will get heavy. Compressed previews or streaming would fix it.
 - If an upload succeeds but the row insert fails, the file stays in Storage as an orphan.
 - Anonymous sign-ins can be abused; turn on CAPTCHA (Supabase Auth settings) before promoting the app publicly.
-- Anyone with the link can read the session and its audio. There's no private-session mode.
+- Every session is listed at `/songs`, and anyone can read it and its audio. There's no private-session mode.
 - The host can replace the seed with a different length after takes exist; nothing stops that.
 - Deleted takes keep their audio in Storage (public URL still works).
 - Recording in the page uses `ScriptProcessorNode` and needs headphones; latency is compensated only by the browser's reported output latency.
