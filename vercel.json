@@ -3,6 +3,7 @@
   "framework": "vite",
   "rewrites": [
     { "source": "/songs", "destination": "/songs.html" },
+    { "source": "/home", "destination": "/homepage.html" },
     { "source": "/s/:slug", "destination": "/index.html" }
   ]
 }

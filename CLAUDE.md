@@ -12,7 +12,7 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 
 - **Frontend:** plain JavaScript (ES modules, no framework), bundled by **Vite**. The UI renders HTML strings into containers; there is no virtual DOM.
 - **Backend:** **Supabase** (Postgres + Row Level Security, Storage for audio, Realtime for live updates, Auth with anonymous sign-ins). There is no server code of our own.
-- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html` and `/songs` to `songs.html` (the list of all songs, a second Vite entry; `vite.config.js` does the same rewrite for dev and preview).
+- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html`, `/songs` to `songs.html` (the list of all songs) and `/home` to `homepage.html` (the marketing landing page); `vite.config.js` does the same rewrites for dev and preview. `homepage.html` is a static pitch/marketing page (own copy of the hero, project feed and "how you can collaborate" walkthrough) -- it doesn't read from Supabase.
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`). Nothing audio-related runs on a server.
 
 ## Commands

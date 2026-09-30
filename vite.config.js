@@ -1,14 +1,17 @@
 import { defineConfig } from 'vite';
 
-/* /songs is its own page (songs.html). vercel.json rewrites it in production;
-   this does the same for `npm run dev` and `npm run preview`. */
-function songsRoute() {
+/* /songs and /home are their own pages (songs.html, homepage.html). vercel.json
+   rewrites them in production; this does the same for `npm run dev` and `npm run preview`. */
+function prettyRoutes() {
+  const map = { '/songs': '/songs.html', '/home': '/homepage.html' };
   const rewrite = (req, res, next) => {
-    if (req.url === '/songs' || req.url.startsWith('/songs?')) req.url = req.url.replace('/songs', '/songs.html');
+    for (const from in map) {
+      if (req.url === from || req.url.startsWith(from + '?')) { req.url = req.url.replace(from, map[from]); break; }
+    }
     next();
   };
   return {
-    name: 'songs-route',
+    name: 'pretty-routes',
     configureServer(server) { server.middlewares.use(rewrite); },
     configurePreviewServer(server) { server.middlewares.use(rewrite); }
   };
@@ -18,10 +21,10 @@ export default defineConfig({
   // NEXT_PUBLIC_ is what the Vercel Supabase integration writes; VITE_ is for .env.local.
   // Only put public values (URL, anon/publishable key) under these prefixes.
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
-  plugins: [songsRoute()],
+  plugins: [prettyRoutes()],
   build: {
     rollupOptions: {
-      input: { main: 'index.html', songs: 'songs.html' }
+      input: { main: 'index.html', songs: 'songs.html', homepage: 'homepage.html' }
     }
   }
 });
