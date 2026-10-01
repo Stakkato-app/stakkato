@@ -292,12 +292,22 @@ import { ROLES, role } from './roles.js';
     updatePlaying();
   }
 
+  /* The feed is left-aligned: the active card is the one at the start of the row.
+     Near the end the last cards can't reach the start, so a card picked with the
+     arrows, the dots or a click stays active as long as it's fully in view. */
+  var wantIdx = -1;
+  function fullyVisible(i){
+    var box = carousel.getBoundingClientRect(), r = cards[i].getBoundingClientRect();
+    return r.left >= box.left - 2 && r.right <= box.right + 2;
+  }
+  function atEnd(){ return carousel.scrollLeft >= carousel.scrollWidth - carousel.clientWidth - 2; }
   function centerFromScroll(){
     if (!cards.length) return;
-    var rect = carousel.getBoundingClientRect(), mid = rect.left + rect.width / 2;
+    if (wantIdx >= 0 && atEnd() && fullyVisible(wantIdx)) { setActive(wantIdx); return; }
+    var left = carousel.getBoundingClientRect().left;
     var best = 0, bestD = Infinity;
     cards.forEach(function(c, i){
-      var r = c.getBoundingClientRect(), cmid = r.left + r.width / 2, d = Math.abs(cmid - mid);
+      var d = Math.abs(c.getBoundingClientRect().left - left);
       if (d < bestD) { bestD = d; best = i; }
     });
     setActive(best);
@@ -311,7 +321,15 @@ import { ROLES, role } from './roles.js';
   });
 
   function scrollToCard(i){
-    if (cards[i]) cards[i].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    if (!cards[i]) return;
+    wantIdx = i;
+    var box = carousel.getBoundingClientRect();
+    var target = carousel.scrollLeft + cards[i].getBoundingClientRect().left - box.left;
+    var max = carousel.scrollWidth - carousel.clientWidth;
+    /* already in place, or past the end of the row: no scroll event will come */
+    if (Math.abs(Math.min(target, max) - carousel.scrollLeft) < 2) { setActive(i); return; }
+    carousel.scrollTo({ left: Math.min(target, max), behavior: 'smooth' });
+    if (target > max) setTimeout(function(){ if (fullyVisible(i)) setActive(i); }, 450);
   }
   document.getElementById('prevBtn').addEventListener('click', function(){ scrollToCard(Math.max(0, activeIdx - 1)); });
   document.getElementById('nextBtn').addEventListener('click', function(){ scrollToCard(Math.min(cards.length - 1, activeIdx + 1)); });
@@ -319,6 +337,7 @@ import { ROLES, role } from './roles.js';
   /* drag-to-scroll on desktop; touch keeps native swipe + snap */
   var dragging = false, dragX = 0, dragScroll = 0, moved = false;
   carousel.addEventListener('pointerdown', function(e){
+    wantIdx = -1;
     if (e.pointerType === 'touch' || e.target.closest('a,button')) return;
     dragging = true; moved = false; dragX = e.clientX; dragScroll = carousel.scrollLeft;
     carousel.classList.add('dragging');

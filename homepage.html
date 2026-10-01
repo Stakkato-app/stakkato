@@ -220,11 +220,11 @@
 
   .carousel{--cardw:440px;display:flex;gap:26px;overflow-x:auto;scroll-snap-type:x mandatory;
     -webkit-overflow-scrolling:touch;padding-block:6px 10px;
-    padding-inline:calc(50% - var(--cardw) / 2);scrollbar-width:none;cursor:grab;user-select:none}
+    padding-inline:0;scrollbar-width:none;cursor:grab;user-select:none}
   .carousel::-webkit-scrollbar{display:none}
   .carousel.dragging{cursor:grabbing;scroll-snap-type:none}
 
-  .card{--accent:var(--drums);width:var(--cardw);flex-shrink:0;scroll-snap-align:center;
+  .card{--accent:var(--drums);width:var(--cardw);flex-shrink:0;scroll-snap-align:start;
     background:var(--tint);border:2px solid var(--line);border-radius:14px;overflow:hidden;
     display:flex;flex-direction:column;transition:border-color .18s,box-shadow .18s,transform .18s}
   .card.active{border-color:var(--accent);box-shadow:0 20px 46px -18px rgba(28,25,34,.4);transform:translateY(-5px)}
