@@ -60,6 +60,21 @@ export async function listSongs() {
     .order('created_at', { ascending: false }));
 }
 
+/* Open songs for the landing page feed, newest first: the original track (who made it,
+   its audio) and the takes in the project, so the feed can show what each song has and
+   play it. Layers on new parts are filtered out in home.js. */
+export async function listFeed(limit) {
+  return check(await supabase.from('sessions')
+    .select('slug, title, bpm, music_key, seed_role, created_at,' +
+      ' seed:takes!sessions_seed_take_fk(author_name, storage_path, duration_sec),' +
+      ' layers:takes!takes_session_id_fkey(role_id, status, section_id, author_name, storage_path)')
+    .eq('status', 'open')
+    .not('seed_take_id', 'is', null)
+    .eq('layers.status', 'in')
+    .order('created_at', { ascending: false })
+    .limit(limit || 12));
+}
+
 export function publicUrl(path) {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }

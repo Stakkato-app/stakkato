@@ -40,6 +40,7 @@
     --bass:#0E7E8D;
     --atmos:#6E45C4;
     --wild:#C6246F;
+    --vocals:#3F8A1C;
     --lead:#A0521B;
     --disp:'Bricolage Grotesque',system-ui,sans-serif;
     --body:'DM Sans',system-ui,sans-serif;
@@ -217,13 +218,13 @@
     color:var(--ink);display:flex;align-items:center;justify-content:center}
   .arrows button:hover{border-color:var(--ink)}
 
-  .carousel{display:flex;gap:26px;overflow-x:auto;scroll-snap-type:x mandatory;
+  .carousel{--cardw:440px;display:flex;gap:26px;overflow-x:auto;scroll-snap-type:x mandatory;
     -webkit-overflow-scrolling:touch;padding-block:6px 10px;
     padding-inline:calc(50% - var(--cardw) / 2);scrollbar-width:none;cursor:grab;user-select:none}
   .carousel::-webkit-scrollbar{display:none}
   .carousel.dragging{cursor:grabbing;scroll-snap-type:none}
 
-  .card{--cardw:440px;--accent:var(--drums);width:var(--cardw);flex-shrink:0;scroll-snap-align:center;
+  .card{--accent:var(--drums);width:var(--cardw);flex-shrink:0;scroll-snap-align:center;
     background:var(--tint);border:2px solid var(--line);border-radius:14px;overflow:hidden;
     display:flex;flex-direction:column;transition:border-color .18s,box-shadow .18s,transform .18s}
   .card.active{border-color:var(--accent);box-shadow:0 20px 46px -18px rgba(28,25,34,.4);transform:translateY(-5px)}
@@ -254,7 +255,13 @@
   .now-playing{position:absolute;top:14px;left:14px;display:none;align-items:center;gap:6px;
     background:var(--accent);color:var(--paper);border-radius:99px;padding:5px 12px 5px 9px}
   .now-playing{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-  .card.playing .now-playing{display:flex}
+  .card.playing .now-playing,.card.waiting .now-playing{display:flex}
+  .card.waiting .now-playing{background:var(--ink)}
+  .card.waiting .now-playing .dot{animation:pulse 1s infinite}
+  /* loading / no projects yet: one quiet line in place of the feed */
+  .feed-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;
+    min-height:clamp(220px,38vh,420px);border:2px dashed var(--line);border-radius:14px;padding:32px 20px;color:var(--muted);font-size:17px}
+  a.btn{text-decoration:none}
   .now-playing .dot{width:6px;height:6px;border-radius:50%;background:var(--paper);animation:pulse 1s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
@@ -300,7 +307,7 @@
   footer p{font-size:13px;color:var(--muted)}
 
   @media (max-width:520px){
-    .card{--cardw:78vw}
+    .carousel{--cardw:78vw}
     .startband{padding:20px}
     .fab span{display:none}
     .fab{padding:14px;border-radius:50%}
@@ -311,7 +318,7 @@
 
   /* ---------- phones: keep a song card compact instead of a tall column ---------- */
   @media (max-width:600px){
-    .card{--cardw:84vw}
+    .carousel{--cardw:84vw}
     .card-stage{height:104px}
     #browse{padding-top:22px}
     .hero{padding-top:22px}
@@ -381,7 +388,7 @@
         <div class="kicker">Picked for you</div>
         <h2>Songs that you can help write</h2>
       </div>
-      <div class="feed-controls">
+      <div class="feed-controls" id="feedControls">
         <button class="soundpill" id="soundToggle" aria-pressed="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 5V4L9 9H5z"/><line x1="17.5" y1="8.5" x2="21.5" y2="15.5"/><line x1="21.5" y1="8.5" x2="17.5" y2="15.5"/></svg>
           <span>Tap for sound</span>
@@ -399,6 +406,7 @@
 
     <div class="carousel" id="carousel"></div>
     <div class="dots" id="dots"></div>
+    <div class="feed-empty" id="feedEmpty" hidden></div>
   </section>
   <a class="next" href="#create" aria-label="Scroll to: create your own song"><span>Got your own track? Start there</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
 </main>
@@ -472,7 +480,7 @@
       <span class="inst" style="--c:var(--bass)"><i></i>Bass</span>
       <span class="inst" style="--c:var(--lead)"><i></i>Lead</span>
       <span class="inst" style="--c:var(--atmos)"><i></i>Atmosphere</span>
-      <span class="inst" style="--c:var(--wild)"><i></i>Vocals</span>
+      <span class="inst" style="--c:var(--vocals)"><i></i>Vocals</span>
     </div>
   </section>
   </div>
@@ -558,529 +566,6 @@
   </div>
 </footer>
 
-<script>
-(function(){
-  var ICON = {
-    heart:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-7.5-4.6-10-9.3C.4 7.8 2 4.5 5.4 4c2.2-.3 4 .8 6 2.9C13.6 4.8 15.4 3.7 17.6 4c3.4.5 5 3.8 3.4 7.2-2.5 4.7-9 9.3-9 9.3Z"/></svg>',
-    mute:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 5V4L9 9H5z"/><line x1="17.5" y1="8.5" x2="21.5" y2="15.5"/><line x1="21.5" y1="8.5" x2="17.5" y2="15.5"/></svg>',
-    unmute:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 5V4L9 9H5z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/></svg>'
-  };
-
-  var ROLES = {
-    drums:  {label:'Drums',         c:'--drums'},
-    guitar: {label:'Rhythm guitar', c:'--guitar'},
-    bass:   {label:'Bass',          c:'--bass'},
-    lead:   {label:'Lead',          c:'--lead'},
-    atmos:  {label:'Atmosphere',    c:'--atmos'},
-    vocals: {label:'Vocals',        c:'--wild'}
-  };
-
-  var PROJECTS = [
-    { title:'Static Bloom',      by:'nadia_k',    bpm:96,  key:'A minor',  minor:1, root:110.00, riff:[0,2,1,3], roles:['drums','bass','atmos'],       needs:['lead','vocals'],   layers:5, people:3, vibe:'slow-burn, shoegaze-ish',        likes:128 },
-    { title:'Concrete Weather',  by:'tomasz',     bpm:132, key:'F# minor', minor:1, root:92.50,  riff:[0,0,3,2], roles:['drums','guitar','vocals'],    needs:['bass','atmos'],    layers:7, people:5, vibe:'industrial, half-time break',     likes:341 },
-    { title:'Marigold',          by:'past.tense', bpm:84,  key:'C major',  minor:0, root:130.81, riff:[0,3,2,4], roles:['bass','lead','atmos'],        needs:['drums','vocals'],  layers:4, people:3, vibe:'warm, felt piano underneath',     likes:96  },
-    { title:'Undertow',          by:'driftwood',  bpm:140, key:'D minor',  minor:1, root:73.42,  riff:[0,1,3,0], roles:['drums','bass','lead'],        needs:['guitar','vocals'], layers:9, people:6, vibe:'liquid drum and bass',            likes:512 },
-    { title:'Paper Moths',       by:'suri',       bpm:72,  key:'G minor',  minor:1, root:98.00,  riff:[0,2,0,3], roles:['atmos','vocals','guitar'],    needs:['drums','bass'],    layers:3, people:2, vibe:'ambient, tape hiss',              likes:64  },
-    { title:'Chrome Orchard',    by:'8bit_wren',  bpm:118, key:'B minor',  minor:1, root:123.47, riff:[0,3,1,2], roles:['drums','bass','vocals'],      needs:['guitar','lead'],   layers:6, people:4, vibe:'chiptune, glitchy fills',         likes:203 },
-    { title:'Salt Air',          by:'mo.h',       bpm:100, key:'E major',  minor:0, root:82.41,  riff:[0,2,4,2], roles:['guitar','bass','lead'],       needs:['drums','atmos'],   layers:5, people:3, vibe:'surf, reverb-heavy',              likes:150 },
-    { title:'Blackout Curfew',   by:'lena_v',     bpm:150, key:'C# minor', minor:1, root:69.30,  riff:[0,0,1,3], roles:['drums','guitar','atmos'],     needs:['bass','vocals'],   layers:8, people:7, vibe:'post-hardcore, screamed hook',     likes:447 }
-  ];
-
-  var carousel = document.getElementById('carousel');
-  var dotsWrap = document.getElementById('dots');
-  var toastEl = document.getElementById('toast');
-  var soundBtn = document.getElementById('soundToggle');
-
-  /* deterministic per-project "waveform" -- a stable shape (not a live analyser
-     reading) so it looks like the actual master track, drawn once and scrubbed
-     by the playhead rather than jittering like an equalizer. */
-  function seeded(n){ var x = Math.sin(n) * 10000; return x - Math.floor(x); }
-  function waveformBars(p){
-    var n = 46, out = '', seed = 0;
-    for (var c = 0; c < p.title.length; c++) seed += p.title.charCodeAt(c) * (c + 1);
-    for (var i = 0; i < n; i++) {
-      var t = i / n;
-      var swell = 0.5 + 0.5 * Math.sin(t * Math.PI * 2.4 + (seed % 7));
-      var noise = seeded(seed + i * 12.9898);
-      var h = 16 + swell * 54 + noise * 26;
-      out += '<i style="height:' + Math.min(100, Math.max(12, h)).toFixed(0) + '%"></i>';
-    }
-    return out;
-  }
-  function chip(roleId){
-    var r = ROLES[roleId];
-    return '<span class="chip" style="--c:var(' + r.c + ')"><span class="dot"></span>' + r.label + '</span>';
-  }
-  function chipOpen(roleId){
-    var r = ROLES[roleId];
-    return '<span class="chip chip-open" style="--c:var(' + r.c + ')"><span class="dot"></span>' + r.label + '</span>';
-  }
-
-  PROJECTS.forEach(function(p, i){
-    var accent = 'var(' + ROLES[p.roles[0]].c + ')';
-    var card = document.createElement('article');
-    card.className = 'card';
-    card.dataset.i = i;
-    card.style.setProperty('--accent', accent);
-    var bars = waveformBars(p);
-    var cycle = Math.max(6, Math.min(16, (60 / p.bpm * 4) * 4)).toFixed(1) + 's';
-    card.innerHTML =
-      '<div class="card-stage">' +
-        '<span class="now-playing"><span class="dot"></span>Playing</span>' +
-        '<button class="sound-ico" data-mute-toggle aria-label="Sound">' + ICON.mute + '</button>' +
-        '<div class="viz" style="--cycle:' + cycle + '">' +
-          '<div class="wf-bars wf-muted">' + bars + '</div>' +
-          '<div class="wf-progress"><div class="wf-bars">' + bars + '</div></div>' +
-          '<div class="wf-playhead"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="card-body">' +
-        '<h3>&ldquo;' + p.title + '&rdquo;</h3>' +
-        '<div class="byline">by <b>' + p.by + '</b></div>' +
-        (p.needs && p.needs.length ? '<div class="needs">Still needs: ' + p.needs.map(function(r){ return ROLES[r].label; }).join(', ') + '</div>' : '') +
-        '<div class="chips"><span class="has-label">Has</span>' + p.roles.map(chip).join('') + '</div>' +
-        '<div class="card-foot">' +
-          '<span class="likes tabular">' + ICON.heart + p.likes + '</span>' +
-          '<button class="btn btn-sm" data-join="' + i + '">Join this project</button>' +
-        '</div>' +
-      '</div>';
-    carousel.appendChild(card);
-
-    var dot = document.createElement('button');
-    dot.setAttribute('aria-label', 'Go to ' + p.title);
-    dot.addEventListener('click', function(){ scrollToCard(i); });
-    dotsWrap.appendChild(dot);
-  });
-
-  var cards = Array.prototype.slice.call(carousel.querySelectorAll('.card'));
-  var dots = Array.prototype.slice.call(dotsWrap.querySelectorAll('button'));
-
-  /* ---------- audio: one loop plays at a time, for whichever card is centered ---------- */
-  var ctx = null, soundOn = false, activeIdx = -1, currentLoop = null;
-
-  function ac(){ if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx; }
-
-  /* Builds the project's full mix -- every layer its card lists (drums, bass,
-     guitar, lead, atmosphere, vocals), not one generic pattern for every card.
-     Each role gets its own voice, so the mix -- and the visualizer reading it --
-     actually reflects that project's line-up. */
-  function makeLoop(p){
-    var a = ac();
-    var beat = 60 / p.bpm, bar = beat * 4;
-    var master = a.createGain(); master.gain.value = 0;
-    master.connect(a.destination);
-    var scale = p.minor ? [0,3,5,7,10] : [0,2,4,7,9];
-    var has = {};
-    p.roles.forEach(function(r){ has[r] = true; });
-    function freq(semi){ return p.root * Math.pow(2, semi / 12); }
-
-    function pluck(t, semi, dur, peak, wave, cutoff){
-      var o = a.createOscillator(), g = a.createGain(), f = a.createBiquadFilter();
-      o.type = wave; o.frequency.value = freq(semi);
-      f.type = 'lowpass'; f.frequency.value = cutoff;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(peak, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-      o.connect(f); f.connect(g); g.connect(master);
-      o.start(t); o.stop(t + dur + 0.02);
-    }
-
-    function scheduleBar(t){
-      if (has.drums) {
-        [0, 2].forEach(function(bi){
-          var nt = t + bi * beat;
-          var o = a.createOscillator(), g = a.createGain();
-          o.type = 'sine';
-          o.frequency.setValueAtTime(120, nt);
-          o.frequency.exponentialRampToValueAtTime(46, nt + 0.15);
-          g.gain.setValueAtTime(0.55, nt);
-          g.gain.exponentialRampToValueAtTime(0.001, nt + 0.2);
-          o.connect(g); g.connect(master);
-          o.start(nt); o.stop(nt + 0.22);
-        });
-        for (var j = 0; j < 8; j++) {
-          var nt2 = t + j * beat / 2;
-          var buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.025), a.sampleRate);
-          var d = buf.getChannelData(0);
-          for (var k = 0; k < d.length; k++) d[k] = (Math.random() * 2 - 1) * (1 - k / d.length);
-          var src = a.createBufferSource(); src.buffer = buf;
-          var hf = a.createBiquadFilter(); hf.type = 'highpass'; hf.frequency.value = 4500;
-          var hg = a.createGain(); hg.gain.value = j % 2 ? 0.03 : 0.05;
-          src.connect(hf); hf.connect(hg); hg.connect(master);
-          src.start(nt2);
-        }
-      }
-      if (has.bass) {
-        for (var i = 0; i < 4; i++) {
-          var sBass = scale[p.riff[i] % scale.length];
-          pluck(t + i * beat, sBass - 12, beat * 0.82, 0.22, 'triangle', 900);
-        }
-      }
-      ['guitar', 'lead'].forEach(function(role, idx){
-        if (!has[role]) return;
-        for (var i2 = 0; i2 < 8; i2++) {
-          var sMid = scale[(p.riff[i2 % 4] + idx * 2) % scale.length];
-          pluck(t + i2 * (beat / 2), sMid + (idx ? 19 : 12), beat * 0.4, 0.1, idx ? 'sawtooth' : 'triangle', idx ? 3200 : 2200);
-        }
-      });
-      if (has.atmos) {
-        [0, scale[1], scale[2]].forEach(function(s){
-          var o = a.createOscillator(), g = a.createGain();
-          o.type = 'sine'; o.frequency.value = freq(s + 12);
-          g.gain.setValueAtTime(0, t);
-          g.gain.linearRampToValueAtTime(0.05, t + 0.7);
-          g.gain.linearRampToValueAtTime(0, t + bar - 0.08);
-          o.connect(g); g.connect(master);
-          o.start(t); o.stop(t + bar);
-        });
-      }
-      if (has.vocals && Math.round(t / bar) % 2 === 0) {
-        var sVoc = scale[1];
-        var o1 = a.createOscillator(), o2 = a.createOscillator(), g3 = a.createGain(), bp = a.createBiquadFilter();
-        o1.type = 'sine'; o1.frequency.value = freq(sVoc + 12);
-        o2.type = 'sine'; o2.frequency.value = freq(sVoc + 12) * 1.006;
-        bp.type = 'bandpass'; bp.frequency.value = freq(sVoc + 12) * 2; bp.Q.value = 3.5;
-        g3.gain.setValueAtTime(0, t);
-        g3.gain.linearRampToValueAtTime(0.1, t + bar * 0.32);
-        g3.gain.linearRampToValueAtTime(0, t + bar - 0.1);
-        o1.connect(bp); o2.connect(bp); bp.connect(g3); g3.connect(master);
-        o1.start(t); o1.stop(t + bar);
-        o2.start(t); o2.stop(t + bar);
-      }
-    }
-    var timer = null, nextBar = 0;
-    function tick(){ while (nextBar < a.currentTime + 0.6) { scheduleBar(nextBar); nextBar += bar; } }
-    return {
-      start: function(){
-        nextBar = a.currentTime + 0.05; tick();
-        timer = setInterval(tick, 150);
-        master.gain.setTargetAtTime(0.9, a.currentTime, 0.15);
-      },
-      stop: function(){
-        if (timer) clearInterval(timer);
-        var g = master.gain, now = a.currentTime;
-        g.setTargetAtTime(0, now, 0.08);
-        setTimeout(function(){ try { master.disconnect(); } catch (e) {} }, 400);
-      }
-    };
-  }
-
-  function updatePlaying(){
-    cards.forEach(function(c, i){ c.classList.toggle('playing', soundOn && i === activeIdx); });
-  }
-
-  function setActive(idx){
-    if (idx === activeIdx) return;
-    cards.forEach(function(c, i){ c.classList.toggle('active', i === idx); });
-    dots.forEach(function(d, i){ d.classList.toggle('on', i === idx); });
-    if (currentLoop) currentLoop.stop();
-    activeIdx = idx;
-    if (soundOn) {
-      currentLoop = makeLoop(PROJECTS[idx]);
-      currentLoop.start();
-    } else {
-      currentLoop = null;
-    }
-    updatePlaying();
-  }
-
-  function centerFromScroll(){
-    var rect = carousel.getBoundingClientRect(), mid = rect.left + rect.width / 2;
-    var best = 0, bestD = Infinity;
-    cards.forEach(function(c, i){
-      var r = c.getBoundingClientRect(), cmid = r.left + r.width / 2, d = Math.abs(cmid - mid);
-      if (d < bestD) { bestD = d; best = i; }
-    });
-    setActive(best);
-  }
-
-  var scrollTicking = false;
-  carousel.addEventListener('scroll', function(){
-    if (scrollTicking) return;
-    scrollTicking = true;
-    requestAnimationFrame(function(){ centerFromScroll(); scrollTicking = false; });
-  });
-
-  function scrollToCard(i){
-    cards[i].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-  }
-  document.getElementById('prevBtn').addEventListener('click', function(){ scrollToCard(Math.max(0, activeIdx - 1)); });
-  document.getElementById('nextBtn').addEventListener('click', function(){ scrollToCard(Math.min(cards.length - 1, activeIdx + 1)); });
-
-  /* drag-to-scroll on desktop; touch keeps native swipe + snap */
-  var dragging = false, dragX = 0, dragScroll = 0, moved = false;
-  carousel.addEventListener('pointerdown', function(e){
-    if (e.pointerType === 'touch') return;
-    dragging = true; moved = false; dragX = e.clientX; dragScroll = carousel.scrollLeft;
-    carousel.classList.add('dragging');
-    carousel.setPointerCapture(e.pointerId);
-  });
-  carousel.addEventListener('pointermove', function(e){
-    if (!dragging) return;
-    var dx = e.clientX - dragX;
-    if (Math.abs(dx) > 4) moved = true;
-    carousel.scrollLeft = dragScroll - dx;
-  });
-  function endDrag(){
-    if (!dragging) return;
-    dragging = false; carousel.classList.remove('dragging');
-    centerFromScroll();
-    var target = cards[activeIdx];
-    if (target) target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-  }
-  carousel.addEventListener('pointerup', endDrag);
-  carousel.addEventListener('pointerleave', function(){ if (dragging) endDrag(); });
-
-  /* sound gate */
-  function enableSound(){
-    if (soundOn) return;
-    soundOn = true;
-    ac().resume();
-    soundBtn.classList.add('on');
-    soundBtn.setAttribute('aria-pressed', 'true');
-    soundBtn.querySelector('span').textContent = 'Sound on';
-    soundBtn.querySelector('svg').outerHTML = ICON.unmute;
-    updateCardIcons();
-    if (activeIdx < 0) activeIdx = 0;
-    var idx = activeIdx; activeIdx = -1;
-    setActive(idx);
-  }
-  function disableSound(){
-    soundOn = false;
-    if (currentLoop) currentLoop.stop();
-    currentLoop = null;
-    updatePlaying();
-    soundBtn.classList.remove('on');
-    soundBtn.setAttribute('aria-pressed', 'false');
-    soundBtn.querySelector('span').textContent = 'Tap for sound';
-    soundBtn.querySelector('svg').outerHTML = ICON.mute;
-    updateCardIcons();
-  }
-  function updateCardIcons(){
-    cards.forEach(function(c){
-      c.querySelector('[data-mute-toggle]').innerHTML = soundOn ? ICON.unmute : ICON.mute;
-    });
-  }
-  soundBtn.addEventListener('click', function(){ soundOn ? disableSound() : enableSound(); });
-  carousel.addEventListener('click', function(e){
-    var mb = e.target.closest('[data-mute-toggle]');
-    if (mb) { soundOn ? disableSound() : enableSound(); return; }
-    var join = e.target.closest('[data-join]');
-    if (join) { showToast('Joining takes you into that project’s session.'); return; }
-    if (moved) return;
-    var card = e.target.closest('.card');
-    if (card) scrollToCard(cards.indexOf(card));
-  });
-
-  /* start-a-session CTAs */
-  var toastTimer = null;
-  function showToast(msg){
-    toastEl.textContent = msg;
-    toastEl.classList.add('on');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function(){ toastEl.classList.remove('on'); }, 2600);
-  }
-  Array.prototype.slice.call(document.querySelectorAll('[data-start]')).forEach(function(b){
-    b.addEventListener('click', function(){ showToast('Starting a session takes you into the Stackato app.'); });
-  });
-
-
-  /* ---------- create-your-own-song: upload a file ---------- */
-  var dropzone = document.getElementById('dropzone');
-  var fileInput = document.getElementById('fileInput');
-  var filePreview = document.getElementById('filePreview');
-  var fileViz = document.getElementById('fileViz');
-  var fileName = document.getElementById('fileName');
-  var dropzoneLabel = document.getElementById('dropzoneLabel');
-
-  function miniBars(n){
-    var out = '';
-    for (var i = 0; i < n; i++) out += '<i style="height:' + (15 + Math.random() * 85).toFixed(0) + '%"></i>';
-    return out;
-  }
-
-  function handleFile(file){
-    if (!file) return;
-    if (file.type && file.type.indexOf('audio') !== 0) {
-      showToast('That doesn’t look like an audio file.');
-      return;
-    }
-    dropzoneLabel.textContent = 'Reading ' + file.name + '…';
-    var reader = new FileReader();
-    reader.onload = function(e){
-      ac().decodeAudioData(e.target.result.slice(0), function(buf){
-        renderFilePeaks(buf);
-        showFilePreview(file.name);
-      }, function(){
-        /* couldn't decode client-side; still let them use it */
-        fileViz.innerHTML = miniBars(24);
-        showFilePreview(file.name);
-      });
-    };
-    reader.onerror = function(){ showToast('Couldn’t read that file — try another.'); resetDropzone(); };
-    reader.readAsArrayBuffer(file);
-  }
-  function renderFilePeaks(buf){
-    var data = buf.getChannelData(0), buckets = 24, step = Math.floor(data.length / buckets) || 1;
-    var out = '';
-    for (var i = 0; i < buckets; i++) {
-      var peak = 0;
-      for (var j = i * step; j < i * step + step && j < data.length; j++) {
-        var v = Math.abs(data[j]); if (v > peak) peak = v;
-      }
-      out += '<i style="height:' + Math.max(10, peak * 100).toFixed(0) + '%"></i>';
-    }
-    fileViz.innerHTML = out;
-  }
-  function showFilePreview(name){
-    dropzoneLabel.textContent = 'Drop an audio file here, or click to browse';
-    fileName.textContent = name;
-    filePreview.hidden = false;
-  }
-  function resetDropzone(){
-    dropzoneLabel.textContent = 'Drop an audio file here, or click to browse';
-  }
-  dropzone.addEventListener('click', function(){ fileInput.click(); });
-  dropzone.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
-  fileInput.addEventListener('change', function(){ handleFile(fileInput.files[0]); });
-  ['dragover','dragenter'].forEach(function(ev){
-    dropzone.addEventListener(ev, function(e){ e.preventDefault(); dropzone.classList.add('hover'); });
-  });
-  ['dragleave','drop'].forEach(function(ev){
-    dropzone.addEventListener(ev, function(e){ e.preventDefault(); dropzone.classList.remove('hover'); });
-  });
-  dropzone.addEventListener('drop', function(e){
-    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) handleFile(f);
-  });
-  document.getElementById('useFileBtn').addEventListener('click', function(){
-    showToast('Uploading takes you into a new Stackato session with this track dropped in.');
-  });
-
-  /* ---------- create-your-own-song: record a take, 2-bar count-in + click track ---------- */
-  var bpmInput = document.getElementById('bpmInput');
-  var timesigInput = document.getElementById('timesigInput');
-  var recordBtn = document.getElementById('recordBtn');
-  var recordStatus = document.getElementById('recordStatus');
-  var recording = false, activeStream = null, activeRecorder = null;
-
-  /* beats: clicks per bar on the click track. accentEvery: how often the accented
-     (higher-pitched) click lands -- every beat for simple meters, every 3rd
-     eighth-note for the compound feel of 6/8. */
-  var TIME_SIGS = {
-    '4/4': { beats: 4, accentEvery: 4 },
-    '3/4': { beats: 3, accentEvery: 3 },
-    '2/4': { beats: 2, accentEvery: 2 },
-    '6/8': { beats: 6, accentEvery: 3 }
-  };
-
-  function playClick(t, accent){
-    var a = ac();
-    var o = a.createOscillator(), g = a.createGain();
-    o.type = 'square';
-    o.frequency.value = accent ? 1600 : 1000;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.3, t + 0.002);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-    o.connect(g); g.connect(a.destination);
-    o.start(t); o.stop(t + 0.06);
-  }
-
-  function countIn(bpm, bars, sig, onBeat, onDone){
-    var a = ac();
-    var beat = 60 / bpm;
-    var beatsPerBar = sig.beats, totalBeats = bars * beatsPerBar;
-    var start = a.currentTime + 0.12;
-    for (var i = 0; i < totalBeats; i++) playClick(start + i * beat, i % sig.accentEvery === 0);
-    for (var j = 0; j < totalBeats; j++) {
-      (function(bi){
-        setTimeout(function(){ onBeat(bi); }, Math.max(0, (start + bi * beat - a.currentTime) * 1000));
-      })(j);
-    }
-    setTimeout(onDone, Math.max(0, (start + totalBeats * beat - a.currentTime) * 1000));
-  }
-
-  function beatDotsMarkup(n){
-    var out = '';
-    for (var i = 0; i < n; i++) out += '<i></i>';
-    return out;
-  }
-
-  function startCountdown(bpm, sigName){
-    var sig = TIME_SIGS[sigName] || TIME_SIGS['4/4'];
-    recordStatus.hidden = false;
-    recordStatus.innerHTML = '<div class="countdown"><span class="beatdots" id="beatDots">' + beatDotsMarkup(sig.beats * 2) + '</span><span id="countLabel">Get ready…</span></div>';
-    var dots = recordStatus.querySelectorAll('.beatdots i');
-    var label = document.getElementById('countLabel');
-    countIn(bpm, 2, sig, function(bi){
-      dots.forEach(function(d, i){ d.classList.toggle('hit', i === bi); });
-      label.textContent = 'Bar ' + (Math.floor(bi / sig.beats) + 1) + ', beat ' + (bi % sig.beats + 1) + ' of ' + sigName;
-    }, function(){
-      beginRecording();
-    });
-  }
-
-  function beginRecording(){
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      recordStatus.innerHTML = '<p class="note">Recording isn’t available in this preview — try uploading a file instead.</p>';
-      recordBtn.disabled = false;
-      return;
-    }
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream){
-      activeStream = stream;
-      var chunks = [];
-      var mr;
-      try { mr = new MediaRecorder(stream); } catch (e) {
-        recordStatus.innerHTML = '<p class="note">This browser can’t record here — try uploading a file instead.</p>';
-        recordBtn.disabled = false;
-        stream.getTracks().forEach(function(t){ t.stop(); });
-        return;
-      }
-      activeRecorder = mr;
-      recording = true;
-      var startedAt = Date.now();
-      var timerId = setInterval(function(){
-        var secs = Math.floor((Date.now() - startedAt) / 1000);
-        var el = document.getElementById('recTime');
-        if (el) el.textContent = Math.floor(secs / 60) + ':' + (secs % 60 < 10 ? '0' : '') + (secs % 60);
-      }, 250);
-      recordStatus.innerHTML = '<div class="recording"><span class="dot"></span>Recording… <span id="recTime" class="tabular">0:00</span></div>' +
-        '<button class="btn btn-sm" id="stopRecordBtn" type="button">Stop</button>';
-      mr.ondataavailable = function(e){ if (e.data && e.data.size) chunks.push(e.data); };
-      mr.onstop = function(){
-        clearInterval(timerId);
-        recording = false;
-        stream.getTracks().forEach(function(t){ t.stop(); });
-        recordStatus.innerHTML = '<div class="filepreview"><div class="viz-mini">' + miniBars(24) + '</div>' +
-          '<span class="fname">Your take is ready</span>' +
-          '<button class="btn btn-sm btn-ember" id="useTakeBtn" type="button">Use this take</button></div>';
-        document.getElementById('useTakeBtn').addEventListener('click', function(){
-          showToast('Sending this take takes you into a new Stackato session.');
-        });
-        recordBtn.disabled = false;
-      };
-      mr.start();
-      document.getElementById('stopRecordBtn').addEventListener('click', function(){
-        if (activeRecorder && activeRecorder.state !== 'inactive') activeRecorder.stop();
-      });
-    }).catch(function(){
-      recordStatus.innerHTML = '<p class="note">Microphone access isn’t available in this preview — try uploading a file instead.</p>';
-      recordBtn.disabled = false;
-    });
-  }
-
-  recordBtn.addEventListener('click', function(){
-    if (recording) return;
-    ac().resume();
-    var bpm = Math.max(40, Math.min(220, parseInt(bpmInput.value, 10) || 100));
-    var sigName = timesigInput.value || '4/4';
-    recordBtn.disabled = true;
-    startCountdown(bpm, sigName);
-  });
-
-  window.addEventListener('resize', centerFromScroll);
-  setActive(0);
-})();
-</script>
+<script type="module" src="/src/home.js"></script>
 </body>
 </html>

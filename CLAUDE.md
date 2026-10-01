@@ -12,7 +12,7 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 
 - **Frontend:** plain JavaScript (ES modules, no framework), bundled by **Vite**. The UI renders HTML strings into containers; there is no virtual DOM.
 - **Backend:** **Supabase** (Postgres + Row Level Security, Storage for audio, Realtime for live updates, Auth with anonymous sign-ins). There is no server code of our own.
-- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html`, `/songs` to `songs.html` (the list of all songs) and `/home` to `homepage.html` (the marketing landing page); `vite.config.js` does the same rewrites for dev and preview. `homepage.html` is a static pitch/marketing page (own copy of the hero, project feed and "how you can collaborate" walkthrough) -- it doesn't read from Supabase.
+- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html`, `/songs` to `songs.html` (the list of all songs) and `/home` to `homepage.html` (the marketing landing page); `vite.config.js` does the same rewrites for dev and preview. `homepage.html` is the pitch/marketing page (hero, project feed, "how you can collaborate" walkthrough); its feed (`src/home.js`) reads the open sessions from Supabase without signing in and plays only the centred card's audio. The upload/record panels on it are still a mock-up.
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`). Nothing audio-related runs on a server.
 
 ## Commands
@@ -31,6 +31,7 @@ Apply database changes with the Supabase CLI (`npx supabase db push`) or by past
 ```
 index.html                  page markup (static shell; most content is rendered by app.js)
 songs.html, src/songs.js    the /songs page: every session with an original track, linking to /s/<slug>
+homepage.html, src/home.js  the /home landing page: pitch, feed of open sessions (listFeed() in data.js), walkthrough
 src/app.js                  the whole UI: state, rendering, audio engine, event handlers
 src/data.js                 every Supabase call; app.js never uses the client directly
 src/supabase.js             client setup from env vars
