@@ -797,7 +797,3 @@
   .metabar.readonly{display:none !important}
   #mix-head{margin-top:44px}
   .projtitle{margin-bottom:12px}
-  /* only instruments with takes waiting get a card; the rest is one line */
-  .gates{grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr)) !important}
-  .gates-rest{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
-    padding:14px 18px;border:2px dashed var(--line);border-radius:4px;background:var(--paper);color:var(--muted);font-size:15px}

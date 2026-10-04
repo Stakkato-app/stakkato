@@ -1770,15 +1770,8 @@ function applyCard(r) {
 }
 
 function renderBoards() {
-  var busy = ROLES.filter(function (r) { return waitingFor(r.id).length; });
-  var quiet = ROLES.filter(function (r) { return !waitingFor(r.id).length; });
-  el('applyboard').innerHTML = busy.map(applyCard).join('') +
-    '<div class="gates-rest">' +
-      '<span>' + (busy.length
-        ? 'Nothing waiting for ' + quiet.map(function (r) { return r.label.toLowerCase(); }).join(', ') + '.'
-        : 'Nothing is waiting yet. Send the first take, on any instrument.') + '</span>' +
-      (isOpen() ? '<button class="btn btn-ember" type="button" data-apply="">Send a take</button>' : '') +
-    '</div>';
+  /* every instrument keeps its card: it shows people straight away what they can add */
+  el('applyboard').innerHTML = ROLES.map(applyCard).join('');
   el('lineup-sub').textContent = S.members.length
     ? S.members.length + ' layer(s) on top of the original track.'
     : 'Nothing in the song yet. Everything starts in the waiting list below.';
