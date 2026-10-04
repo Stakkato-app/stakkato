@@ -78,7 +78,7 @@ function placeholderSeed() {
 function blank() {
   return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], own:[], trial:null, title:'Untitled', mix:null,
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
-           pitches:[], parts:[], trialPitch:null, countIn:2,
+           pitches:[], parts:[], trialPitch:null, countIn:2, recRole:null,
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
            meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
@@ -501,6 +501,7 @@ function stopAll(keep) {
   render();
 }
 function play(from, soloId) {
+  if (REC.state === 'recording' || REC.state === 'asking') return;
   var list = tracks();
   if (!list.length) return;
   stopAll(true);
@@ -585,8 +586,10 @@ function drawViz() {
 }
 function bindViz() {}
 function frame() {
-  var busy = running || Object.keys(sources).length > 0;
-  var p = position(), d = duration();
+  var dawRec = REC.where === 'daw' && REC.state === 'recording';
+  var busy = running || Object.keys(sources).length > 0 || dawRec;
+  var p = dawRec ? Math.max(0, startOf(S.seed) + ac().currentTime - REC.songStart) : position(), d = duration();
+  if (dawRec) drawRecLane();
   var ph = el('playhead'), rd = el('readout');
   var lane = document.querySelector('.t-lane'), daw = el('daw');
   if (ph && d && lane && daw) {
@@ -775,9 +778,9 @@ function recCleanup() {
   if (REC.stream) REC.stream.getTracks().forEach(function (tr) { tr.stop(); });
   REC.stream = null;
 }
-function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.partial = 0; }
+function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.partial = 0; REC.peaks = null; }
 function recBacking() {
-  return hearable().filter(function (t) { return REC.hear[t.id] !== false; });
+  return hearable().filter(function (t) { return REC.hear[t.id] !== false && (REC.where !== 'daw' || audible(t)); });
 }
 /* what can play under a recording: the project, or for your own version the takes you picked */
 function hearable() {
@@ -819,7 +822,11 @@ function recStart() {
       var d = e.inputBuffer.getChannelData(0), pk = 0;
       for (var i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > pk) pk = v; }
       REC.level = Math.max(pk, REC.level * 0.85);
-      chunks.push({ t: e.playbackTime - d.length / e.inputBuffer.sampleRate, d: new Float32Array(d) });
+      /* eight sub-peaks per chunk, so the take can be drawn finely while it comes in */
+      var pks = [], seg = Math.ceil(d.length / 8);
+      for (var q = 0; q < 8; q++) { var m = 0; for (var k = q * seg; k < Math.min(d.length, (q + 1) * seg); k++) { var u = Math.abs(d[k]); if (u > m) m = u; } pks.push(m); }
+      chunks.push({ t: e.playbackTime - d.length / e.inputBuffer.sampleRate, d: new Float32Array(d), pks: pks,
+                    dur: d.length / e.inputBuffer.sampleRate });
     };
     /* what you hear: the click and, for a layer, the chosen tracks from bar 1 */
     if (REC.click) {
@@ -830,6 +837,8 @@ function recStart() {
     }
     if (!extend) playBacking(recBacking(), songStart, REC.player);
     REC.chunks = chunks; REC.state = 'recording'; REC.stopAt = fixed ? songStart + fixed : 0;
+    REC.lat = (a.outputLatency || 0) + (a.baseLatency || 0);
+    if (REC.where === 'daw') startLoop();
     REC.tick = setInterval(renderRecStatus, 100);
     if (fixed) REC.timer = setTimeout(recFinish, (songStart + fixed - a.currentTime + 0.25) * 1000);
     renderRec();
@@ -875,6 +884,72 @@ function recCancel() {
   REC.state = 'idle'; REC.chunks = null;
   renderRec();
 }
+/* ---------- recording straight onto the grey track in the DAW, like a real DAW:
+   the playhead runs over the other tracks and the take is drawn as it comes in ---------- */
+function dawRecMode() { return S.view === 'build' && !S.override ? 'own' : 'layer'; }
+function dawRecStart() {
+  if (!hasSeed()) return;
+  var own = dawRecMode() === 'own';
+  if (!own && !isOpen()) { flash('This session is closed.'); return; }
+  if (el('scrim').classList.contains('on')) return;
+  M.mode = own ? 'own' : 'layer'; M.sec = 'core';
+  recReset(); REC.where = 'daw'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
+  recStart();
+}
+/* the finished take goes into the send window, already loaded: add a name and send */
+function dawRecSend() {
+  if (!REC.buf) return;
+  var own = dawRecMode() === 'own';
+  REC.where = 'modal'; REC.fromDaw = true;
+  openModal(S.recRole || ROLES[0].id, null, own, true);
+}
+function dawRecDiscard() { recReset(); REC.where = null; REC.fromDaw = false; renderDaw(); }
+function renderDawRec() {
+  var row = el('addrow');
+  if (row) {
+    row.className = 'track addrow' + (REC.where === 'daw' && REC.state !== 'idle' ? ' rec-on' : '');
+    row.innerHTML = addRowInner(S.view === 'build' && !S.override);
+  }
+  else renderDaw();
+  drawRecLane();
+}
+/* x of song time sec on the DAW lanes (0..1) */
+function laneX(sec) { var d = duration() || target() || 1; return sec / d; }
+function drawRecLane() {
+  var c = el('rec-canvas');
+  if (!c) return;
+  var dpr = window.devicePixelRatio || 1, w = c.clientWidth || 600, h = c.clientHeight || 72;
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  var g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  var s0 = startOf(S.seed), L = S.seed.len || 1, mid = h / 2;
+  var r = role(S.recRole || ROLES[0].id), color = cvar(r.color);
+  /* the stretch you are recording over */
+  g.fillStyle = color; g.globalAlpha = .08;
+  g.fillRect(laneX(s0) * w, 2, laneX(L) * w, h - 4);
+  g.globalAlpha = .9;
+  if (REC.state === 'recording' && REC.chunks) {
+    REC.chunks.forEach(function (ch) {
+      var sub = ch.dur / ch.pks.length;
+      ch.pks.forEach(function (pk, q) {
+        var at = ch.t - REC.songStart - REC.lat + q * sub;
+        if (at + sub < 0 || at > L) return;
+        var x0 = laneX(s0 + Math.max(0, at)) * w, x1 = laneX(s0 + Math.min(L, at + sub)) * w;
+        var bar = Math.max(1, Math.min(1, pk) * (h - 6));
+        g.fillRect(x0, mid - bar / 2, Math.max(1, x1 - x0 + .5), bar);
+      });
+    });
+  } else if (REC.state === 'done' && REC.buf) {
+    var pk = REC.peaks || (REC.peaks = peaksOf(REC.buf, 1200)), n = pk.length;
+    var x0 = laneX(s0) * w, cw = Math.max(1, laneX(REC.buf.duration) * w);
+    for (var x = 0; x < cw; x++) {
+      var bar2 = Math.max(1, (pk[Math.floor(x / cw * n)] || 0) * (h - 6));
+      g.fillRect(x0 + x, mid - bar2 / 2, 1, bar2);
+    }
+  }
+  g.globalAlpha = 1;
+}
 function recListen(withBacking) {
   recStopPlayers();
   if (!REC.buf) return;
@@ -907,6 +982,7 @@ function countInOptions() {
   return [0,1,2,4].map(function (n) { return '<option value="' + n + '"' + (n === S.countIn ? ' selected' : '') + '>' + n + ' bar' + (n === 1 ? '' : 's') + '</option>'; }).join('');
 }
 function renderRec() {
+  if (REC.where === 'daw') { renderDawRec(); return; }
   var box = el('rec-box');
   if (!box) return;
   var extend = M.mode === 'extend';
@@ -1296,24 +1372,55 @@ function renderDaw() {
     '<div class="playhead" id="playhead"></div>';
 
   list.forEach(function (t) { drawWave(t); });
+  drawRecLane();
   placeFadeHandles();
   placeExtendButtons();
   renderPicker();
   renderPitches();
   tick();
 }
-/* an empty grey track under the others: send a take from right here (the project), or add
-   your own layer (your version). Not shown while listening to someone else's version. */
+/* an empty grey track under the others: record straight onto it (the playhead runs over the
+   other tracks while you play), or upload a file. In the main project the take goes to the
+   creator; in your own version it goes straight in. Not shown while listening to someone
+   else's version. */
 function addRow(building) {
   if (S.override || (!building && !isOpen())) return '';
-  var text = building ? 'Add any instrument to your version. Record it here or upload a file, it goes straight in.'
-                      : 'Play along and send your own layer. The creator decides if it gets in.';
-  var btn = building ? '<button class="btn btn-ember" type="button" data-own="">+ Record or upload your own</button>'
-                     : '<button class="btn btn-ember" type="button" data-apply="">+ Send a take</button>';
-  return '<div class="track addrow">' +
-    '<div class="t-head"><div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
-      '<div><b>Your layer</b><span class="tiny muted">' + (building ? 'only in your version' : 'for the project') + '</span></div></div></div>' +
-    '<div class="a-lane"><span>' + text + '</span>' + btn + '</div></div>';
+  return '<div class="track addrow' + (REC.where === 'daw' && REC.state !== 'idle' ? ' rec-on' : '') + '" id="addrow">' + addRowInner(building) + '</div>';
+}
+function addRowInner(building) {
+  var dawRec = REC.where === 'daw', st = dawRec ? REC.state : 'idle';
+  var rid = S.recRole || ROLES[0].id, r = role(rid);
+  var err = dawRec && REC.err ? '<span class="rec-err">' + esc(REC.err) + '</span>' : '';
+  var head, lane;
+  if (st === 'recording' || st === 'asking') {
+    head = '<div class="t-name">' + ico(r.icon, col(r)) + '<div><b>Recording</b><span class="tiny muted">' + esc(r.label) + '</span></div></div>' +
+      '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
+      '<div class="rec-meterwrap"><i id="rec-meter"></i></div>';
+    lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
+      '<button class="btn btn-sm btn-ember" type="button" data-rec="finish">Stop and keep it</button>' +
+      '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div>';
+  } else if (st === 'done') {
+    head = '<div class="t-name">' + ico(r.icon, col(r)) + '<div><b>Your take</b><span class="tiny muted">' + esc(r.label) + ', ' +
+      (REC.partial ? clockMs(REC.partial) + ' played, rest silent' : clockMs(REC.buf.duration)) + '</span></div></div>';
+    lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
+      '<button class="btn btn-sm btn-ember" type="button" data-dawsend="1">' + (building ? 'Add it to my version' : 'Send it in') + '</button>' +
+      '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the rest</button>' +
+      '<button class="btn btn-sm" type="button" data-dawrec="1">Record again</button>' +
+      '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>';
+  } else {
+    head = '<div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
+      '<div><b>Your layer</b><span class="tiny muted">' + (building ? 'only in your version' : 'for the project') + '</span></div></div>' +
+      '<select class="rec-role" id="daw-rec-role" aria-label="Instrument for your layer">' +
+        ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rid ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') +
+      '</select>';
+    lane = '<div class="a-lane"><span>' + (building
+        ? 'Add any instrument to your version. Record it right here on this track, or upload a file.'
+        : 'Play along and record your layer right here, or upload a file. The creator decides if it gets in.') +
+      ' <em>Wear headphones.</em></span>' +
+      '<button class="btn btn-ember" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
+      '<button class="btn" type="button" ' + (building ? 'data-own=""' : 'data-apply=""') + '>Upload a file</button>' + err + '</div>';
+  }
+  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane">' + lane + '</div>');
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
@@ -1880,7 +1987,7 @@ function countInLabel() {
   el('take-countin').disabled = !n;
   if (!n) el('take-countin').checked = false;
 }
-function openModal(roleId, extendPos, own) {
+function openModal(roleId, extendPos, own, keepRec) {
   if (!hasSeed()) { flash('Drop an audio track first, it sets the length for everyone.'); return; }
   if (!own && !isOpen()) { flash('This session is closed.'); return; }
   lastFocus = document.activeElement;
@@ -1912,8 +2019,8 @@ function openModal(roleId, extendPos, own) {
   el('take-countin').checked = false;
   el('file-name').textContent = ext ? 'wav or mp3, any length' : 'wav or mp3, dry, starting at bar 1';
   el('modal-send').disabled = false;
-  recReset(); REC.hear = {}; REC.click = true;
-  setSrc('file');
+  if (keepRec && REC.buf) { REC.where = 'modal'; setSrc('rec'); }
+  else { recReset(); REC.where = null; REC.fromDaw = false; REC.hear = {}; REC.click = true; setSrc('file'); }
   if (!ext) secHint();
   el('scrim').classList.add('on');
   el('take-name').focus();
@@ -1922,6 +2029,8 @@ function closeModal() {
   if (REC.state === 'recording' || REC.state === 'asking') recCancel();
   recStopPlayers();
   el('scrim').classList.remove('on');
+  /* a take recorded on the grey track goes back there if it wasn't sent */
+  if (REC.fromDaw) { if (REC.buf) REC.where = 'daw'; else REC.fromDaw = false; renderDaw(); }
   if (lastFocus) lastFocus.focus();
 }
 
@@ -1990,6 +2099,7 @@ el('modal-send').addEventListener('click', function () {
     return uploadTake(src.file, src.buf, { role:el('take-role').value, status:own ? 'own' : 'waiting', name:name, note:note,
                                            sec:M.sec === 'core' ? null : M.sec, analyse:true })
       .then(function (res) {
+        if (REC.fromDaw) { recReset(); REC.fromDaw = false; REC.where = null; }
         closeModal();
         if (own) {
           S.build.picks.push(res.row.id);
@@ -2038,6 +2148,9 @@ document.addEventListener('click', function (e) {
   if (ex) { e.stopPropagation(); openModal(null, ex.dataset.extend); return; }
   var sr = e.target.closest('[data-src]');
   if (sr) { setSrc(sr.dataset.src); return; }
+  if (e.target.closest('[data-dawrec]')) { dawRecStart(); return; }
+  if (e.target.closest('[data-dawsend]')) { dawRecSend(); return; }
+  if (e.target.closest('[data-dawdrop]')) { dawRecDiscard(); return; }
   var rc = e.target.closest('[data-rec]');
   if (rc) {
     var what = rc.dataset.rec;
@@ -2097,6 +2210,7 @@ document.addEventListener('click', function (e) {
   if (pv) { preview(findTake(pv.dataset.prev)); return; }
   var vw = e.target.closest('[data-view]');
   if (vw) {
+    if (REC.state === 'recording' || REC.state === 'asking') recCancel();
     stopAll();
     S.override = null; S.view = vw.dataset.view;
     if (S.view === 'build') S.trial = null;
@@ -2287,6 +2401,7 @@ document.addEventListener('change', function (e) {
     if (el('countin-text')) countInLabel();
     return;
   }
+  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; return; }
   if (e.target.dataset.hear) {
     if (e.target.dataset.hear === 'click') REC.click = e.target.checked;
     else REC.hear[e.target.dataset.hear] = e.target.checked;

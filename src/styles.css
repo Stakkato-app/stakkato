@@ -745,3 +745,15 @@
   .seedwave i{min-width:0}
   .seed > div{min-width:0}
   @media (max-width:600px){ .seedwave i:nth-child(2n){display:none} .seedwave{height:48px} }
+
+  /* ---------- recording on the grey track ---------- */
+  .addrow .t-head{gap:8px}
+  .rec-role{min-height:34px;padding:0 8px;border:2px solid var(--line);border-radius:3px;background:var(--paper);font-size:13px;font-weight:600;max-width:100%}
+  .a-lane em{font-style:normal;font-weight:700;color:var(--ink)}
+  .a-lane .rec-err{flex-basis:100%;color:var(--red);font-weight:600}
+  .rec-lane{position:relative;min-height:96px;background:repeating-linear-gradient(135deg,#E9E6DD 0 10px,#EFECE4 10px 20px)}
+  .rec-lane canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .rec-float{position:absolute;top:8px;right:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 16px)}
+  .addrow.rec-on .t-head{background:var(--tint);box-shadow:inset 3px 0 0 var(--red)}
+  .addrow .rec-status{font-size:15px}
+  @media (max-width:600px){ .rec-lane{min-height:132px} .rec-float{top:auto;bottom:8px;left:8px;right:8px;justify-content:flex-start} .rec-float .btn{flex:1 1 auto} }

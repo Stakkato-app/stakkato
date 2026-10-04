@@ -95,7 +95,7 @@ There's no automated test suite yet. Before shipping a change, run through this 
 3. A sees B's take appear without reloading, lets it in, and it shows in the line-up for both.
 4. A third user sends a take for the same or another role; B (now in the line-up) sees For/Against buttons and votes; A sees the tally.
 5. Someone builds and saves a version; others can play, like and fork it. In their version, B records or uploads a take of their own (it goes straight in, nobody approves it), then sends it to the creator from the picker; A sees it waiting. Stopping a recording early and keeping it gives a full-length take that is silent after the stop. A renames the project in the field above the original track and B sees the new name.
-6. B pitches a new part with the + on the song's edge; A hears it in place, keeps it, sets a crossfade and drags a fade handle; B sees the song get longer and can layer on that part. Recording in the page and the click-track download work.
+6. B pitches a new part with the + on the song's edge; A hears it in place, keeps it, sets a crossfade and drags a fade handle; B sees the song get longer and can layer on that part. Recording in the page works both in the pop-up and on the grey track at the bottom of the DAW (the playhead runs over the other tracks and the take is drawn as it comes in; "Send it in" / "Add it to my version" opens the pop-up with the take loaded), and the click-track download works.
 7. A deletes a take (two clicks on the bin); it disappears for everyone.
 8. A closes the session; everyone moves to the release view; a mix can be uploaded; reactions count once per person.
 
