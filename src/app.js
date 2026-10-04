@@ -793,7 +793,7 @@ function recCleanup() {
   if (REC.stream) REC.stream.getTracks().forEach(function (tr) { tr.stop(); });
   REC.stream = null;
 }
-function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.partial = 0; REC.peaks = null; }
+function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.warn = ''; REC.partial = 0; REC.peaks = null; }
 function recBacking() {
   return hearable().filter(function (t) { return REC.hear[t.id] !== false && (REC.where !== 'daw' || audible(t)); });
 }
@@ -814,35 +814,96 @@ function playBacking(list, T, into) {
     into.push(s); REC.nodes.push(g);
   });
 }
+/* The microphone is captured by an AudioWorklet (off the page's main thread, so redrawing
+   the page can't make it drop audio). Browsers without it fall back to ScriptProcessorNode.
+   The worklet hands over blocks of 2048 samples with the context time of their first sample. */
+var REC_WORKLET = "class StackatoRec extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0;this.t=0}" +
+  "process(inputs){var ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(var i=0;i<ch.length;i++){if(this.n===0)this.t=currentTime+i/sampleRate;" +
+  "this.b[this.n++]=ch[i];if(this.n===this.b.length){this.port.postMessage({t:this.t,d:this.b},[this.b.buffer]);this.b=new Float32Array(2048);this.n=0}}return true}}" +
+  "registerProcessor('stackato-rec',StackatoRec);";
+function recWorklet(a) {
+  if (!a.audioWorklet || typeof AudioWorkletNode === 'undefined') return Promise.reject(new Error('no worklet'));
+  if (!a.__stackatoRec) {
+    var url = URL.createObjectURL(new Blob([REC_WORKLET], { type:'application/javascript' }));
+    a.__stackatoRec = a.audioWorklet.addModule(url);
+  }
+  return a.__stackatoRec;
+}
+/* ---------- which input to record from ---------- */
+var MIC_KEY = 'stackato:mic';
+function savedMic() { try { return localStorage.getItem(MIC_KEY) || ''; } catch (e) { return ''; } }
+function rememberMic(id) { try { if (id) localStorage.setItem(MIC_KEY, id); else localStorage.removeItem(MIC_KEY); } catch (e) {} }
+S.mics = [];
+function micOptions() {
+  var cur = savedMic();
+  return '<option value="">Default input</option>' + S.mics.map(function (m, i) {
+    return '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' + esc(m.label || ('Input ' + (i + 1))) + '</option>';
+  }).join('');
+}
+function micPicker() { return '<label class="mini mic"><span>input</span><select class="mic-pick">' + micOptions() + '</select></label>'; }
+/* labels only show once the browser has been allowed to use a microphone */
+function refreshMics() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  navigator.mediaDevices.enumerateDevices().then(function (list) {
+    S.mics = list.filter(function (d) { return d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'; })
+      .map(function (d) { return { id:d.deviceId, label:d.label }; });
+    [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.innerHTML = micOptions(); });
+  }).catch(function () {});
+}
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', refreshMics);
+function openMic() {
+  var base = { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
+  var id = savedMic();
+  var want = id ? Object.assign({ deviceId:{ exact:id } }, base) : base;
+  return navigator.mediaDevices.getUserMedia({ audio:want }).catch(function (err) {
+    /* the chosen input is gone: forget it and use the default */
+    if (id && err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) { rememberMic(''); return navigator.mediaDevices.getUserMedia({ audio:base }); }
+    throw err;
+  });
+}
 function recStart() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     REC.err = 'This browser does not give pages access to a microphone.'; renderRec(); return;
   }
   stopAll();
-  REC.err = ''; REC.state = 'asking'; renderRec();
-  navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } })
-  .then(function (stream) {
-    var a = ac(); a.resume();
+  REC.err = ''; REC.warn = ''; REC.state = 'asking'; renderRec();
+  var a = ac(); a.resume();
+  openMic().then(function (stream) {
     REC.stream = stream;
-    var src = a.createMediaStreamSource(stream);
-    var proc = a.createScriptProcessor(4096, 1, 1);
+    refreshMics();
+    return recWorklet(a).then(function () { return { stream:stream, worklet:true }; }, function () { return { stream:stream, worklet:false }; });
+  }).then(function (got) {
+    if (REC.state !== 'asking') { got.stream.getTracks().forEach(function (tr) { tr.stop(); }); return; }
+    var src = a.createMediaStreamSource(got.stream);
     var sink = a.createGain(); sink.gain.value = 0;
-    src.connect(proc); proc.connect(sink); sink.connect(a.destination);
-    REC.nodes = [src, proc, sink];
     var chunks = [], bar = barSeconds(), extend = M.mode === 'extend';
     var countIn = S.countIn, t0 = a.currentTime + 0.4, songStart = t0 + countIn * bar;
     var fixed = extend ? 0 : secLen(M.sec);
-    REC.songStart = songStart; REC.fixed = fixed; REC.level = 0;
-    proc.onaudioprocess = function (e) {
-      var d = e.inputBuffer.getChannelData(0), pk = 0;
+    REC.songStart = songStart; REC.fixed = fixed; REC.level = 0; REC.peak = 0;
+    function onChunk(d, t, sr) {
+      var pk = 0;
       for (var i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > pk) pk = v; }
       REC.level = Math.max(pk, REC.level * 0.85);
+      if (t >= songStart && pk > REC.peak) REC.peak = pk;
       /* eight sub-peaks per chunk, so the take can be drawn finely while it comes in */
       var pks = [], seg = Math.ceil(d.length / 8);
       for (var q = 0; q < 8; q++) { var m = 0; for (var k = q * seg; k < Math.min(d.length, (q + 1) * seg); k++) { var u = Math.abs(d[k]); if (u > m) m = u; } pks.push(m); }
-      chunks.push({ t: e.playbackTime - d.length / e.inputBuffer.sampleRate, d: new Float32Array(d), pks: pks,
-                    dur: d.length / e.inputBuffer.sampleRate });
-    };
+      chunks.push({ t:t, d:d, pks:pks, dur:d.length / sr });
+    }
+    if (got.worklet) {
+      var node = new AudioWorkletNode(a, 'stackato-rec', { numberOfInputs:1, numberOfOutputs:1, channelCount:1, channelCountMode:'explicit' });
+      node.port.onmessage = function (e) { onChunk(e.data.d, e.data.t, a.sampleRate); };
+      src.connect(node); node.connect(sink); sink.connect(a.destination);
+      REC.nodes = [src, node, sink];
+    } else {
+      var proc = a.createScriptProcessor(4096, 1, 1);
+      proc.onaudioprocess = function (e) {
+        var d = e.inputBuffer.getChannelData(0);
+        onChunk(new Float32Array(d), e.playbackTime - d.length / e.inputBuffer.sampleRate, e.inputBuffer.sampleRate);
+      };
+      src.connect(proc); proc.connect(sink); sink.connect(a.destination);
+      REC.nodes = [src, proc, sink];
+    }
     /* what you hear: the click and, for a layer, the chosen tracks from bar 1 */
     if (REC.click) {
       var cs = a.createBufferSource();
@@ -858,6 +919,7 @@ function recStart() {
     if (fixed) REC.timer = setTimeout(recFinish, (songStart + fixed - a.currentTime + 0.25) * 1000);
     renderRec();
   }).catch(function (err) {
+    recCleanup();
     REC.state = 'idle';
     REC.err = (err && err.name === 'NotAllowedError')
       ? 'The microphone was blocked. Allow it in your browser, or upload a file instead.'
@@ -881,11 +943,20 @@ function recFinish() {
     renderRec(); return;
   }
   REC.partial = REC.fixed && played < REC.fixed - 0.25 ? played : 0;
-  var out = new Float32Array(Math.round(len * sr));
+  /* Blocks are laid back to back, sample-exact: only the first block's timestamp places the
+     take (timestamps jitter a little, and placing every block by its own left tiny gaps and
+     overlaps you could hear). If a block really went missing, the next one resyncs to its time. */
+  var out = new Float32Array(Math.round(len * sr)), cursor = null;
   REC.chunks.forEach(function (c) {
     var at = Math.round((c.t - from) * sr);
-    for (var i = 0; i < c.d.length; i++) { var j = at + i; if (j >= 0 && j < out.length) out[j] = c.d[i]; }
+    if (cursor === null || Math.abs(at - cursor) > c.d.length) cursor = at;
+    for (var i = 0; i < c.d.length; i++) { var j = cursor + i; if (j >= 0 && j < out.length) out[j] = c.d[i]; }
+    cursor += c.d.length;
   });
+  /* a very quiet take usually means the wrong input or channel (a DI channel, for one) */
+  if (REC.peak > 0 && REC.peak < 0.06)
+    REC.warn = 'This came in very quiet (peak ' + Math.round(20 * Math.log10(REC.peak)) + ' dB). On an interface with many channels, like a Quad Cortex, ' +
+      'the browser records the first channel, which is often the dry DI. Send your processed sound there (Quad Cortex: I/O settings, DRY/WET for USB 1/2) or pick another input.';
   var buf = a.createBuffer(1, out.length, sr);
   buf.copyToChannel(out, 0);
   REC.buf = buf;
@@ -1046,7 +1117,7 @@ function renderRec() {
         '<button class="btn btn-sm" type="button" data-rec="listen">Hear your take</button>' +
         (extend ? '' : '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the backing</button>') +
         '<button class="btn btn-sm" type="button" data-rec="again">Record again</button>' +
-      '</div></div>' + err;
+      '</div></div>' + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
     return;
   }
   var list = extend ? '' : '<div class="rec-hear"><span class="rec-lbl">What you hear while recording</span>' +
@@ -1059,6 +1130,7 @@ function renderRec() {
     '<div class="rec-row">' +
       '<label class="rec-opt"><input type="checkbox" data-hear="click"' + (REC.click ? ' checked' : '') + '><span>Click</span></label>' +
       '<label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
+      micPicker() +
     '</div>' +
     '<p class="tiny muted">Wear headphones, otherwise the backing ends up in your take. ' +
       (extend ? 'Stop whenever your part is done.' : 'Recording starts on the first beat of ' + esc((section(M.sec) || section('core')).label) +
@@ -1210,6 +1282,8 @@ function openSeedRec() {
   el('sr-time').innerHTML = SEED_TIMES.map(function (t) { return '<option' + (t === (S.seedTime || '4/4') ? ' selected' : '') + '>' + t + '</option>'; }).join('');
   el('sr-countin').innerHTML = countInOptions();
   el('sr-click').checked = REC.click !== false;
+  el('sr-mic').innerHTML = micOptions();
+  refreshMics();
   el('sr-err').classList.remove('on');
   recReset(); REC.where = 'seed'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
   renderSeedPop();
@@ -1265,7 +1339,8 @@ function renderSeedPop() {
     box.innerHTML = '<b>Recorded ' + clockMs(REC.buf.duration) + ' at ' + S.seedBpm + ' bpm, ' + esc(S.seedTime) + '</b>' +
       '<canvas id="seed-canvas"></canvas>' +
       '<div class="rec-acts"><button class="btn btn-sm" type="button" data-rec="listen">' + I_PLAY + ' Hear it</button>' +
-      '<button class="btn btn-sm" type="button" data-seedrec="1">Record again</button></div>' + err;
+      '<button class="btn btn-sm" type="button" data-seedrec="1">Record again</button></div>' +
+      (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
   } else {
     box.className = 'seed-rec';
     box.innerHTML = '<button class="btn btn-ember rec-go" type="button" data-seedrec="1"><span class="rec-dot"></span> Start recording</button>' +
@@ -1661,7 +1736,8 @@ function addRowInner(building) {
       '<button class="btn btn-sm btn-ember" type="button" data-dawsend="1">' + (building ? 'Add it to my version' : 'Send it in') + '</button>' +
       '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the rest</button>' +
       '<button class="btn btn-sm" type="button" data-dawrec="1">Record again</button>' +
-      '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>';
+      '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>' +
+      (REC.warn ? '<p class="rec-warn lane-warn">' + esc(REC.warn) + '</p>' : '');
   } else {
     head = '<div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
       '<div><b>Your layer</b><span class="tiny muted">' + (building ? 'only in your version' : 'for the project') + '</span></div></div>' +
@@ -1673,9 +1749,10 @@ function addRowInner(building) {
         : 'Play along and record your layer right here, or upload a file. The creator decides if it gets in.') +
       ' <em>Wear headphones.</em></span>' +
       '<button class="btn btn-ember" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
-      '<button class="btn" type="button" ' + (building ? 'data-own=""' : 'data-apply=""') + '>Upload a file</button>' + err + '</div>';
+      '<button class="btn" type="button" ' + (building ? 'data-own=""' : 'data-apply=""') + '>Upload a file</button>' +
+      micPicker() + err + '</div>';
   }
-  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane">' + lane + '</div>');
+  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
@@ -2716,6 +2793,11 @@ document.addEventListener('change', function (e) {
     return;
   }
   if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; return; }
+  if (e.target.classList.contains('mic-pick')) {
+    rememberMic(e.target.value);
+    [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.value = e.target.value; });
+    return;
+  }
   if (e.target.dataset.hear) {
     if (e.target.dataset.hear === 'click') REC.click = e.target.checked;
     else REC.hear[e.target.dataset.hear] = e.target.checked;
@@ -2782,3 +2864,4 @@ function boot() {
   }).catch(oops);
 }
 boot();
+refreshMics();

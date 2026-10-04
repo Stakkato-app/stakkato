@@ -140,4 +140,4 @@ Then email the preview URL to the collaborator:
 - Every session is listed at `/songs`, and anyone can read it and its audio. There's no private-session mode.
 - The host can replace the seed with a different length after takes exist; nothing stops that.
 - Deleted takes keep their audio in Storage (public URL still works).
-- Recording in the page uses `ScriptProcessorNode` and needs headphones; latency is compensated only by the browser's reported output latency.
+- Recording in the page captures with an `AudioWorklet` (falls back to `ScriptProcessorNode` where there is none) and stitches the blocks back to back; it needs headphones, and latency is compensated only by the browser's reported output latency. It records the first channel of the chosen input (the input picker is remembered per browser under `stackato:mic`); on multi-channel interfaces that is often a dry DI channel, so a very quiet take shows a warning.

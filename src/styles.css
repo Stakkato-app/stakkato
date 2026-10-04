@@ -858,3 +858,12 @@
   #sr-rec{max-width:none}
   #sr-rec .rec-go{min-height:50px;padding:0 28px;font-size:16px}
   @media (max-width:520px){ .sr-two{grid-template-columns:1fr} .db-acts .btn{flex:1 1 100%} }
+
+  /* input picker and the "very quiet" warning in the recorders */
+  .mini.mic select{max-width:220px;text-overflow:ellipsis}
+  .rec-warn{margin:0;padding:10px 12px;border-left:3px solid var(--ember);background:#FFF1E8;color:var(--ink);font-size:13px;line-height:1.45;text-align:left}
+  /* the warning sits under the buttons; the waveform keeps the top of the lane */
+  .rec-lane.has-warn{min-height:190px}
+  .rec-lane.has-warn canvas{height:96px;bottom:auto}
+  .rec-lane .lane-warn{position:absolute;left:8px;right:8px;top:104px;margin:0;max-width:760px}
+  @media (max-width:600px){ .rec-lane.has-warn{min-height:300px} .rec-lane.has-warn .rec-float{top:auto;bottom:8px} }
