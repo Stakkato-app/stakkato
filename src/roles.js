@@ -6,7 +6,7 @@
 
 export var ROLES = [
   { id:'drums',  label:'Drums',         slots:Infinity, color:'--drums',  icon:'drums'  },
-  { id:'guitar', label:'Rhythm guitar', slots:Infinity, color:'--guitar', icon:'guitar' },
+  { id:'guitar', label:'Guitar',        slots:Infinity, color:'--guitar', icon:'guitar' },
   { id:'bass',   label:'Bass',          slots:Infinity, color:'--bass',   icon:'bass'   },
   { id:'lead',   label:'Lead',          slots:Infinity, color:'--lead',   icon:'guitar' },
   { id:'atmos',  label:'Atmosphere',    slots:Infinity, color:'--atmos',  icon:'atmos'  },
