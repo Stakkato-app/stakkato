@@ -833,3 +833,15 @@
   .gate .g-foot .btn{border-color:var(--ember);white-space:nowrap;min-width:0}
   .gate .g-foot .btn span{overflow:hidden;text-overflow:ellipsis}
   .gate .g-foot .btn:hover:not(:disabled){border-color:var(--ember-ink);background:#FFF1E8}
+
+  /* ---------- recording the first track on the empty session page ---------- */
+  .seed-or{display:flex;align-items:center;gap:12px;width:100%;max-width:560px;margin:18px auto 4px;color:var(--muted);font-size:13px;font-weight:700;
+    letter-spacing:.12em;text-transform:uppercase}
+  .seed-or::before,.seed-or::after{content:"";flex:1;border-top:1px solid var(--line)}
+  .seed-rec{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:560px;margin:0 auto}
+  .seed-rec .rec-row{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+  .seed-rec .mini input{width:72px}
+  .seed-rec canvas{display:block;width:100%;height:64px;background:var(--paper);border:1px solid var(--line);border-radius:4px}
+  .seed-rec .rec-meterwrap{width:100%}
+  .seed-rec .rec-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .seed-rec.done b{font-family:var(--disp);font-size:18px}
