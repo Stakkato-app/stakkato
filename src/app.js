@@ -69,7 +69,7 @@ function placeholderSeed() {
   return { id:'seed', dbId:null, by:'', roleId:'seed', note:'', len:0, vol:1, mute:false, solo:false, votes:{}, fin:0, fout:0, xfade:0 };
 }
 function blank() {
-  return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], trial:null, title:'Untitled', mix:null,
+  return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], own:[], trial:null, title:'Untitled', mix:null,
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
            pitches:[], parts:[], trialPitch:null, countIn:2,
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
@@ -108,9 +108,24 @@ function live(t) { return t && t.status !== 'deleted'; }
 function trialTake() {
   return S.trial ? S.applicants.filter(function (t) { return t.id === S.trial; })[0] : null;
 }
+/* takes you can pick for your own version: everything sent to the project, plus what
+   you recorded for your own versions (other people's own takes stay in their versions) */
 function pool() {
-  return S.members.concat(S.applicants, S.archive.map(function (a) { return a.take; }))
+  return S.members.concat(S.applicants, S.archive.map(function (a) { return a.take; }), S.own.filter(mine))
     .filter(function (t) { return t && t.buf; });
+}
+function mine(t) { return !!(t && me && t.authorId === me.id); }
+function isOwn(t) { return !!(t && t.status === 'own'); }
+/* where a take stands, as shown in your version */
+function standing(t) {
+  if (S.members.indexOf(t) > -1) return 'in the project';
+  if (S.applicants.indexOf(t) > -1) return 'waiting';
+  if (isOwn(t)) return mine(t) ? 'your own recording' : 'own recording';
+  return 'vetoed';
+}
+/* is this take used by a saved version or the one you are building? */
+function picked(id) {
+  return S.build.picks.indexOf(id) > -1 || S.versions.some(function (v) { return v.picks.indexOf(id) > -1; });
 }
 function byIds(ids) {
   return ids.map(function (id) { return findTake(id); }).filter(function (t) { return live(t) && t.buf; });
@@ -251,6 +266,7 @@ function applySnapshot(sess, snap) {
   function byJoin(a, b) { return String(a.joinedAt).localeCompare(String(b.joinedAt)); }
   S.members = layers.filter(function (t) { return t.status === 'in'; }).sort(byJoin);
   S.applicants = layers.filter(function (t) { return t.status === 'waiting'; });
+  S.own = layers.filter(function (t) { return t.status === 'own'; });
   S.archive = layers.filter(function (t) { return t.status === 'archived'; }).map(function (t) {
     return { take:t, why: t.why === 'vetoed' ? (isHost() ? 'vetoed by you' : 'vetoed by the creator') : (t.why || 'archived') };
   });
@@ -318,6 +334,7 @@ function loadMissingAudio() {
     if (t.status === 'mix' || t.status === 'deleted' || t.buf || t.loading || t.failed || !t.url) return;
     if (t.roleId === 'seed' && t !== S.seed) return;              // an old, replaced seed
     if (t.roleId === 'part' && t.status === 'archived') return;   // a part nobody hears any more
+    if (isOwn(t) && !mine(t) && !picked(t.id)) return;            // someone's own take no version uses
     t.loading = true;
     loadQueue.push(t);
   });
@@ -600,7 +617,9 @@ function uploadTake(file, buf, o) {
       part_pos: o.pos || null, section_id: o.sec || null,
       an_bpm: an && an.tempo ? an.tempo.bpm : null, an_key: an && an.key ? an.key.key : null
     }).then(function (row) {
-      var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{} };
+      var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{},
+                                roleId:row.role_id, status:row.status, by:row.author_name, authorId:row.author_id,
+                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0 };
       setBuffer(t, buf);
       file.arrayBuffer().then(function (ab) { t.bytes = new Uint8Array(ab); });
       return { row:row, analysis:an };
@@ -732,12 +751,14 @@ function recCleanup() {
   if (REC.stream) REC.stream.getTracks().forEach(function (tr) { tr.stop(); });
   REC.stream = null;
 }
-function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; }
+function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.partial = 0; }
 function recBacking() {
   return hearable().filter(function (t) { return REC.hear[t.id] !== false; });
 }
+/* what can play under a recording: the project, or for your own version the takes you picked */
 function hearable() {
-  return [S.seed].concat(S.members.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
+  var layers = M.mode === 'own' ? byIds(S.build.picks) : S.members;
+  return [S.seed].concat(layers.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
 }
 /* play backing so that the chosen section starts at audio time T */
 function playBacking(list, T, into) {
@@ -796,14 +817,22 @@ function recStart() {
     renderRec();
   });
 }
+/* Stopping a fixed-length layer early keeps what was played: the take still runs the full
+   length of its section, and everything after the stop is silence. */
 function recFinish() {
   if (REC.state !== 'recording') return;
   var a = ac(), sr = a.sampleRate;
   var lat = (a.outputLatency || 0) + (a.baseLatency || 0);
   var from = REC.songStart + lat;
-  var len = REC.fixed || Math.max(0, a.currentTime - REC.songStart);
+  var played = Math.max(0, a.currentTime - REC.songStart);
+  var len = REC.fixed || played;
   recCleanup();
-  if (len < 0.5) { REC.state = 'idle'; REC.err = 'That was too short to keep.'; renderRec(); return; }
+  if (played < 0.5) {
+    REC.state = 'idle';
+    REC.err = REC.fixed && played === 0 ? 'Nothing was recorded yet, the count-in was still running.' : 'That was too short to keep.';
+    renderRec(); return;
+  }
+  REC.partial = REC.fixed && played < REC.fixed - 0.25 ? played : 0;
   var out = new Float32Array(Math.round(len * sr));
   REC.chunks.forEach(function (c) {
     var at = Math.round((c.t - from) * sr);
@@ -865,16 +894,19 @@ function renderRec() {
       (REC.state === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
       '<div class="rec-meterwrap"><i id="rec-meter"></i></div>' +
       '<div class="rec-acts">' + (REC.fixed
-        ? '<button class="btn btn-sm" type="button" data-rec="cancel">Stop and throw away</button>'
+        ? '<button class="btn btn-ember" type="button" data-rec="finish">Stop and keep it</button>' +
+          '<button class="btn btn-sm" type="button" data-rec="cancel">Stop and throw away</button>'
         : '<button class="btn btn-ember" type="button" data-rec="finish">Stop recording</button>' +
           '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button>') +
-      '</div>' + (REC.fixed ? '<p class="tiny muted">It stops by itself at the end of the track.</p>' : '') + '</div>';
+      '</div>' + (REC.fixed ? '<p class="tiny muted">It stops by itself at the end of the track. Stop earlier and you keep what you played; the rest of the take is silence.</p>' : '') + '</div>';
     renderRecStatus();
     return;
   }
   if (REC.state === 'done') {
-    box.innerHTML = '<div class="rec-done"><b>Recorded ' + clockMs(REC.buf.duration) + '</b>' +
-      '<span class="tiny muted">Cut to start exactly at bar 1' + (REC.fixed ? ' and end with the track' : '') + '.</span>' +
+    box.innerHTML = '<div class="rec-done"><b>Recorded ' + (REC.partial ? clockMs(REC.partial) + ' of ' + clockMs(REC.fixed) : clockMs(REC.buf.duration)) + '</b>' +
+      '<span class="tiny muted">' + (REC.partial
+        ? 'You stopped early. The rest of the take is silence, so it still lines up with the track.'
+        : 'Cut to start exactly at bar 1' + (REC.fixed ? ' and end with the track' : '') + '.') + '</span>' +
       '<div class="rec-acts">' +
         '<button class="btn btn-sm" type="button" data-rec="listen">Hear your take</button>' +
         (extend ? '' : '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the backing</button>') +
@@ -985,7 +1017,7 @@ var STEPS = {
       ['Listen to the track', 'Tempo, key and length come from the creator’s track. Every layer has to fit them.'],
       ['Add your layer', 'Grab the click and the other takes, play along in your DAW, or record right here. One instrument per layer.'],
       ['The creator decides', 'Your take waits until the creator lets it in. Once you are in the project, your vote steers what comes next.'],
-      ['Build your own version', 'Not picked? Use any take, yours included, to make your own version of the song.']
+      ['Or make your own version', 'Use any take, record your own parts on top, and save your mix. Send a part to the creator whenever you like.']
     ]
   }
 };
@@ -1013,9 +1045,49 @@ function renderInstruments() {
     (chips || '<span class="tiny muted">Nothing on top yet.</span>');
 }
 function canDropSeed() { return asCreator() && isOpen() && !S.seedBusy; }
+/* the project's name: what the creator called it, or "<name>'s track" until they do */
+function projName() {
+  if (S.title && S.title !== 'Untitled') return S.title;
+  return S.seed.by ? S.seed.by + '’s track' : 'Untitled';
+}
+/* the creator names (and renames) the project here; everyone else sees the name */
+function renderProjTitle() {
+  var box = el('projtitle');
+  if (!box) return;
+  box.style.display = hasSeed() && S.session ? '' : 'none';
+  if (!hasSeed() || !S.session) { box.innerHTML = ''; return; }
+  if (isHost()) {
+    if (!el('proj-title')) {
+      box.innerHTML = '<label class="pt-lbl" for="proj-title">Project name</label>' +
+        '<input class="projname" id="proj-title" maxlength="120" autocomplete="off" placeholder="Name your project" aria-describedby="proj-hint">' +
+        '<span class="tiny muted" id="proj-hint">Click to rename. Everyone sees the new name right away.</span>';
+    }
+    var f = el('proj-title');
+    if (document.activeElement !== f) f.value = S.title && S.title !== 'Untitled' ? S.title : '';
+    f.placeholder = 'Name your project, e.g. ' + projName();
+  } else {
+    box.innerHTML = '<div class="pt-lbl">Project</div><h2 class="projname">' + esc(projName()) + '</h2>';
+  }
+}
+/* the big invitation to make your own version: most people start by playing with the takes */
+function renderOwnCta() {
+  var box = el('owncta');
+  if (!box) return;
+  box.style.display = hasSeed() && S.session ? '' : 'none';
+  if (!hasSeed() || !S.session) { box.innerHTML = ''; return; }
+  var building = S.view === 'build' && !S.override, n = pool().length;
+  box.innerHTML = '<div class="oc-copy"><div class="kicker">Make it yours</div>' +
+      '<h2>Make your own version</h2>' +
+      '<p>Use every take in this project' + (n ? ' (' + n + ' so far)' : '') + ', the ones that made it and the ones that didn’t. ' +
+      'Record or upload your own parts on top, as many as you like, and save your mix. Nobody has to let you in.</p></div>' +
+    '<div class="oc-acts">' +
+      '<button class="btn btn-ember btn-lg" type="button" data-ownstart="1">' + (building ? 'Go to your version' : 'Start your own version') + '</button>' +
+      (isOpen() ? '<button class="btn btn-lg oc-alt" type="button" data-apply="">Add a layer to the project</button>' : '') +
+    '</div>';
+}
 function renderSeed() {
   var s = S.seed, host = isHost(), loading = loadingCount(), ri = seedInstr();
-  el('session-name').textContent = S.session ? S.title : 'New session';
+  el('session-name').textContent = S.session ? projName() : 'New session';
   el('session-sub').textContent = (hasSeed() ? 'track loaded, ' + fmt(s.len) : 'no track yet') +
     (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', closed' : '');
   el('seedpanel').className = 'seed' + (hasSeed() ? '' : ' empty');
@@ -1104,8 +1176,11 @@ function renderDaw() {
       '<button class="btn btn-sm" type="button" data-fork="' + S.override.id + '">Build on this one</button>' +
       '<button class="btn btn-sm" type="button" data-view="lineup">Back to the main project</button></div>';
   } else if (S.view === 'build') {
+    var mineOwn = S.own.filter(mine).length;
     banner = '<div class="listening build"><span><b>Your version.</b> The original track is always in. Pick any take below, ' +
-      'including ones that were vetoed or are still waiting.</span></div>';
+      'including ones that were vetoed or are still waiting, or record your own.' +
+      (mineOwn && isOpen() ? ' Like one of your own recordings? Send it to the creator from the list below.' : '') + '</span>' +
+      '<button class="btn btn-sm btn-ember" type="button" data-own="">+ Record or upload your own</button></div>';
   }
   if (!list.length) {
     el('daw').innerHTML = dawTabs() + banner + '<div class="empty-state"><b>' + (hasSeed() ? 'Loading audio' : 'No audio yet') + '</b>' +
@@ -1130,7 +1205,7 @@ function renderDaw() {
     var status = '';
     if (isPart) status = isPitch ? 'pitch, ' + t.pos : t.pos;
     else if (!lineupView) {
-      if (t.id !== 'seed' && S.members.indexOf(t) < 0) status = S.applicants.indexOf(t) > -1 ? 'waiting' : 'vetoed';
+      if (t.id !== 'seed' && S.members.indexOf(t) < 0) status = isOwn(t) ? 'own' : standing(t);
     }
     return '<div class="track' + (c.mute ? ' muted-t' : '') + (c.solo ? ' solo-t' : '') + (isTrial || isPitch ? ' trial' : '') + (isPart ? ' part' : '') + '">' +
       '<div class="t-head">' +
@@ -1279,17 +1354,20 @@ function renderPicker() {
     var takes = all.filter(function (t) { return t.roleId === r.id; });
     var items = takes.length ? takes.map(function (t) {
       var picked = S.build.picks.indexOf(t.id) > -1;
-      var status = S.members.indexOf(t) > -1 ? 'in the project' : (S.applicants.indexOf(t) > -1 ? 'waiting' : 'vetoed');
-      var on = only === t.id;
-      return '<li class="pk' + (picked ? ' picked' : '') + '">' +
+      var status = standing(t);
+      var on = only === t.id, sendable = isOwn(t) && mine(t) && isOpen();
+      return '<li class="pk' + (picked ? ' picked' : '') + (isOwn(t) ? ' own' : '') + '">' +
         '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear ' + esc(t.by) + ' on its own">' +
           (on ? I_PAUSE : I_PLAY) + '</button>' +
         '<div class="pk-who"><b>' + esc(t.by) + '</b><span>' + status + (secOf(t) !== 'core' ? ', ' + secTag(t) : '') + '</span></div>' +
         '<button class="btn btn-sm pk-btn' + (picked ? ' on' : '') + '" type="button" data-pick="' + t.id + '" aria-pressed="' + picked + '">' +
-          (picked ? 'In' : 'Add') + '</button></li>';
+          (picked ? 'In' : 'Add') + '</button>' +
+        (sendable ? '<button class="pk-send" type="button" data-sendown="' + t.id + '" title="The creator hears it and lets it into the project, or not">Send to the creator</button>' : '') +
+        '</li>';
     }).join('') : '<li class="empty">No takes yet.</li>';
     return '<div class="pk-col' + (takes.length ? '' : ' none') + '" style="color:' + col(r) + '"><div class="pk-head">' + ico(r.icon, col(r)) + '<b>' + r.label + '</b></div>' +
-      '<ul>' + items + '</ul></div>';
+      '<ul>' + items + '</ul>' +
+      '<button class="pk-rec" type="button" data-own="' + r.id + '">+ Record or upload ' + esc(r.label.toLowerCase()) + '</button></div>';
   }).join('');
 
   box.innerHTML =
@@ -1515,7 +1593,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm'];
+var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -1528,7 +1606,7 @@ function keepInputs(fn) {
   }
 }
 function render() {
-  keepInputs(function () { renderHow(); renderSeed(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
+  keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
 }
 function renderAll() {
   render();
@@ -1685,7 +1763,8 @@ el('seedpanel').addEventListener('drop', function (e) {
   if (f && canDropSeed()) loadSeed(f);
 });
 
-/* ---------- the add pop-up: a layer, or a new part to convince the creator ---------- */
+/* ---------- the add pop-up: a layer for the project, a new part to convince the creator,
+   or a take of your own that goes straight into your version ('own') ---------- */
 var lastFocus = null;
 var M = { mode:'layer', pos:'after', src:'file', sec:'core' };
 function fillRoles(sel) {
@@ -1699,7 +1778,9 @@ function roleHint() {
   if (M.mode === 'extend') return;
   var id = el('take-role').value, r = role(id), free = cap(id, M.sec) - inSong(id, M.sec).length;
   el('modal-ico').innerHTML = ico(r.icon, col(r));
-  el('role-hint').textContent = seedHolds(id, M.sec)
+  el('role-hint').textContent = M.mode === 'own'
+    ? 'It goes straight into your version, nobody has to let it in. Add as many as you like.'
+    : seedHolds(id, M.sec)
     ? 'The original track plays this part, so it cannot join the project. People can still use it in their own versions.'
     : free > 0
     ? 'There is room here. It lands in the waiting list for this instrument.'
@@ -1717,11 +1798,13 @@ function fillSections() {
 }
 function secHint() {
   var s = section(M.sec) || section('core');
-  el('modal-sub').textContent = 'One instrument. Dry, from the first beat of ' + s.label + ', exactly ' + fmt(s.len) + ' long.';
+  el('modal-sub').textContent = M.mode === 'own'
+    ? 'Only in your own version. One instrument, from the first beat of the original track, exactly ' + fmt(s.len) + ' long. You can send it to the creator later.'
+    : 'One instrument. Dry, from the first beat of ' + s.label + ', exactly ' + fmt(s.len) + ' long.';
   el('file-name').textContent = el('take-file').files.length ? el('take-file').files[0].name : 'wav or mp3, dry, ' + fmt(s.len) + ' long';
   if (REC.state === 'idle') renderRec();
 }
-function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : 'Send it in'; }
+function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : M.mode === 'own' ? 'Add it to my version' : 'Send it in'; }
 function setSrc(src) {
   M.src = src;
   [].forEach.call(document.querySelectorAll('[data-src]'), function (b) {
@@ -1740,11 +1823,11 @@ function countInLabel() {
   el('take-countin').disabled = !n;
   if (!n) el('take-countin').checked = false;
 }
-function openModal(roleId, extendPos) {
+function openModal(roleId, extendPos, own) {
   if (!hasSeed()) { flash('Drop an audio track first, it sets the length for everyone.'); return; }
-  if (!isOpen()) { flash('This session is closed.'); return; }
+  if (!own && !isOpen()) { flash('This session is closed.'); return; }
   lastFocus = document.activeElement;
-  M.mode = extendPos ? 'extend' : 'layer';
+  M.mode = extendPos ? 'extend' : own ? 'own' : 'layer';
   M.pos = extendPos || 'after';
   var ext = M.mode === 'extend';
   el('role-field').hidden = ext;
@@ -1758,11 +1841,12 @@ function openModal(roleId, extendPos) {
     el('note-label').textContent = 'Why the song needs this';
     el('take-note').placeholder = 'e.g. it needs a quiet intro before the riff kicks in';
   } else {
-    el('modal-head').textContent = 'Add a layer';
+    el('modal-head').textContent = own ? 'Add your own layer' : 'Add a layer';
     M.sec = 'core';
     fillRoles(roleId || ROLES[0].id);
     fillSections();
-    el('note-label').textContent = 'One line to the room';
+    if (own) el('sec-field').hidden = true;
+    el('note-label').textContent = own ? 'A note, for if you send it to the creator later' : 'One line to the room';
     el('take-note').placeholder = 'what you were going for';
     countInLabel();
   }
@@ -1832,17 +1916,22 @@ el('modal-send').addEventListener('click', function () {
           return refresh();
         }, upFail);
     }
-    var want = secLen(M.sec);
+    var want = secLen(M.sec), own = M.mode === 'own';
     if (want && Math.abs(len - want) > TOL)
       return fail('Your file is ' + fmt(len) + ', ' + (M.sec === 'core' ? 'the track' : 'that part') + ' is ' + fmt(want) + '.' +
         (S.countIn && !el('take-countin').checked && Math.abs(len - want - S.countIn * barSeconds()) < TOL
           ? ' It looks like it still has the count-in: tick the box above.' : ' Trim or pad it to match.'));
     rememberName(name);
-    return uploadTake(src.file, src.buf, { role:el('take-role').value, status:'waiting', name:name, note:note,
+    return uploadTake(src.file, src.buf, { role:el('take-role').value, status:own ? 'own' : 'waiting', name:name, note:note,
                                            sec:M.sec === 'core' ? null : M.sec, analyse:true })
-      .then(function () {
+      .then(function (res) {
         closeModal();
-        flash('It is waiting now. The creator lets it in or vetoes it.');
+        if (own) {
+          S.build.picks.push(res.row.id);
+          S.override = null; S.view = 'build';
+          refreshGains();
+          flash('It is in your version. Save the version to keep it, or send the take to the creator from the list.');
+        } else flash('It is waiting now. The creator lets it in or vetoes it.');
         return refresh();
       }, upFail);
   }).catch(function () { fail('That file could not be read.'); });
@@ -2038,6 +2127,31 @@ document.addEventListener('click', function (e) {
   if (n) { veto(S.applicants.filter(function (t2) { return t2.id === n.dataset.no; })[0]); return; }
   var ap = e.target.closest('[data-apply]');
   if (ap) { openModal(ap.dataset.apply); return; }
+  var ow = e.target.closest('[data-own]');
+  if (ow) {
+    if (S.view !== 'build' || S.override) { stopAll(); S.override = null; S.trial = null; S.view = 'build'; refreshGains(); render(); }
+    openModal(ow.dataset.own, null, true);
+    return;
+  }
+  if (e.target.closest('[data-ownstart]')) {
+    if (S.view !== 'build' || S.override) {
+      stopAll(); S.override = null; S.trial = null; S.view = 'build'; refreshGains(); render();
+      flash('Your version. Pick takes from every instrument, record your own, then save it.');
+    }
+    el('daw').scrollIntoView({ behavior:'smooth', block:'start' });
+    return;
+  }
+  var so2 = e.target.closest('[data-sendown]');
+  if (so2) {
+    var ot = findTake(so2.dataset.sendown);
+    if (!ot || !isOwn(ot) || !mine(ot)) return;
+    so2.disabled = true; so2.textContent = 'Sending...';
+    db.sendOwnTake(ot.dbId).then(function () {
+      flash('Sent. Your ' + role(ot.roleId).label.toLowerCase() + ' take is waiting for the creator, and stays in your version.');
+      return refresh();
+    }).catch(function (err) { so2.disabled = false; so2.textContent = 'Send to the creator'; oops(err); });
+    return;
+  }
   var react = e.target.closest('[data-react]');
   if (react && S.session && me && !S.reacted[react.dataset.react]) {
     var kind = react.dataset.react;
@@ -2069,8 +2183,9 @@ document.addEventListener('input', function (e) {
     clearTimeout(bpmTimer);
     bpmTimer = setTimeout(function () { patchSession({ bpm:S.meta.bpm, meta_from:'you' }); }, 600);
   }
-  if (e.target.id === 'song-title' && isHost()) {
-    S.title = e.target.value;
+  if ((e.target.id === 'song-title' || e.target.id === 'proj-title') && isHost()) {
+    S.title = e.target.value.trim() || 'Untitled';
+    el('session-name').textContent = projName();
     clearTimeout(titleTimer);
     titleTimer = setTimeout(function () { patchSession({ title:(S.title || 'Untitled').slice(0, 120) }); }, 600);
   }

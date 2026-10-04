@@ -51,7 +51,7 @@
   header{border-bottom:2px solid var(--ink);background:var(--paper);position:sticky;top:env(safe-area-inset-top,0px);z-index:30}
   .bar{display:flex;align-items:center;gap:20px;min-height:78px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;text-decoration:none}
-  .brand svg.logo{height:30px;width:auto;display:block}
+  .brand .logo{height:30px;width:auto;display:block}
   .session{font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:16px}
   .phases{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
   .phase{min-height:38px;padding:0 14px;border:2px solid var(--line);background:transparent;color:var(--muted);
@@ -212,7 +212,7 @@
     .proto-panel .deskonly{display:none}
     #proto-hint{width:100%;margin-left:0 !important}
     .wrap{padding:0 20px}
-    .brand svg.logo{height:26px}
+    .brand .logo{height:26px}
     .seed{grid-template-columns:auto 1fr}
     .facts{grid-column:1 / -1;text-align:left}
     .desk{grid-template-columns:1fr}
@@ -516,7 +516,7 @@
     /* header on one row: logo left, the two tabs right */
     .bar{flex-wrap:nowrap;min-height:0;padding-top:10px;padding-bottom:10px;gap:10px}
     .session{display:none}
-    .brand svg.logo{height:22px}
+    .brand .logo{height:22px}
     .phases{width:auto;margin-left:auto;flex-wrap:nowrap;gap:4px}
     .phase{min-height:36px;padding:0 10px;font-size:16px;gap:5px;white-space:nowrap}
     .phase span{display:none}
@@ -555,7 +555,7 @@
     .gate.apply .takes:has(> .empty){padding:0}
     .gate.apply .g-top{padding:12px 14px 10px}
     .gate.apply .g-foot{padding:8px 10px}
-    .pk-col.none{display:none}
+    .pk-col.none ul{display:none}
     .picker{padding:10px}
 
     /* pop-up as a sheet from the bottom */
@@ -667,3 +667,36 @@
     .song-facts,.song-when{grid-column:2;text-align:left;align-items:flex-start}
     .song-when{flex-direction:row;gap:10px;align-items:center}
   }
+
+  /* ---------- project name (the creator renames it here) ---------- */
+  .projtitle{display:flex;flex-direction:column;gap:4px;margin:0 0 14px}
+  .projtitle .pt-lbl{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ember-ink);font-weight:700}
+  .projtitle h2.projname{font-size:clamp(28px,3.4vw,44px)}
+  .projtitle input.projname{font-family:var(--disp);font-weight:800;letter-spacing:-.025em;line-height:1.1;font-size:clamp(28px,3.4vw,44px);
+    width:100%;max-width:900px;padding:4px 10px;margin-left:-12px;border:2px dashed var(--line-soft);border-radius:4px;background:transparent;color:var(--ink)}
+  .projtitle input.projname::placeholder{color:var(--muted);opacity:.7}
+  .projtitle input.projname:hover{border-color:var(--line)}
+  .projtitle input.projname:focus{border-color:var(--ember);border-style:solid;background:var(--paper);outline:none}
+
+  /* ---------- make your own version: the main invitation once a track is in ---------- */
+  .owncta{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px 36px;align-items:center;
+    background:var(--ink);color:var(--paper);border-radius:8px;padding:clamp(22px,3vw,36px) clamp(20px,3.4vw,44px);margin:6px 0 8px}
+  .owncta .kicker{color:var(--ember)}
+  .owncta h2{color:var(--paper);font-size:clamp(28px,3.2vw,42px);margin-top:6px}
+  .owncta p{color:#C9C3D6;margin-top:10px;max-width:68ch;font-size:16px}
+  .oc-acts{display:flex;flex-direction:column;gap:10px;min-width:260px}
+  .btn-lg{min-height:52px;padding:0 26px;font-size:17px}
+  .owncta .oc-alt{background:transparent;color:var(--paper);border-color:rgba(252,251,244,.35)}
+  .owncta .oc-alt:hover:not(:disabled){border-color:var(--paper)}
+  @media (max-width:760px){ .owncta{grid-template-columns:1fr} .oc-acts{min-width:0} }
+
+  /* ---------- your own takes in the version builder ---------- */
+  .pk{flex-wrap:wrap}
+  .pk.own .pk-who span{color:var(--ember-ink)}
+  .pk-send{flex-basis:100%;margin:2px 0 0 34px;padding:0;border:none;background:none;color:var(--ember-ink);font-size:12px;font-weight:700;
+    text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+  .pk-send:disabled{color:var(--muted);text-decoration:none;cursor:default}
+  .pk-rec{display:block;width:calc(100% - 12px);margin:0 6px 6px;min-height:34px;border:1.5px dashed var(--line);border-radius:3px;background:transparent;
+    color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
+  .pk-rec:hover{border-color:var(--ink);color:var(--ink)}
+  .listening.build .btn{flex:none}

@@ -105,6 +105,11 @@ export async function setFades(takeId, { fadeIn, fadeOut, xfade }) {
   return check(await supabase.rpc('set_fades', { p_take: takeId, p_in: fadeIn, p_out: fadeOut, p_xfade: xfade }));
 }
 
+/* An own take (recorded for your own version) goes to the creator as a waiting take. */
+export async function sendOwnTake(takeId) {
+  return check(await supabase.rpc('send_own_take', { p_take: takeId }));
+}
+
 /* "Deleting" marks the take as deleted; the row stays so realtime can report it. */
 export async function deleteTake(takeId) {
   return check(await supabase.rpc('delete_take', { p_take: takeId }));
