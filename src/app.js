@@ -79,6 +79,7 @@ function blank() {
   return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], own:[], trial:null, title:'Untitled', mix:null,
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
            pitches:[], parts:[], trialPitch:null, countIn:2, recRole:null,
+           comments:[], cmAvailable:true, cmDraft:null, cmOpen:null,
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
            meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
@@ -302,8 +303,15 @@ function applySnapshot(sess, snap) {
     if (me && l.user_id === me.id) liked[l.version_id] = true;
   });
   S.versions = snap.versions.map(function (v) {
-    return { id:v.id, name:v.name, by:v.by_name, picks:v.picks || [], ctl:v.ctl || {}, likes:likeCount[v.id] || 0, liked:!!liked[v.id] };
+    return { id:v.id, name:v.name, by:v.by_name, authorId:v.author_id, picks:v.picks || [], ctl:v.ctl || {}, likes:likeCount[v.id] || 0, liked:!!liked[v.id] };
   });
+
+  /* timeline comments (null when their migration isn't applied yet) */
+  S.cmAvailable = snap.comments !== null && snap.comments !== undefined;
+  S.comments = (snap.comments || []).filter(function (c) { return !c.hidden; }).map(function (c) {
+    return { id:c.id, by:c.author_name, authorId:c.author_id, body:c.body, at:c.at_sec, created:c.created_at };
+  });
+  if (S.cmOpen && !S.comments.some(function (c) { return c.id === S.cmOpen; })) S.cmOpen = null;
 
   S.reactions = { banger:0, mess:0, again:0 }; S.reacted = {};
   snap.reactions.forEach(function (r) {
@@ -590,6 +598,11 @@ function frame() {
   var busy = running || Object.keys(sources).length > 0 || dawRec;
   var p = dawRec ? Math.max(0, startOf(S.seed) + ac().currentTime - REC.songStart) : position(), d = duration();
   if (dawRec) drawRecLane();
+  var marks = document.querySelectorAll('.cm-mark[data-at]');
+  for (var mi = 0; mi < marks.length; mi++) {
+    var at = +marks[mi].dataset.at;
+    marks[mi].classList.toggle('near', running && !only && p >= at - 0.05 && p < at + 2.5);
+  }
   var ph = el('playhead'), rd = el('readout');
   var lane = document.querySelector('.t-lane'), daw = el('daw');
   if (ph && d && lane && daw) {
@@ -1388,6 +1401,7 @@ function renderDaw() {
       '<button class="btn btn-sm" type="button" id="dl-all">' + I_DL + ' Download these takes</button>' +
     '</div>' +
     '<div class="ruler"><span class="r-head"></span><span class="r-lane">' + ticks + '</span></div>' +
+    cmRow() +
     '<div class="tracks">' + rows + addRow(building) + '</div>' +
     '<div class="playhead" id="playhead"></div>';
 
@@ -1399,6 +1413,88 @@ function renderDaw() {
   renderPitches();
   tick();
 }
+/* ---------- comments on the timeline, SoundCloud style ----------
+   A strip under the ruler with a dot per comment. Click the strip to comment on that moment
+   (or "+ Comment here" for where the playhead is); hover or click a dot to read it. While the
+   song plays, comments open up as the playhead passes them. at_sec counts from the start of
+   the original track, so comments stay on the same music when parts are added before it. */
+var I_CM = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/></svg>';
+/* who wrote it, in the project's terms */
+function whoLabel(uid) {
+  if (S.session && uid === S.session.host_id) return 'creator';
+  var list = Object.keys(TAKES).map(function (k) { return TAKES[k]; })
+    .filter(function (t) { return t.authorId === uid && live(t) && t.roleId !== 'seed' && t.roleId !== 'mix'; });
+  function lbl(t) { return t.roleId === 'part' ? 'a new part' : role(t.roleId).label.toLowerCase(); }
+  var inT = list.filter(function (t) { return t.status === 'in'; })[0];
+  if (inT) return 'plays ' + lbl(inT);
+  var w = list.filter(function (t) { return t.status !== 'own'; })[0];
+  if (w) return 'sent ' + lbl(w);
+  if (list.length || S.versions.some(function (v) { return v.authorId === uid; })) return 'made a version';
+  return '';
+}
+function cmX(songSec) { var d = duration() || 1; return Math.max(0, Math.min(1, songSec / d)) * 100; }
+/* a dot never hangs over the edge of the strip */
+function cmLeft(x) { return 'left:clamp(12px,' + x.toFixed(2) + '%,calc(100% - 12px))'; }
+function cmPos(x) { return 'left:' + x.toFixed(2) + '%;transform:translateX(-' + x.toFixed(2) + '%)'; }
+function cmRow() {
+  if (!hasSeed() || !S.session || !S.cmAvailable || !duration()) return '';
+  var s0 = startOf(S.seed), open = isOpen(), host = isHost();
+  var marks = S.comments.map(function (c) {
+    var t = s0 + c.at, x = cmX(t), who = whoLabel(c.authorId), on = S.cmOpen === c.id;
+    return '<button type="button" class="cm-mark' + (on ? ' open' : '') + (who === 'creator' ? ' host' : '') + '" style="' + cmLeft(x) + '" ' +
+        'data-cm="' + c.id + '" data-at="' + t.toFixed(3) + '" aria-label="Comment by ' + esc(c.by) + ' at ' + clockMs(c.at) + '">' + esc((c.by || '?').charAt(0).toUpperCase()) + '</button>' +
+      '<div class="cm-pop' + (on ? ' open' : '') + '" style="' + cmPos(x) + '">' +
+        '<div class="cm-meta"><b>' + esc(c.by) + '</b>' + (who ? '<span class="cm-who">' + esc(who) + '</span>' : '') + '<span class="cm-at">at ' + clockMs(Math.max(0, c.at)) + '</span></div>' +
+        '<p>' + esc(c.body) + '</p>' +
+        (on ? '<div class="cm-acts"><button class="btn btn-sm" type="button" data-cmplay="' + t.toFixed(3) + '">' + I_PLAY + ' Play from here</button>' +
+          (host ? '<button class="btn btn-sm" type="button" data-cmhide="' + c.id + '">Hide</button>' : '') + '</div>' : '') +
+      '</div>';
+  }).join('');
+  var draft = '';
+  if (S.cmDraft && open) {
+    var dx = cmX(s0 + S.cmDraft.at);
+    draft = '<span class="cm-mark ghost" style="' + cmLeft(dx) + '" aria-hidden="true">+</span>' +
+      '<div class="cm-pop cm-new open" style="' + cmPos(dx) + '">' +
+        '<div class="cm-meta"><b>Comment at ' + clockMs(Math.max(0, S.cmDraft.at)) + '</b></div>' +
+        '<textarea id="cm-body" maxlength="500" rows="2" placeholder="Say something about this moment"></textarea>' +
+        (savedName() ? '' : '<input type="text" id="cm-name" maxlength="60" placeholder="Your name">') +
+        (S.cmErr ? '<p class="cm-err">' + esc(S.cmErr) + '</p>' : '') +
+        '<div class="cm-acts"><button class="btn btn-sm btn-ember" type="button" data-cmpost="1">Post</button>' +
+        '<button class="btn btn-sm" type="button" data-cmcancel="1">Cancel</button></div>' +
+      '</div>';
+  }
+  var n = S.comments.length;
+  return '<div class="track cmrow">' +
+    '<div class="t-head"><div class="t-name"><span class="cm-ico">' + I_CM + '</span><div><b>Comments' + (n ? ' (' + n + ')' : '') + '</b>' +
+      '<span class="tiny muted">' + (open ? 'click the strip to add one' : 'closed with the session') + '</span></div></div>' +
+      (open ? '<button class="btn btn-sm" type="button" data-cmhere="1">+ Comment here</button>' : '') + '</div>' +
+    '<div class="c-lane' + (open ? ' can' : '') + '" id="c-lane">' +
+      (n || S.cmDraft ? '' : '<span class="cm-empty">' + (open ? 'No comments yet. Click anywhere on this strip to comment on that moment.' : 'No comments.') + '</span>') +
+      marks + draft + '</div></div>';
+}
+function openComposer(songSec) {
+  if (!isOpen() || !S.session) return;
+  if (!me) { flash('Still connecting, try again in a second.'); return; }
+  S.cmDraft = { at: songSec - startOf(S.seed) }; S.cmOpen = null; S.cmErr = '';
+  render();
+  var b = el('cm-body'); if (b) b.focus();
+}
+function postComment() {
+  var body = ((el('cm-body') && el('cm-body').value) || '').trim();
+  var name = ((el('cm-name') && el('cm-name').value) || savedName() || '').trim();
+  if (!body) { S.cmErr = 'Write something first.'; render(); if (el('cm-body')) el('cm-body').focus(); return; }
+  if (!name) { S.cmErr = 'Add your name, so people know who said it.'; render(); if (el('cm-name')) el('cm-name').focus(); return; }
+  rememberName(name);
+  var at = S.cmDraft.at;
+  db.addComment({ session_id:S.session.id, author_id:me.id, author_name:name.slice(0, 60), body:body.slice(0, 500), at_sec:at })
+    .then(function () {
+      S.cmDraft = null; S.cmErr = '';
+      if (el('cm-body')) el('cm-body').value = '';
+      flash('Comment posted at ' + clockMs(Math.max(0, at)) + '.');
+      return refresh();
+    }).catch(function (err) { var nu = needsUpdate(err, '20261004140000_timeline_comments.sql'); S.cmErr = (nu || err).message || 'Could not post that. Try again.'; render(); });
+}
+
 /* an empty grey track under the others: record straight onto it (the playhead runs over the
    other tracks while you play), or upload a file. In the main project the take goes to the
    creator; in your own version it goes straight in. Not shown while listening to someone
@@ -1769,7 +1865,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title'];
+var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -2081,6 +2177,12 @@ el('take-file').addEventListener('change', function () {
 el('modal-cancel').addEventListener('click', closeModal);
 el('scrim').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('scrim').classList.contains('on')) closeModal(); });
+/* Enter posts a comment (Shift+Enter for a new line), Escape drops it */
+document.addEventListener('keydown', function (e) {
+  if (e.target.id !== 'cm-body' && e.target.id !== 'cm-name') return;
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); }
+  else if (e.key === 'Escape') { S.cmDraft = null; S.cmErr = ''; render(); }
+});
 /* Enter in the name field starts the session with a file that is already chosen */
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Enter' && e.target.id === 'seed-by' && S.pendingSeed) { e.preventDefault(); startSeed(); }
@@ -2349,6 +2451,27 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('#dl-all') || e.target.closest('#dl-all2')) { downloadAll(); return; }
+  var cmk = e.target.closest('[data-cm]');
+  if (cmk) { S.cmOpen = S.cmOpen === cmk.dataset.cm ? null : cmk.dataset.cm; S.cmDraft = null; render(); return; }
+  var cpl = e.target.closest('[data-cmplay]');
+  if (cpl) { play(Math.max(0, +cpl.dataset.cmplay - 2)); return; }
+  var chd = e.target.closest('[data-cmhide]');
+  if (chd) {
+    var hid = chd.dataset.cmhide;
+    db.hideComment(hid).then(function () { S.cmOpen = null; flash('Comment hidden.'); return refresh(); })
+      .catch(function (err) { oops(needsUpdate(err, '20261004140000_timeline_comments.sql') || err); });
+    return;
+  }
+  if (e.target.closest('[data-cmpost]')) { postComment(); return; }
+  if (e.target.closest('[data-cmcancel]')) { S.cmDraft = null; S.cmErr = ''; render(); return; }
+  if (e.target.closest('[data-cmhere]')) { openComposer(position()); return; }
+  var clane = e.target.closest('.c-lane.can');
+  if (clane && !e.target.closest('.cm-pop')) {
+    var cr = clane.getBoundingClientRect();
+    openComposer(Math.max(0, Math.min(1, (e.clientX - cr.left) / cr.width)) * duration());
+    return;
+  }
+  if (e.target.closest('.c-lane') && !e.target.closest('.cm-pop') && S.cmOpen) { S.cmOpen = null; render(); return; }
   var lane = e.target.closest('.t-lane');
   if (lane && (justDragged || e.target.closest('.fh'))) return;
   if (lane) {

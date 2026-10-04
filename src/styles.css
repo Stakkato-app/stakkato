@@ -760,3 +760,30 @@
   .db-err{color:var(--red);font-weight:700;font-size:14px;margin:0}
   @keyframes readypulse{0%,100%{box-shadow:inset 0 0 0 0 rgba(255,107,44,0)}50%{box-shadow:inset 0 0 0 3px var(--ember)}}
   .addrow.ready{animation:readypulse .8s ease-in-out 3}
+
+  /* ---------- comments on the timeline ---------- */
+  .track.cmrow{position:relative;z-index:4}
+  .cmrow .t-head{flex-direction:row;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-block:8px}
+  .cm-ico{color:var(--ember-ink);display:flex}
+  .c-lane{position:relative;min-height:44px;background:var(--paper);border-bottom:1px dashed var(--line)}
+  .c-lane.can{cursor:copy}
+  .cm-empty{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--muted);pointer-events:none}
+  .cm-mark{position:absolute;top:10px;width:24px;height:24px;margin-left:-12px;border-radius:50%;border:2px solid var(--paper);
+    background:var(--ink);color:var(--paper);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(28,25,34,.3);transition:transform .12s}
+  .cm-mark.host{background:var(--ember);color:#240D03}
+  .cm-mark:hover,.cm-mark.open,.cm-mark.near{transform:scale(1.18);z-index:3}
+  .cm-mark.ghost{background:var(--paper);color:var(--ember-ink);border:2px dashed var(--ember);cursor:default}
+  .cm-pop{position:absolute;top:40px;width:min(300px,90%);display:none;z-index:6;background:var(--ink);color:var(--paper);
+    border-radius:6px;padding:10px 12px;box-shadow:0 10px 26px -10px rgba(28,25,34,.55);text-align:left;cursor:default}
+  .cm-mark:hover + .cm-pop,.cm-mark.near + .cm-pop,.cm-pop.open{display:block}
+  .cm-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;font-size:12px}
+  .cm-meta b{font-size:13px}
+  .cm-who{color:var(--ember);font-weight:700}
+  .cm-at{color:#C9C3D6;font-variant-numeric:tabular-nums}
+  .cm-pop p{margin-top:4px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-break:break-word}
+  .cm-acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .cm-pop .btn{background:transparent;color:var(--paper);border-color:rgba(252,251,244,.35)}
+  .cm-pop .btn-ember{background:var(--ember);border-color:var(--ember);color:#240D03}
+  .cm-new textarea,.cm-new input{width:100%;margin-top:8px;border:none;border-radius:4px;padding:8px;background:var(--paper);color:var(--ink);font-size:14px;resize:vertical}
+  .cm-err{color:#FFB199 !important;font-weight:700;font-size:13px !important}
