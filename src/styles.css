@@ -801,3 +801,31 @@
   .gate .g-foot .btn{color:var(--ink);background:var(--paper);border-color:var(--line)}
   .gate .g-foot .btn:hover:not(:disabled){border-color:var(--ink)}
   .gate .g-foot .btn svg{flex:none;color:var(--ember-ink)}
+
+  /* ---------- the switch between the project and your own version ---------- */
+  .dawtabs.modes{display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid var(--line)}
+  .dawtabs.modes button{display:flex;align-items:center;gap:14px;min-height:72px;padding:12px 22px;text-align:left;font-family:var(--body);
+    border-right:2px solid var(--line);color:var(--muted);background:var(--paper)}
+  .dawtabs.modes button:last-child{border-right:none}
+  .dawtabs.modes .m-ico{flex:none;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    border:2px solid currentColor;font-size:22px;font-weight:700;line-height:1}
+  .dawtabs.modes .m-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .dawtabs.modes b{font-family:var(--disp);font-size:20px;font-weight:800;letter-spacing:-.01em;color:var(--ink)}
+  .dawtabs.modes small{font-size:13px;color:var(--muted)}
+  .dawtabs.modes button[aria-selected="true"]{background:var(--tint);box-shadow:inset 0 -4px 0 var(--ember)}
+  .dawtabs.modes button[aria-selected="true"] .m-ico{color:var(--ink)}
+  /* your version calls out while you're not in it */
+  .dawtabs.modes .mode-own[aria-selected="false"] .m-ico{background:var(--ember);border-color:var(--ember);color:#240D03}
+  .dawtabs.modes .mode-own[aria-selected="false"]:hover{background:#FFF1E8}
+  .dawtabs.modes .mode-own[aria-selected="false"] small{color:var(--ember-ink)}
+  /* inside your version: an orange frame, so it's clearly your own space */
+  .daw.own{border-color:var(--ember);box-shadow:0 0 0 1px var(--ember)}
+  .btn-ink{background:var(--ink);border-color:var(--ink);color:var(--paper);font-weight:700}
+  .btn-ink:hover:not(:disabled){background:#000;border-color:#000}
+  .unsaved{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ember-ink)}
+  @media (max-width:600px){
+    .dawtabs.modes button{min-height:60px;padding:10px 12px;gap:10px}
+    .dawtabs.modes .m-ico{width:30px;height:30px;font-size:18px}
+    .dawtabs.modes b{font-size:16px}
+    .dawtabs.modes small{display:none}
+  }

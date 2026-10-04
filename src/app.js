@@ -1312,15 +1312,26 @@ function barSeconds() {
   var p = t.split('/'), beats = +p[0] || 4, unit = +p[1] || 4;
   return beats * (60 / bpm) * (4 / unit);
 }
+/* the two ways to look at the song, as a big switch on top of the DAW */
 function dawTabs() {
-  var building = S.view === 'build' && !S.override;
-  return '<div class="dawtabs" role="tablist" aria-label="What plays">' +
-    '<button type="button" role="tab" data-view="lineup" aria-selected="' + (!building && !S.override) + '">Main project</button>' +
-    '<button type="button" role="tab" data-view="build" aria-selected="' + building + '">Build your own<span class="long"> version</span></button>' +
+  var building = S.view === 'build' && !S.override, main = !building && !S.override;
+  return '<div class="dawtabs modes" role="tablist" aria-label="What plays">' +
+    '<button type="button" role="tab" data-view="lineup" aria-selected="' + main + '">' +
+      '<span class="m-ico">' + I_PLAY + '</span><span class="m-txt"><b>Main project</b><small>what the creator chose</small></span></button>' +
+    '<button type="button" role="tab" class="mode-own" data-view="build" aria-selected="' + building + '">' +
+      '<span class="m-ico">+</span><span class="m-txt"><b>Your version</b><small>any take, plus your own recordings</small></span></button>' +
     '</div>';
 }
 function renderDaw() {
-  var list = tracks(), d = duration();
+  var list = tracks(), d = duration(), own = S.view === 'build' && !S.override;
+  el('daw').classList.toggle('own', own);
+  if (el('mix-title')) {
+    el('mix-title').textContent = own ? 'Your version' : 'Active instruments';
+    el('mix-kicker').textContent = own ? 'Make it yours' : 'In the mix';
+  }
+  /* the project's instrument chips belong to the main project, not to your version */
+  el('instruments').style.display = own ? 'none' : '';
+  if (own && el('lineup-sub')) el('lineup-sub').textContent = 'Saved versions show up under "Versions", for everyone to hear.';
   var banner = '';
   if (S.override) {
     banner = '<div class="listening"><span>Listening to <b>' + esc(S.override.name) + '</b> by ' + esc(S.override.by) + '</span>' +
@@ -1400,9 +1411,11 @@ function renderDaw() {
   el('daw').innerHTML = dawTabs() + banner +
     '<div class="daw-bar">' +
       '<button class="btn btn-ember" type="button" id="transport">' + (running ? I_PAUSE + ' Stop' : I_PLAY + ' Play') + '</button>' +
+      (building ? '<button class="btn btn-ink" type="button" id="ver-save-top"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save your version</button>' +
+        (S.buildDirty && S.build.picks.length ? '<span class="unsaved">not saved yet</span>' : '') : '') +
       '<button class="btn btn-sm" type="button" id="rewind" title="Back to the start">&#9198;</button>' +
       '<span class="readout" id="readout">' + clockMs(position()) + ' / ' + clockMs(d) + '</span>' +
-      '<span class="tiny muted">' + list.length + ' track(s), ' + barCount + ' bars at ' + (S.meta.bpm || '?') + ' bpm ' + S.meta.time + '</span>' +
+      (building ? '' : '<span class="tiny muted">' + list.length + ' track(s), ' + barCount + ' bars at ' + (S.meta.bpm || '?') + ' bpm ' + S.meta.time + '</span>') +
       '<span class="clickctl"><label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
       '<button class="btn btn-sm" type="button" id="dl-click" title="A click at the session tempo, with the count-in in front">' + I_DL + ' Click track</button></span>' +
       '<button class="btn btn-sm" type="button" id="dl-all">' + I_DL + ' Download these takes</button>' +
@@ -1773,7 +1786,7 @@ function applyCard(r) {
 function renderBoards() {
   /* every instrument keeps its card: it shows people straight away what they can add */
   el('applyboard').innerHTML = ROLES.map(applyCard).join('');
-  el('lineup-sub').textContent = S.members.length
+  if (!(S.view === 'build' && !S.override)) el('lineup-sub').textContent = S.members.length
     ? S.members.length + ' layer(s) on top of the original track.'
     : 'Nothing in the song yet. Everything starts in the waiting list below.';
   el('apply-sub').textContent = isHost()
@@ -2247,7 +2260,7 @@ el('modal-send').addEventListener('click', function () {
         if (REC.fromDaw) { recReset(); REC.fromDaw = false; REC.where = null; }
         closeModal();
         if (own) {
-          S.build.picks.push(res.row.id);
+          S.build.picks.push(res.row.id); S.buildDirty = true;
           S.override = null; S.view = 'build';
           refreshGains();
           flash('It is in your version. Save the version to keep it, or send the take to the creator from the list.');
@@ -2366,18 +2379,20 @@ document.addEventListener('click', function (e) {
   if (pk) {
     var pid = pk.dataset.pick, at2 = S.build.picks.indexOf(pid);
     if (at2 > -1) S.build.picks.splice(at2, 1); else S.build.picks.push(pid);
+    S.buildDirty = true;
     stopAll(); refreshGains(); render();
     return;
   }
-  if (e.target.closest('#ver-save')) {
+  if (e.target.closest('#ver-save') || e.target.closest('#ver-save-top')) {
     if (!S.build.picks.length || !S.session || !me) return;
-    var who = (el('ver-by').value || '').trim() || 'someone';
-    var nm = (el('ver-name').value || '').trim() || ('Version by ' + who);
+    var who = ((el('ver-by') && el('ver-by').value) || savedName() || '').trim() || 'someone';
+    var nm = ((el('ver-name') && el('ver-name').value) || '').trim() || ('Version by ' + who);
     rememberName(who);
     db.saveVersion({ session_id:S.session.id, author_id:me.id, name:nm.slice(0, 60), by_name:who.slice(0, 60),
                      picks:S.build.picks.slice(), ctl:JSON.parse(JSON.stringify(S.build.ctl)) })
       .then(function () {
-        el('ver-name').value = '';
+        if (el('ver-name')) el('ver-name').value = '';
+        S.buildDirty = false;
         flash('Saved "' + nm + '". It is in the versions list below the waiting takes.');
         return refresh();
       }).catch(oops);
