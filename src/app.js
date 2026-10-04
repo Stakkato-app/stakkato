@@ -976,10 +976,17 @@ function dropPart(t) {
   stopAll();
   db.dropPart(t.dbId).then(function () { flash('That part is out of the song again.'); return refresh(); }).catch(oops);
 }
+/* Deleting takes two clicks. The first click is remembered here, not on the button, so a
+   re-render in between (audio arriving, a realtime refresh) doesn't forget it. */
+var ARMED = { id:null, until:0, timer:0 };
+function armedFor(id) { return ARMED.id === id && Date.now() < ARMED.until; }
 function delBtn(id, small) {
   if (!isHost() || !isOpen()) return '';
-  return '<button class="' + (small ? 'tbtn' : 'btn btn-sm icobtn') + ' del" type="button" data-del="' + id + '" title="Delete this take" aria-label="Delete this take">' +
-    '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg></button>';
+  var armed = armedFor(id);
+  return '<button class="' + (small ? 'tbtn' : 'btn btn-sm icobtn') + ' del' + (armed ? ' armed' : '') + '" type="button" data-del="' + id + '" ' +
+    'title="' + (armed ? 'Click again to delete it for good' : 'Delete this take') + '" aria-label="' + (armed ? 'Click again to delete this take for good' : 'Delete this take') + '">' +
+    '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>' +
+    (armed ? '<span>Delete?</span>' : '') + '</button>';
 }
 function deleteTake(id) {
   var t = findTake(id);
@@ -1519,6 +1526,7 @@ function renderBoards() {
 function renderArchive() {
   var show = S.archive.length > 0;
   el('archive-head').style.display = show ? '' : 'none';
+  if (el('next-archive')) el('next-archive').style.display = show ? '' : 'none';
   el('archive').style.display = show ? '' : 'none';
   if (!show) return;
   el('archive').innerHTML = '<ul class="rows">' + S.archive.slice().reverse().map(function (a) {
@@ -1989,12 +1997,13 @@ document.addEventListener('click', function (e) {
   var dl2 = e.target.closest('[data-del]');
   if (dl2) {
     e.stopPropagation();
-    if (dl2.classList.contains('armed')) { deleteTake(dl2.dataset.del); return; }
-    [].forEach.call(document.querySelectorAll('[data-del].armed'), function (b) { b.classList.remove('armed'); });
-    dl2.classList.add('armed');
-    dl2.title = 'Click again to delete';
-    flash('Click the bin again to delete this take for good.');
-    setTimeout(function () { dl2.classList.remove('armed'); dl2.title = 'Delete this take'; }, 3000);
+    var did = dl2.dataset.del;
+    clearTimeout(ARMED.timer);
+    if (armedFor(did)) { ARMED.id = null; deleteTake(did); return; }
+    ARMED.id = did; ARMED.until = Date.now() + 5000;
+    ARMED.timer = setTimeout(function () { ARMED.id = null; render(); }, 5000);
+    render();
+    flash('Click "Delete?" again to delete this take for good.');
     return;
   }
   var ex = e.target.closest('[data-extend]');
