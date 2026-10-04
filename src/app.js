@@ -903,6 +903,23 @@ function dawRecSend() {
   REC.where = 'modal'; REC.fromDaw = true;
   openModal(S.recRole || ROLES[0].id, null, own, true);
 }
+/* from the send-a-take window to the grey track: same instrument, right view, ready to record */
+function recordInDaw() {
+  var own = M.mode === 'own', rid = el('take-role').value;
+  closeModal();
+  S.recRole = rid;
+  if (REC.state === 'recording' || REC.state === 'asking') recCancel();
+  stopAll();
+  S.override = null; S.trial = null; S.view = own ? 'build' : 'lineup';
+  refreshGains(); render();
+  var row = el('addrow');
+  if (row) {
+    row.scrollIntoView({ behavior:'smooth', block:'center' });
+    row.classList.add('ready');
+    setTimeout(function () { var r2 = el('addrow'); if (r2) r2.classList.remove('ready'); }, 2600);
+  }
+  flash('Record your ' + role(rid).label.toLowerCase() + ' right here on the grey track: press "Record here". Wear headphones.');
+}
 function dawRecDiscard() { recReset(); REC.where = null; REC.fromDaw = false; renderDaw(); }
 function renderDawRec() {
   var row = el('addrow');
@@ -1218,10 +1235,13 @@ function renderSeed() {
       'You get a link to share.</p>' +
       '<div class="db-fields">' +
         '<label class="field seed-name"><span>Your name</span><input type="text" id="seed-by" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
-        '<label class="field seed-name"><span>What is it</span><select id="seed-role">' + seedRoleOptions(S.meta.seedRole, 'Not one instrument') + '</select></label>' +
+        '<label class="field seed-name"><span>What is it</span><select id="seed-role">' +
+          '<option value="" selected disabled>Pick one</option><option value="none">Not one instrument</option>' +
+          ROLES.map(function (r) { return '<option value="' + r.id + '">' + r.label + '</option>'; }).join('') + '</select></label>' +
       '</div>' +
       (S.pendingSeed && !S.seedBusy
-        ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready.</span>' +
+        ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready. Fill in your name and what it is, then start.</span>' +
+          (S.seedErr ? '<p class="db-err" role="alert">' + esc(S.seedErr) + '</p>' : '') +
           '<button class="btn btn-ember" type="button" data-seedgo="1">Start the session with this track</button>' +
           '<button class="btn btn-sm" type="button" data-attach="seed">Choose another file</button></div>'
         : '<button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
@@ -1849,18 +1869,21 @@ function syncPhase() {
 }
 
 /* ---------- original track ---------- */
-function loadSeed(file) {
-  var nameEl = el('seed-by');
-  var name = ((nameEl && nameEl.value) || S.seed.by || savedName()).trim();
-  var roleEl = el('seed-role');
-  if (!name) {
-    /* keep the file: add your name and start, no need to pick it again */
-    S.pendingSeed = file;
+/* A new session never starts the moment a file is picked: the file waits on the drop panel
+   ("<file> is ready") until you've filled in your name and said what the track is, then you
+   start it. Replacing the track of a running session goes straight through. */
+function loadSeed(file, confirmed) {
+  var first = !hasSeed(), roleEl = el('seed-role');
+  if (first && !confirmed) {
+    S.pendingSeed = file; S.seedErr = '';
     render();
-    flash('Got ' + file.name + '. Add your name, then start the session.');
-    if (el('seed-by')) el('seed-by').focus();
+    flash('Got ' + file.name + '. Fill in your name and what the track is, then start the session.');
+    var nm = el('seed-by');
+    if (nm && !nm.value.trim()) nm.focus(); else if (roleEl && !roleEl.value) roleEl.focus();
     return;
   }
+  var name = first ? ((el('seed-by') && el('seed-by').value) || '').trim() : (S.seed.by || savedName() || 'the creator');
+  if (!name) return;
   if (!me) { flash('Still connecting, try again in a second.'); return; }
   S.pendingSeed = null;
   rememberName(name);
@@ -1879,7 +1902,7 @@ function loadSeed(file) {
     });
   }).then(function (res) {
     var an = res.analysis, patch = { seed_take_id: res.row.id };
-    if (roleEl) patch.seed_role = roleEl.value || null;
+    if (roleEl) patch.seed_role = roleEl.value && roleEl.value !== 'none' ? roleEl.value : null;
     if (an && (an.tempo || an.key)) {
       patch.bpm = an.tempo ? an.tempo.bpm : null;
       patch.music_key = an.key ? an.key.key : null;
@@ -1901,6 +1924,21 @@ function loadSeed(file) {
   });
 }
 
+/* start the session with the file waiting on the drop panel, once name and instrument are in */
+function startSeed() {
+  if (!S.pendingSeed) return;
+  var nm = el('seed-by'), rl = el('seed-role');
+  var miss = !(nm && nm.value.trim()) ? 'name' : !(rl && rl.value) ? 'role' : '';
+  if (miss) {
+    S.seedErr = miss === 'name' ? 'Add your name first, it goes in the credits.' : 'Say what the track is: pick an instrument, or "Not one instrument".';
+    render();
+    flash(S.seedErr);
+    var f = el(miss === 'name' ? 'seed-by' : 'seed-role'); if (f) f.focus();
+    return;
+  }
+  S.seedErr = '';
+  loadSeed(S.pendingSeed, true);
+}
 var pendingAttach = null;
 el('attach-file').addEventListener('change', function () {
   var file = this.files[0];
@@ -2045,7 +2083,7 @@ el('scrim').addEventListener('click', function (e) { if (e.target === this) clos
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('scrim').classList.contains('on')) closeModal(); });
 /* Enter in the name field starts the session with a file that is already chosen */
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && e.target.id === 'seed-by' && S.pendingSeed && e.target.value.trim()) { e.preventDefault(); loadSeed(S.pendingSeed); }
+  if (e.key === 'Enter' && e.target.id === 'seed-by' && S.pendingSeed) { e.preventDefault(); startSeed(); }
 });
 
 function takeSource(fail) {
@@ -2147,7 +2185,11 @@ document.addEventListener('click', function (e) {
   var ex = e.target.closest('[data-extend]');
   if (ex) { e.stopPropagation(); openModal(null, ex.dataset.extend); return; }
   var sr = e.target.closest('[data-src]');
-  if (sr) { setSrc(sr.dataset.src); return; }
+  if (sr) {
+    /* a layer on the original track is recorded on the grey track in the DAW, like a real DAW */
+    if (sr.dataset.src === 'rec' && (M.mode === 'layer' || M.mode === 'own') && M.sec === 'core') { recordInDaw(); return; }
+    setSrc(sr.dataset.src); return;
+  }
   if (e.target.closest('[data-dawrec]')) { dawRecStart(); return; }
   if (e.target.closest('[data-dawsend]')) { dawRecSend(); return; }
   if (e.target.closest('[data-dawdrop]')) { dawRecDiscard(); return; }
@@ -2196,12 +2238,7 @@ document.addEventListener('click', function (e) {
   }
   var dp = e.target.closest('[data-droppart]');
   if (dp) { dropPart(findTake(dp.dataset.droppart)); return; }
-  if (e.target.closest('[data-seedgo]')) {
-    if (!S.pendingSeed) return;
-    if (!((el('seed-by') && el('seed-by').value) || '').trim()) { flash('Add your name first, it goes in the credits.'); el('seed-by').focus(); return; }
-    loadSeed(S.pendingSeed);
-    return;
-  }
+  if (e.target.closest('[data-seedgo]')) { startSeed(); return; }
   var at = e.target.closest('[data-attach]');
   if (at) { pendingAttach = at.dataset.attach; el('attach-file').click(); return; }
   var d = e.target.closest('[data-dl]');

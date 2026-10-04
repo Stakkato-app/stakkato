@@ -757,3 +757,6 @@
   .addrow.rec-on .t-head{background:var(--tint);box-shadow:inset 3px 0 0 var(--red)}
   .addrow .rec-status{font-size:15px}
   @media (max-width:600px){ .rec-lane{min-height:132px} .rec-float{top:auto;bottom:8px;left:8px;right:8px;justify-content:flex-start} .rec-float .btn{flex:1 1 auto} }
+  .db-err{color:var(--red);font-weight:700;font-size:14px;margin:0}
+  @keyframes readypulse{0%,100%{box-shadow:inset 0 0 0 0 rgba(255,107,44,0)}50%{box-shadow:inset 0 0 0 3px var(--ember)}}
+  .addrow.ready{animation:readypulse .8s ease-in-out 3}
