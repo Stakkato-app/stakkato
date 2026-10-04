@@ -801,3 +801,7 @@
   .gate .g-foot .btn{color:var(--ink);background:var(--paper);border-color:var(--line)}
   .gate .g-foot .btn:hover:not(:disabled){border-color:var(--ink)}
   .gate .g-foot .btn svg{flex:none;color:var(--ember-ink)}
+  /* short labels on one line ("Add bass"), with an orange edge so they still read as the call to action */
+  .gate .g-foot .btn{border-color:var(--ember);white-space:nowrap;min-width:0}
+  .gate .g-foot .btn span{overflow:hidden;text-overflow:ellipsis}
+  .gate .g-foot .btn:hover:not(:disabled){border-color:var(--ember-ink);background:#FFF1E8}

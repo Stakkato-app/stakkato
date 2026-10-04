@@ -1767,7 +1767,7 @@ function applyCard(r) {
     '<span class="count">' + list.length + '</span></div>' +
     '<div class="tiny muted">' + (held ? 'The original track plays this part' : 'No limit, the creator decides') + '</div></div>' +
     '<ul class="takes">' + body + '</ul>' +
-    '<div class="g-foot"><button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>' + I_SEND + 'Send a ' + esc(r.label.toLowerCase()) + ' take</button></div></article>';
+    '<div class="g-foot"><button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + ' title="Send a ' + esc(r.label.toLowerCase()) + ' take to the creator">' + I_SEND + '<span>Add ' + esc(r.label.toLowerCase()) + '</span></button></div></article>';
 }
 
 function renderBoards() {
