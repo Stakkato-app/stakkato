@@ -722,3 +722,12 @@
     .lockbar{margin-top:48px}
     .strip{margin-top:44px}
   }
+
+  /* ---------- the original track's waveform, top of the page ---------- */
+  .seedwave{position:relative;height:64px;margin-top:10px;color:var(--ember)}
+  .seedwave .sw-bars,.seedwave.loading{position:absolute;inset:0;display:flex;align-items:center;gap:1px}
+  .seedwave i{display:block;flex:1;min-width:1px;border-radius:1px;background:currentColor;animation:none}
+  .seedwave > .sw-bars i{opacity:.32}
+  .seedwave .sw-prog{position:absolute;inset:0;clip-path:inset(0 100% 0 0)}
+  .seedwave .sw-prog i{opacity:1}
+  .seedwave.loading i{opacity:.25}

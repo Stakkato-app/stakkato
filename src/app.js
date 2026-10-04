@@ -544,30 +544,46 @@ function preview(t) {
   var T = ac().currentTime + 0.02;
   scheduleEnv(env, t, T, 0);
   s.start(T);
+  onlyAt = T;
   sources[t.id] = s;
   s.onended = function () { delete sources[t.id]; if (only === t.id) { only = null; render(); } };
   startLoop();
   render();
 }
-var vizBars = null;
-function bindViz(){ vizBars = document.querySelectorAll('#seed-viz i'); }
-function drawViz(active) {
-  if (!vizBars || !vizBars.length || !document.contains(vizBars[0])) bindViz();
-  if (!vizBars || !vizBars.length) return;
-  var n = vizBars.length;
-  if (!active || !analyser) {
-    for (var i = 0; i < n; i++) vizBars[i].style.height = '14%';
-    return;
-  }
-  analyser.getByteFrequencyData(freq);
-  var bins = Math.min(freq.length, 96);
-  for (var b = 0; b < n; b++) {
-    var from = Math.floor(Math.pow(b / n, 1.7) * bins), to = Math.max(from + 1, Math.floor(Math.pow((b + 1) / n, 1.7) * bins));
+/* The original track's waveform at the top: real peaks, with the part already played
+   coloured in while the original track sounds (on its own or in the mix). */
+var onlyAt = 0, SEED_BARS = 160;
+function seedWaveBars() {
+  var pk = S.seed.peaks;
+  if (!pk || !pk.length) return '';
+  var step = pk.length / SEED_BARS, vals = [], max = 0;
+  for (var i = 0; i < SEED_BARS; i++) {
     var m = 0;
-    for (var k = from; k < to; k++) if (freq[k] > m) m = freq[k];
-    vizBars[b].style.height = Math.max(6, Math.min(100, (m / 255) * 115)) + '%';
+    for (var j = Math.floor(i * step); j < Math.floor((i + 1) * step); j++) if (pk[j] > m) m = pk[j];
+    vals.push(m); if (m > max) max = m;
   }
+  return vals.map(function (v) { return '<i style="height:' + Math.max(4, Math.round((max ? v / max : 0) * 100)) + '%"></i>'; }).join('');
 }
+function seedWave() {
+  var bars = seedWaveBars();
+  if (!bars) return '<div class="seedwave loading" id="seed-viz" aria-hidden="true">' + vizMarkup(SEED_BARS) + '</div>';
+  return '<div class="seedwave" id="seed-viz" aria-hidden="true"><div class="sw-bars">' + bars + '</div>' +
+    '<div class="sw-prog" id="seed-prog"><div class="sw-bars">' + bars + '</div></div></div>';
+}
+function seedProgress() {
+  var L = S.seed.len || 0;
+  if (!L) return 0;
+  if (only === 'seed' && sources.seed) return (ac().currentTime - onlyAt) / L;
+  if (running && !only) return (position() - startOf(S.seed)) / L;
+  return 0;
+}
+function drawViz() {
+  var pr = el('seed-prog');
+  if (!pr) return;
+  var f = Math.max(0, Math.min(1, seedProgress()));
+  pr.style.clipPath = 'inset(0 ' + ((1 - f) * 100).toFixed(2) + '% 0 0)';
+}
+function bindViz() {}
 function frame() {
   var busy = running || Object.keys(sources).length > 0;
   var p = position(), d = duration();
@@ -1115,7 +1131,7 @@ function renderSeed() {
         (only === 'seed' ? I_PAUSE : I_PLAY) + '</button>' +
       '<div><div class="kicker">The original track' + (ri ? ', ' + ri.label.toLowerCase() : '') + '</div>' +
       '<div class="who">' + (host ? 'Your track' : esc(s.by) + '’s track') + ', ' + fmt(s.len) + (s.buf ? '' : ' <span class="tiny muted">loading</span>') + '</div>' +
-      '<div class="viz live" id="seed-viz" aria-hidden="true">' + vizMarkup(44) + '</div></div>' +
+      seedWave() + '</div>' +
       '<div class="seed-side"><div class="facts" id="facts"></div>' +
       (host && isOpen() ? '<button class="btn btn-sm" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
         (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '') + '</div>';
