@@ -1737,6 +1737,8 @@ function anLine(t) {
   var off = S.meta.bpm && Math.abs(t.an.bpm - S.meta.bpm) > 2;
   return '<div class="an' + (off ? ' off' : '') + '">' + t.an.bpm + ' bpm, ' + t.an.key + (off ? ' — off the session tempo' : '') + '</div>';
 }
+/* how the "Add …" button names an instrument where the plural reads better */
+var ADD_AS = { guitar:'guitars', lead:'leads' };
 function applyCard(r) {
   var list = waitingFor(r.id), host = isHost(), held = seedHolds(r.id);
   var body = list.length ? list.map(function (t) {
@@ -1767,7 +1769,7 @@ function applyCard(r) {
     '<span class="count">' + list.length + '</span></div>' +
     '<div class="tiny muted">' + (held ? 'The original track plays this part' : 'No limit, the creator decides') + '</div></div>' +
     '<ul class="takes">' + body + '</ul>' +
-    '<div class="g-foot"><button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + ' title="Send a ' + esc(r.label.toLowerCase()) + ' take to the creator">' + I_SEND + '<span>Add ' + esc(r.label.toLowerCase()) + '</span></button></div></article>';
+    '<div class="g-foot"><button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + ' title="Send a ' + esc(r.label.toLowerCase()) + ' take to the creator">' + I_SEND + '<span>Add ' + esc(ADD_AS[r.id] || r.label.toLowerCase()) + '</span></button></div></article>';
 }
 
 function renderBoards() {
