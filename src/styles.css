@@ -787,3 +787,17 @@
   .cm-pop .btn-ember{background:var(--ember);border-color:var(--ember);color:#240D03}
   .cm-new textarea,.cm-new input{width:100%;margin-top:8px;border:none;border-radius:4px;padding:8px;background:var(--paper);color:var(--ink);font-size:14px;resize:vertical}
   .cm-err{color:#FFB199 !important;font-weight:700;font-size:13px !important}
+
+  /* ---------- tidy-up: the DAW closer to the top, a calmer waiting band ---------- */
+  /* the four steps only on a first visit; afterwards a small "How it works" */
+  body.has-track.seen-how #howtop{display:none}
+  body.has-track.seen-how #howbox{display:block;margin-top:14px}
+  body:not(.has-track) #howbox{display:block}
+  /* tempo/key/time are already in the original track's panel; only the creator edits them */
+  .metabar.readonly{display:none !important}
+  #mix-head{margin-top:44px}
+  .projtitle{margin-bottom:12px}
+  /* only instruments with takes waiting get a card; the rest is one line */
+  .gates{grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr)) !important}
+  .gates-rest{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    padding:14px 18px;border:2px dashed var(--line);border-radius:4px;background:var(--paper);color:var(--muted);font-size:15px}

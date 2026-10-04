@@ -1144,7 +1144,7 @@ var STEPS = {
     steps: [
       ['The track sets the rules', 'Tempo and key are read from your file, and its length is the length of every layer.'],
       ['Anyone adds a layer', 'Play along in your DAW with the click, or record right here. One instrument per layer.'],
-      ['You decide who joins', 'You dropped the track, so you let layers in or veto them. The people already in the project vote along to steer your call.'],
+      ['You decide who joins', 'You dropped the track, so you let layers in or veto them. It’s your call alone.'],
       ['You decide when it’s finished', 'Close the session when it feels right. It releases unmixed, and anyone can build their own version from every take.']
     ]
   },
@@ -1153,7 +1153,7 @@ var STEPS = {
     steps: [
       ['Listen to the track', 'Tempo, key and length come from the creator’s track. Every layer has to fit them.'],
       ['Add your layer', 'Grab the click and the other takes, play along in your DAW, or record right here. One instrument per layer.'],
-      ['The creator decides', 'Your take waits until the creator lets it in. Once you are in the project, your vote steers what comes next.'],
+      ['The creator decides', 'Your take waits until the creator lets it in. Not picked? You can still use it in your own version.'],
       ['Or make your own version', 'Use any take, record your own parts on top, and save your mix. Send a part to the creator whenever you like.']
     ]
   }
@@ -1167,6 +1167,12 @@ function renderHow() {
   el('howsteps').innerHTML = steps;
   el('howtop').innerHTML = '<div class="how-lead"><h2>Make a <span class="hi">song</span> with <span class="hi">strangers</span></h2><p>' + s.lead + '</p></div>' + steps;
   document.body.classList.toggle('has-track', hasSeed());
+  /* the four steps up top only on your first visit to a session; after that they fold away */
+  var seen = false;
+  try { seen = localStorage.getItem('stackato:seen-how') === '1'; } catch (e) {}
+  document.body.classList.toggle('seen-how', seen);
+  if (seen && hasSeed() && !S.howFolded) { S.howFolded = true; el('howbox').open = false; }
+  if (hasSeed() && S.session && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
 }
 function renderInstruments() {
   var box = el('instruments');
@@ -1364,7 +1370,7 @@ function renderDaw() {
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
           '<button class="btn btn-sm" type="button" data-untrialpitch="1">Take it out</button></div>' : '') +
-        (isTrial ? voteBlock(t) + '<div class="t-try">' +
+        (isTrial ? '<div class="t-try">' +
           (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Let it in</button>' : '') +
           '<button class="btn btn-sm" type="button" data-untrial="1">Take it out</button></div>' : '') +
         '<div class="t-ctrl">' +
@@ -1742,7 +1748,6 @@ function applyCard(r) {
         '<button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
         delBtn(t.id) +
       '</div>' + anLine(t) + (secTag(t) || inVersions(t.id) ? '<div class="vline">' + secTag(t) + verTag(t.id) + '</div>' : '') +
-      voteBlock(t) +
       (S.trial === t.id
         ? '<div class="trypair">' + mixToggle('this take') +
           '<button class="btn btn-sm trybtn on" type="button" data-try="' + t.id + '">Take out of the mix</button></div>'
@@ -1761,19 +1766,25 @@ function applyCard(r) {
     '<span class="count">' + list.length + '</span></div>' +
     '<div class="tiny muted">' + (held ? 'The original track plays this part' : 'No limit, the creator decides') + '</div></div>' +
     '<ul class="takes">' + body + '</ul>' +
-    '<div class="g-foot"><button class="btn btn-ember btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Send a take</button></div></article>';
+    '<div class="g-foot"><button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Send a ' + esc(r.label.toLowerCase()) + ' take</button></div></article>';
 }
 
 function renderBoards() {
-  el('applyboard').innerHTML = ROLES.map(applyCard).join('');
+  var busy = ROLES.filter(function (r) { return waitingFor(r.id).length; });
+  var quiet = ROLES.filter(function (r) { return !waitingFor(r.id).length; });
+  el('applyboard').innerHTML = busy.map(applyCard).join('') +
+    '<div class="gates-rest">' +
+      '<span>' + (busy.length
+        ? 'Nothing waiting for ' + quiet.map(function (r) { return r.label.toLowerCase(); }).join(', ') + '.'
+        : 'Nothing is waiting yet. Send the first take, on any instrument.') + '</span>' +
+      (isOpen() ? '<button class="btn btn-ember" type="button" data-apply="">Send a take</button>' : '') +
+    '</div>';
   el('lineup-sub').textContent = S.members.length
     ? S.members.length + ' layer(s) on top of the original track.'
     : 'Nothing in the song yet. Everything starts in the waiting list below.';
-  el('apply-sub').textContent = !S.applicants.length
-    ? 'Empty. Use "Send a take" on any instrument to send one in.'
-    : isHost()
-      ? 'You dropped the track, so your yes or veto is final. Everyone in the project votes along to steer you. Whoever holds a spot does not vote on their own replacement.'
-      : 'The creator decides. If you have a layer in the project, your vote steers them.';
+  el('apply-sub').textContent = isHost()
+    ? 'Hear each take in the mix, then let it in or veto it. Your call alone.'
+    : 'The creator hears every take in the mix and decides what gets in.';
 }
 function renderArchive() {
   var show = S.archive.length > 0;
