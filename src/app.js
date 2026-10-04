@@ -1292,7 +1292,7 @@ function renderDaw() {
       '<button class="btn btn-sm" type="button" id="dl-all">' + I_DL + ' Download these takes</button>' +
     '</div>' +
     '<div class="ruler"><span class="r-head"></span><span class="r-lane">' + ticks + '</span></div>' +
-    '<div class="tracks">' + rows + '</div>' +
+    '<div class="tracks">' + rows + addRow(building) + '</div>' +
     '<div class="playhead" id="playhead"></div>';
 
   list.forEach(function (t) { drawWave(t); });
@@ -1301,6 +1301,19 @@ function renderDaw() {
   renderPicker();
   renderPitches();
   tick();
+}
+/* an empty grey track under the others: send a take from right here (the project), or add
+   your own layer (your version). Not shown while listening to someone else's version. */
+function addRow(building) {
+  if (S.override || (!building && !isOpen())) return '';
+  var text = building ? 'Add any instrument to your version. Record it here or upload a file, it goes straight in.'
+                      : 'Play along and send your own layer. The creator decides if it gets in.';
+  var btn = building ? '<button class="btn btn-ember" type="button" data-own="">+ Record or upload your own</button>'
+                     : '<button class="btn btn-ember" type="button" data-apply="">+ Send a take</button>';
+  return '<div class="track addrow">' +
+    '<div class="t-head"><div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
+      '<div><b>Your layer</b><span class="tiny muted">' + (building ? 'only in your version' : 'for the project') + '</span></div></div></div>' +
+    '<div class="a-lane"><span>' + text + '</span>' + btn + '</div></div>';
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
