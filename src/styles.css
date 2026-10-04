@@ -800,3 +800,4 @@
   /* one look for every instrument's "Send a … take": the instrument colour stays in the card's icon */
   .gate .g-foot .btn{color:var(--ink);background:var(--paper);border-color:var(--line)}
   .gate .g-foot .btn:hover:not(:disabled){border-color:var(--ink)}
+  .gate .g-foot .btn svg{flex:none;color:var(--ember-ink)}
