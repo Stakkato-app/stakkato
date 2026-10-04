@@ -1143,7 +1143,7 @@ var STEPS = {
   creator: {
     lead: 'One track, one decision-maker. The room stacks layers on top, and anyone can build their own version from every take.',
     steps: [
-      ['The track sets the rules', 'Tempo and key are read from your file, and its length is the length of every layer.'],
+      ['Upload an audio track', 'Tempo and key are read from your file, and its length is the length of every layer.'],
       ['Anyone adds a layer', 'Play along in your DAW with the click, or record right here. One instrument per layer.'],
       ['You decide who joins', 'You dropped the track, so you let layers in or veto them. It’s your call alone.'],
       ['You decide when it’s finished', 'Close the session when it feels right. It releases unmixed, and anyone can build their own version from every take.']
