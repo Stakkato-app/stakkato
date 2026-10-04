@@ -91,7 +91,7 @@ The code says seed, host and line-up; the UI says **original track**, **creator*
 
 There's no automated test suite yet. Before shipping a change, run through this with two browsers (or a normal and a private window, which get different anonymous users):
 
-1. Browser A: load a seed with a name (or record one on the empty page: tempo, time, count-in and click, then it waits like a chosen file; the session gets the tempo/time it was recorded at). Nothing starts until name and instrument are filled in. URL changes to `/s/<slug>`; tempo/key show up.
+1. Browser A: load a seed with a name (or "Record right here": a pop-up with name, instrument, tempo, time, count-in and click, records until you stop, then "Start the session"; the session gets the tempo/time it was recorded at). Nothing starts until name and instrument are filled in. URL changes to `/s/<slug>`; tempo/key show up.
 2. Browser B: open the link. B sees "<name>'s track", no host controls, and can send a take. A take of the wrong length is rejected.
 3. A sees B's take appear without reloading, lets it in, and it shows in the line-up for both.
 4. A third user sends a take for the same or another role; A hears it in the mix and lets it in or vetoes it (there is no voting in the UI).

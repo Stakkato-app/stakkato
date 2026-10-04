@@ -845,3 +845,16 @@
   .seed-rec .rec-meterwrap{width:100%}
   .seed-rec .rec-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
   .seed-rec.done b{font-family:var(--disp);font-size:18px}
+  /* the drop panel's two ways in, side by side */
+  .db-acts{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .dropbig .db-acts .btn{margin-top:6px}
+  .db-rec{border-color:var(--ember);background:var(--paper);font-weight:700}
+  .db-rec:hover:not(:disabled){background:#FFF1E8;border-color:var(--ember-ink)}
+  /* the record-your-track pop-up */
+  #sr-title{display:flex;align-items:center;gap:10px}
+  .sr-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .sr-two input,.sr-two select{min-height:44px;padding:0 10px;border:2px solid var(--line);border-radius:3px;background:var(--paper)}
+  .sr-set{justify-content:flex-start}
+  #sr-rec{max-width:none}
+  #sr-rec .rec-go{min-height:50px;padding:0 28px;font-size:16px}
+  @media (max-width:520px){ .sr-two{grid-template-columns:1fr} .db-acts .btn{flex:1 1 100%} }

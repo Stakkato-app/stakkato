@@ -891,7 +891,7 @@ function recFinish() {
   REC.buf = buf;
   REC.file = new File([encodeWav(buf)], REC.where === 'seed' ? 'recorded track.wav' : 'recorded take.wav', { type:'audio/wav' });
   /* a first track recorded on the session page waits to start the session, like a chosen file */
-  if (REC.where === 'seed') { S.pendingSeed = REC.file; S.seedErr = ''; S.seedRecMeta = { bpm:S.meta.bpm, time:S.meta.time }; }
+  if (REC.where === 'seed') S.seedRecMeta = { bpm:S.meta.bpm, time:S.meta.time };
   REC.chunks = null;
   REC.state = 'done';
   renderRec();
@@ -1017,7 +1017,7 @@ function countInOptions() {
 }
 function renderRec() {
   if (REC.where === 'daw') { renderDawRec(); return; }
-  if (REC.where === 'seed') { render(); drawSeedRec(); return; }
+  if (REC.where === 'seed') { renderSeedPop(); return; }
   var box = el('rec-box');
   if (!box) return;
   var extend = M.mode === 'extend';
@@ -1198,52 +1198,82 @@ function renderInstruments() {
    records until you stop. The result waits on the drop panel like a chosen file, so you
    still add your name and say what it is before the session starts. */
 var SEED_TIMES = ['4/4','3/4','6/8','5/4','7/8','12/8'];
+function openSeedRec() {
+  if (!canDropSeed() || el('scrim').classList.contains('on')) return;
+  lastFocus = document.activeElement;
+  var panelRole = (el('seed-role') && el('seed-role').value) || '';
+  el('sr-by').value = ((el('seed-by') && el('seed-by').value) || savedName() || '').trim();
+  el('sr-role').innerHTML = '<option value=""' + (panelRole ? '' : ' selected') + ' disabled>Pick one</option>' +
+    '<option value="none"' + (panelRole === 'none' ? ' selected' : '') + '>Not one instrument</option>' +
+    ROLES.map(function (r) { return '<option value="' + r.id + '"' + (r.id === panelRole ? ' selected' : '') + '>' + r.label + '</option>'; }).join('');
+  el('sr-bpm').value = S.seedBpm || 100;
+  el('sr-time').innerHTML = SEED_TIMES.map(function (t) { return '<option' + (t === (S.seedTime || '4/4') ? ' selected' : '') + '>' + t + '</option>'; }).join('');
+  el('sr-countin').innerHTML = countInOptions();
+  el('sr-click').checked = REC.click !== false;
+  el('sr-err').classList.remove('on');
+  recReset(); REC.where = 'seed'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
+  renderSeedPop();
+  el('sr-scrim').classList.add('on');
+  (el('sr-by').value ? el('sr-role') : el('sr-by')).focus();
+}
+function closeSeedRec() {
+  if (REC.state === 'recording' || REC.state === 'asking') recCancel();
+  recStopPlayers();
+  recReset(); REC.where = null; S.seedRecMeta = null;
+  el('sr-scrim').classList.remove('on');
+  if (lastFocus) lastFocus.focus();
+}
 function seedRecStart() {
-  if (el('scrim').classList.contains('on')) return;
-  var bpm = Math.max(40, Math.min(240, parseInt((el('seed-bpm') && el('seed-bpm').value) || '', 10) || 100));
-  var sig = (el('seed-time') && el('seed-time').value) || '4/4';
+  var bpm = Math.max(40, Math.min(240, parseInt(el('sr-bpm').value, 10) || 100));
+  var sig = el('sr-time').value || '4/4';
   S.seedBpm = bpm; S.seedTime = sig;
   S.meta.bpm = bpm; S.meta.time = sig;
   M.mode = 'extend'; M.sec = 'core';          /* open length, nothing underneath */
-  recReset(); REC.where = 'seed'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
-  if (S.pendingSeed && S.pendingSeed.name === 'recorded track.wav') S.pendingSeed = null;
+  el('sr-err').classList.remove('on');
+  recReset(); REC.where = 'seed'; REC.hear = {}; REC.click = el('sr-click').checked;
   recStart();
 }
-function seedRecDrop() {
-  recReset(); REC.where = null;
-  if (S.pendingSeed && S.pendingSeed.name === 'recorded track.wav') { S.pendingSeed = null; S.seedRecMeta = null; }
-  render();
+/* start the session with the recording, once name and instrument are in */
+function seedRecUse() {
+  if (!REC.buf || !REC.file) return;
+  var name = el('sr-by').value.trim(), rl = el('sr-role').value;
+  var miss = !name ? 'Add your name first, it goes in the credits.' : !rl ? 'Say what the track is: pick an instrument, or "Not one instrument".' : '';
+  if (miss) { el('sr-err').textContent = miss; el('sr-err').classList.add('on'); el(!name ? 'sr-by' : 'sr-role').focus(); return; }
+  /* the drop panel holds the name and instrument the upload reads */
+  if (el('seed-by')) el('seed-by').value = name;
+  if (el('seed-role')) el('seed-role').value = rl;
+  var file = REC.file, meta = S.seedRecMeta;
+  el('sr-scrim').classList.remove('on');
+  recStopPlayers();
+  S.seedRecMeta = meta;
+  loadSeed(file, true);
 }
-function seedRecBox() {
-  var mine = REC.where === 'seed', st = mine ? REC.state : 'idle';
-  var err = mine && REC.err ? '<p class="rec-err">' + esc(REC.err) + '</p>' : '';
+function renderSeedPop() {
+  var box = el('sr-rec');
+  if (!box) return;
+  var st = REC.where === 'seed' ? REC.state : 'idle';
+  var err = REC.err ? '<p class="rec-err">' + esc(REC.err) + '</p>' : '';
   if (st === 'recording' || st === 'asking') {
-    return '<div class="seed-rec live">' +
-      '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
+    box.className = 'seed-rec live';
+    box.innerHTML = '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
       '<canvas id="seed-canvas"></canvas>' +
       '<div class="rec-meterwrap"><i id="rec-meter"></i></div>' +
       '<div class="rec-acts"><button class="btn btn-ember" type="button" data-rec="finish">Stop recording</button>' +
-      '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div></div>';
-  }
-  if (st === 'done') {
-    return '<div class="seed-rec done"><b>Recorded ' + clockMs(REC.buf.duration) + ' at ' + S.seedBpm + ' bpm, ' + esc(S.seedTime) + '</b>' +
+      '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div>';
+  } else if (st === 'done') {
+    box.className = 'seed-rec done';
+    box.innerHTML = '<b>Recorded ' + clockMs(REC.buf.duration) + ' at ' + S.seedBpm + ' bpm, ' + esc(S.seedTime) + '</b>' +
       '<canvas id="seed-canvas"></canvas>' +
       '<div class="rec-acts"><button class="btn btn-sm" type="button" data-rec="listen">' + I_PLAY + ' Hear it</button>' +
-      '<button class="btn btn-sm" type="button" data-seedrec="1">Record again</button>' +
-      '<button class="btn btn-sm" type="button" data-seeddrop="1">Throw away</button></div>' + err + '</div>';
+      '<button class="btn btn-sm" type="button" data-seedrec="1">Record again</button></div>' + err;
+  } else {
+    box.className = 'seed-rec';
+    box.innerHTML = '<button class="btn btn-ember rec-go" type="button" data-seedrec="1"><span class="rec-dot"></span> Start recording</button>' +
+      '<span class="tiny muted">Wear headphones, so the click stays out of your recording.</span>' + err;
   }
-  var sig = S.seedTime || '4/4';
-  return '<div class="seed-or"><span>or record it right here</span></div>' +
-    '<div class="seed-rec">' +
-      '<div class="rec-row">' +
-        '<label class="mini"><span>tempo</span><input type="number" id="seed-bpm" min="40" max="240" value="' + (S.seedBpm || 100) + '"></label>' +
-        '<label class="mini"><span>time</span><select id="seed-time">' + SEED_TIMES.map(function (t) { return '<option' + (t === sig ? ' selected' : '') + '>' + t + '</option>'; }).join('') + '</select></label>' +
-        '<label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
-        '<label class="rec-opt"><input type="checkbox" data-hear="click"' + (REC.click === false ? '' : ' checked') + '><span>Click</span></label>' +
-      '</div>' +
-      '<button class="btn btn-ember" type="button" data-seedrec="1"><span class="rec-dot"></span> Record</button>' +
-      '<span class="tiny muted">Wear headphones, so the click stays out of your recording. It records until you stop.</span>' + err +
-    '</div>';
+  el('sr-start').disabled = st !== 'done';
+  [].forEach.call(document.querySelectorAll('#sr-scrim .sr-set input, #sr-scrim .sr-set select'), function (f) { f.disabled = st === 'recording' || st === 'asking'; });
+  drawSeedRec();
 }
 /* the first track as it comes in, on a timeline that grows with it */
 function drawSeedRec() {
@@ -1337,8 +1367,6 @@ function renderSeed() {
       (host && isOpen() ? '<button class="btn btn-sm" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
         (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '') + '</div>';
   } else if (asCreator()) {
-    /* a recorded first track shows above the button that starts the session with it */
-    var recDoneHere = REC.where === 'seed' && REC.state === 'done' && !S.seedBusy;
     el('seedpanel').innerHTML = '<div class="dropbig">' + I_UP +
       '<h2>Drop an audio track</h2>' +
       '<p>A riff, a groove or a vocal. Drag it in, and other musicians stack layers on top until it sounds right to you. ' +
@@ -1349,16 +1377,15 @@ function renderSeed() {
           '<option value="" selected disabled>Pick one</option><option value="none">Not one instrument</option>' +
           ROLES.map(function (r) { return '<option value="' + r.id + '">' + r.label + '</option>'; }).join('') + '</select></label>' +
       '</div>' +
-      (recDoneHere ? seedRecBox() : '') +
       (S.pendingSeed && !S.seedBusy
         ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready. Fill in your name and what it is, then start.</span>' +
           (S.seedErr ? '<p class="db-err" role="alert">' + esc(S.seedErr) + '</p>' : '') +
           '<button class="btn btn-ember" type="button" data-seedgo="1">Start the session with this track</button>' +
           '<button class="btn btn-sm" type="button" data-attach="seed">Choose another file</button></div>'
-        : '<button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
+        : '<div class="db-acts"><button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
             (S.seedBusy ? 'Uploading...' : 'Choose a file') + '</button>' +
-          '<span class="tiny muted">wav, mp3 or m4a</span>') +
-      (S.seedBusy || recDoneHere ? '' : seedRecBox()) +
+            (S.seedBusy ? '' : '<button class="btn db-rec" type="button" data-seedpop="1"><span class="rec-dot"></span> Record right here</button>') + '</div>' +
+          '<span class="tiny muted">wav, mp3 or m4a, or record it with a click</span>') +
     '</div>';
   } else {
     el('seedpanel').innerHTML = '<div class="dropbig wait">' + I_UP +
@@ -2152,6 +2179,10 @@ function startSeed() {
   S.seedErr = '';
   loadSeed(S.pendingSeed, true);
 }
+el('sr-cancel').addEventListener('click', closeSeedRec);
+el('sr-start').addEventListener('click', seedRecUse);
+el('sr-scrim').addEventListener('click', function (e) { if (e.target === this) closeSeedRec(); });
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('sr-scrim').classList.contains('on')) closeSeedRec(); });
 var pendingAttach = null;
 el('attach-file').addEventListener('change', function () {
   var file = this.files[0];
@@ -2412,8 +2443,8 @@ document.addEventListener('click', function (e) {
     setSrc(sr.dataset.src); return;
   }
   if (e.target.closest('[data-dawrec]')) { dawRecStart(); return; }
+  if (e.target.closest('[data-seedpop]')) { openSeedRec(); return; }
   if (e.target.closest('[data-seedrec]')) { seedRecStart(); return; }
-  if (e.target.closest('[data-seeddrop]')) { seedRecDrop(); return; }
   if (e.target.closest('[data-dawsend]')) { dawRecSend(); return; }
   if (e.target.closest('[data-dawdrop]')) { dawRecDiscard(); return; }
   var rc = e.target.closest('[data-rec]');

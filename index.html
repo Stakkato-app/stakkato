@@ -223,6 +223,30 @@
   </div>
 </div>
 
+<!-- recording the original track: same recorder as for layers, in its own pop-up -->
+<div class="scrim" id="sr-scrim" role="dialog" aria-modal="true" aria-labelledby="sr-title">
+  <div class="modal">
+    <h3 id="sr-title"><span class="rec-dot"></span> Record your track</h3>
+    <p class="tiny muted">Pick the tempo and time, then play along with the click. It records until you stop.</p>
+    <div class="sr-two">
+      <div class="field"><label for="sr-by">Your name</label><input type="text" id="sr-by" maxlength="60" placeholder="how you show up in the credits"></div>
+      <div class="field"><label for="sr-role">What is it</label><select id="sr-role"></select></div>
+    </div>
+    <div class="rec-row sr-set">
+      <label class="mini"><span>tempo</span><input type="number" id="sr-bpm" min="40" max="240" value="100"></label>
+      <label class="mini"><span>time</span><select id="sr-time"></select></label>
+      <label class="mini"><span>count-in</span><select data-countin="1" id="sr-countin"></select></label>
+      <label class="rec-opt"><input type="checkbox" data-hear="click" id="sr-click" checked><span>Click</span></label>
+    </div>
+    <div class="seed-rec" id="sr-rec"></div>
+    <p class="err" id="sr-err"></p>
+    <div class="modal-foot">
+      <button class="btn" type="button" id="sr-cancel">Cancel</button>
+      <button class="btn btn-ember" type="button" id="sr-start" disabled>Start the session</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="/src/app.js"></script>
 </body>
 </html>
