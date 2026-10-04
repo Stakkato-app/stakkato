@@ -705,40 +705,20 @@
   .db-pending .tiny b{font-weight:700;word-break:break-all}
 
   /* ---------- more air between the blocks of the session page ---------- */
-  .how.full{margin-bottom:48px}
+  .how.full{margin-bottom:56px}
   .projtitle{margin-bottom:20px}
   .howbox{margin-top:32px}
-  .head{margin:72px 0 20px}
-  .lightband{margin:72px auto 64px}
+  .head{margin:100px 0 22px}
+  .lightband{margin:100px auto 92px}
   .owncta{margin:0 0 8px}
-  .lockbar{margin-top:56px}
+  .lockbar{margin-top:72px}
   .picker{margin-top:20px}
   .pitches{margin-top:20px}
-  .strip{margin-top:56px}
+  .strip{margin-top:64px}
   @media (max-width:600px){
-    .how.full{margin-bottom:32px}
-    .head{margin:48px 0 14px}
-    .lightband{margin:48px auto 44px}
-    .lockbar{margin-top:40px}
-    .strip{margin-top:40px}
+    .how.full{margin-bottom:36px}
+    .head{margin:60px 0 14px}
+    .lightband{margin:60px auto 56px}
+    .lockbar{margin-top:48px}
+    .strip{margin-top:44px}
   }
-
-  /* ---------- between blocks: a pointer to what comes next (like the homepage) ---------- */
-  .next{display:flex;flex-direction:column;align-items:center;gap:8px;width:max-content;max-width:100%;margin:88px auto 40px;
-    text-align:center;text-decoration:none;color:var(--muted)}
-  .next span{font-family:var(--disp);font-size:16px;font-weight:700;letter-spacing:-.005em;text-wrap:balance}
-  .next svg{width:40px;height:40px;padding:9px;border:2px solid var(--ember);border-radius:50%;background:var(--paper);color:var(--ember-ink);
-    transition:background .15s,color .15s;animation:nudge 2.4s ease-in-out infinite}
-  .next:hover span{color:var(--ember-ink)}
-  .next:hover svg{background:var(--ember);color:#240D03}
-  @keyframes nudge{0%,70%,100%{transform:translateY(0)}80%{transform:translateY(4px)}90%{transform:translateY(0)}}
-  @media (prefers-reduced-motion:reduce){ .next svg{animation:none} }
-  body:not(.has-track) .next{display:none}
-  /* the pointer carries the space; what follows it starts right away */
-  .next + .head{margin-top:0}
-  .lightband{margin-top:0}
-  .next + .owncta{margin-top:0}
-  html{scroll-behavior:smooth}
-  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
-  #mix-head,#apply,#owncta,#versions-head,#archive-head{scroll-margin-top:100px}
-  @media (max-width:600px){ .next{margin:60px auto 28px} .next span{font-size:15px} }

@@ -1526,7 +1526,6 @@ function renderBoards() {
 function renderArchive() {
   var show = S.archive.length > 0;
   el('archive-head').style.display = show ? '' : 'none';
-  if (el('next-archive')) el('next-archive').style.display = show ? '' : 'none';
   el('archive').style.display = show ? '' : 'none';
   if (!show) return;
   el('archive').innerHTML = '<ul class="rows">' + S.archive.slice().reverse().map(function (a) {
