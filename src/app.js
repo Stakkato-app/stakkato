@@ -1242,7 +1242,7 @@ function renderDaw() {
           '<button class="tbtn' + (c.solo ? ' on solo' : '') + '" type="button" data-solo="' + t.id + '" aria-pressed="' + !!c.solo + '" title="Solo">S</button>' +
           '<input type="range" min="0" max="1" step="0.02" value="' + v + '" data-vol="' + t.id + '" aria-label="Volume for ' + esc(t.by) + '">' +
           '<button class="tbtn" type="button" data-dl="' + t.id + '" title="Download this take">' + I_DL + '</button>' +
-          (lineupView && t.id !== 'seed' ? delBtn(t.id, true) : '') +
+
         '</div>' +
         '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' +
         (boss && isPart ? '<label class="xf"><span>crossfade</span>' +

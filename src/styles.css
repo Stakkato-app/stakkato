@@ -702,3 +702,22 @@
   .listening.build .btn{flex:none}
   .db-pending{display:flex;flex-direction:column;align-items:center;gap:10px}
   .db-pending .tiny b{font-weight:700;word-break:break-all}
+
+  /* ---------- more air between the blocks of the session page ---------- */
+  .how.full{margin-bottom:48px}
+  .projtitle{margin-bottom:20px}
+  .howbox{margin-top:32px}
+  .head{margin:72px 0 20px}
+  .lightband{margin:72px auto 64px}
+  .owncta{margin:0 0 8px}
+  .lockbar{margin-top:56px}
+  .picker{margin-top:20px}
+  .pitches{margin-top:20px}
+  .strip{margin-top:56px}
+  @media (max-width:600px){
+    .how.full{margin-bottom:32px}
+    .head{margin:48px 0 14px}
+    .lightband{margin:48px auto 44px}
+    .lockbar{margin-top:40px}
+    .strip{margin-top:40px}
+  }
