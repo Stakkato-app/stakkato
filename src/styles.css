@@ -829,3 +829,7 @@
     .dawtabs.modes b{font-size:16px}
     .dawtabs.modes small{display:none}
   }
+  /* short labels on one line ("Add bass"), with an orange edge so they still read as the call to action */
+  .gate .g-foot .btn{border-color:var(--ember);white-space:nowrap;min-width:0}
+  .gate .g-foot .btn span{overflow:hidden;text-overflow:ellipsis}
+  .gate .g-foot .btn:hover:not(:disabled){border-color:var(--ember-ink);background:#FFF1E8}
