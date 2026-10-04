@@ -680,7 +680,7 @@
 
   /* ---------- make your own version: the main invitation once a track is in ---------- */
   .owncta{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px 36px;align-items:center;
-    background:var(--ink);color:var(--paper);border-radius:8px;padding:clamp(22px,3vw,36px) clamp(20px,3.4vw,44px);margin:6px 0 8px}
+    background:var(--ink);color:var(--paper);border-radius:8px;padding:clamp(22px,3vw,36px) clamp(20px,3.4vw,44px);margin:36px 0 8px}
   .owncta .kicker{color:var(--ember)}
   .owncta h2{color:var(--paper);font-size:clamp(28px,3.2vw,42px);margin-top:6px}
   .owncta p{color:#C9C3D6;margin-top:10px;max-width:68ch;font-size:16px}
@@ -700,3 +700,5 @@
     color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
   .pk-rec:hover{border-color:var(--ink);color:var(--ink)}
   .listening.build .btn{flex:none}
+  .db-pending{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .db-pending .tiny b{font-weight:700;word-break:break-all}

@@ -51,6 +51,13 @@ function oops(e) {
   if (/anonymous/i.test(msg)) msg = 'Anonymous sign-ins are off in Supabase. Turn them on under Authentication, Sign In / Providers.';
   flash(msg);
 }
+/* a database change this page relies on isn't applied yet: say so instead of a raw error */
+function needsUpdate(e, file) {
+  var m = String((e && (e.message || e.details)) || '');
+  if (/row-level security|status_check|violates check constraint|could not find the function|schema cache/i.test(m))
+    return new Error('This needs a database update that is not applied yet (' + file + '). Ask whoever runs the database to apply it, then try again.');
+  return null;
+}
 function savedName() { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } }
 function rememberName(n) { try { if (n) localStorage.setItem(NAME_KEY, n); } catch (e) {} }
 function extOf(name) { return (name && name.indexOf('.') > -1) ? name.split('.').pop().toLowerCase() : 'wav'; }
@@ -268,7 +275,8 @@ function applySnapshot(sess, snap) {
   S.applicants = layers.filter(function (t) { return t.status === 'waiting'; });
   S.own = layers.filter(function (t) { return t.status === 'own'; });
   S.archive = layers.filter(function (t) { return t.status === 'archived'; }).map(function (t) {
-    return { take:t, why: t.why === 'vetoed' ? (isHost() ? 'vetoed by you' : 'vetoed by the creator') : (t.why || 'archived') };
+    return { take:t, why: t.why === 'vetoed' ? (isHost() ? 'vetoed by you' : 'vetoed by the creator')
+                        : t.why === 'removed' ? (isHost() ? 'taken out by you' : 'taken out by the creator') : (t.why || 'archived') };
   });
   S.pitches = parts.filter(function (t) { return t.status === 'waiting'; });
   S.parts = parts.filter(function (t) { return t.status === 'in'; }).sort(byJoin);
@@ -1113,9 +1121,13 @@ function renderSeed() {
         '<label class="field seed-name"><span>Your name</span><input type="text" id="seed-by" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
         '<label class="field seed-name"><span>What is it</span><select id="seed-role">' + seedRoleOptions(S.meta.seedRole, 'Not one instrument') + '</select></label>' +
       '</div>' +
-      '<button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
-        (S.seedBusy ? 'Uploading...' : 'Choose a file') + '</button>' +
-      '<span class="tiny muted">wav, mp3 or m4a</span>' +
+      (S.pendingSeed && !S.seedBusy
+        ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready.</span>' +
+          '<button class="btn btn-ember" type="button" data-seedgo="1">Start the session with this track</button>' +
+          '<button class="btn btn-sm" type="button" data-attach="seed">Choose another file</button></div>'
+        : '<button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
+            (S.seedBusy ? 'Uploading...' : 'Choose a file') + '</button>' +
+          '<span class="tiny muted">wav, mp3 or m4a</span>') +
     '</div>';
   } else {
     el('seedpanel').innerHTML = '<div class="dropbig wait">' + I_UP +
@@ -1215,6 +1227,7 @@ function renderDaw() {
           '<span class="tiny muted">' + esc(labelOf(t)) + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
           (building && t.id !== 'seed' && !isPart ? '<button class="tbtn rm" type="button" data-pick="' + t.id + '" title="Take it out of your version" aria-label="Remove ' + esc(t.by) + ' from your version">&times;</button>' : '') +
           (boss && isPart && !isPitch ? '<button class="tbtn rm" type="button" data-droppart="' + t.id + '" title="Take this part out of the song" aria-label="Take the part by ' + esc(t.by) + ' out of the song">&times;</button>' : '') +
+          (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? '<button class="tbtn rm" type="button" data-takeout="' + t.id + '" title="Take it out of the project (it stays usable in versions)" aria-label="Take the layer by ' + esc(t.by) + ' out of the project">&times;</button>' : '') +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
@@ -1697,8 +1710,16 @@ function loadSeed(file) {
   var nameEl = el('seed-by');
   var name = ((nameEl && nameEl.value) || S.seed.by || savedName()).trim();
   var roleEl = el('seed-role');
-  if (!name) { flash('Add your name first, it goes in the credits.'); if (nameEl) nameEl.focus(); return; }
+  if (!name) {
+    /* keep the file: add your name and start, no need to pick it again */
+    S.pendingSeed = file;
+    render();
+    flash('Got ' + file.name + '. Add your name, then start the session.');
+    if (el('seed-by')) el('seed-by').focus();
+    return;
+  }
   if (!me) { flash('Still connecting, try again in a second.'); return; }
+  S.pendingSeed = null;
   rememberName(name);
   var created = false;
   S.seedBusy = true; S.meta.busy = true; render();
@@ -1877,6 +1898,10 @@ el('take-file').addEventListener('change', function () {
 el('modal-cancel').addEventListener('click', closeModal);
 el('scrim').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('scrim').classList.contains('on')) closeModal(); });
+/* Enter in the name field starts the session with a file that is already chosen */
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target.id === 'seed-by' && S.pendingSeed && e.target.value.trim()) { e.preventDefault(); loadSeed(S.pendingSeed); }
+});
 
 function takeSource(fail) {
   if (M.src === 'rec') {
@@ -1897,7 +1922,11 @@ function takeSource(fail) {
 el('modal-send').addEventListener('click', function () {
   var name = el('take-name').value.trim(), btn = this;
   function fail(m){ el('modal-err').textContent = m; el('modal-err').classList.add('on'); btn.disabled = false; btn.textContent = sendLabel(); }
-  function upFail(e){ console.error(e); fail((e && e.message) || 'The upload failed. Try again.'); }
+  function upFail(e){
+    console.error(e);
+    var nu = M.mode === 'own' ? needsUpdate(e, '20261004120000_own_takes.sql') : null;
+    fail((nu || e).message || 'The upload failed. Try again.');
+  }
   if (!name) return fail('Add your name for the credits.');
   var p = takeSource(fail);
   if (!p) return;
@@ -2004,8 +2033,25 @@ document.addEventListener('click', function (e) {
   if (acp) { keepPart(findTake(acp.dataset.accpitch)); return; }
   var psp = e.target.closest('[data-passpitch]');
   if (psp) { passPart(findTake(psp.dataset.passpitch)); return; }
+  var to = e.target.closest('[data-takeout]');
+  if (to) {
+    var tt = findTake(to.dataset.takeout);
+    if (!tt || !isHost()) return;
+    stopAll();
+    db.takeOutLayer(tt.dbId).then(function () {
+      flash('Took ' + (tt.by || 'the') + '’s ' + role(tt.roleId).label.toLowerCase() + ' out of the project. It is in the archive, and people can still use it in their versions.');
+      return refresh();
+    }).catch(function (err) { oops(needsUpdate(err, '20261004130000_take_out_layer.sql') || err); });
+    return;
+  }
   var dp = e.target.closest('[data-droppart]');
   if (dp) { dropPart(findTake(dp.dataset.droppart)); return; }
+  if (e.target.closest('[data-seedgo]')) {
+    if (!S.pendingSeed) return;
+    if (!((el('seed-by') && el('seed-by').value) || '').trim()) { flash('Add your name first, it goes in the credits.'); el('seed-by').focus(); return; }
+    loadSeed(S.pendingSeed);
+    return;
+  }
   var at = e.target.closest('[data-attach]');
   if (at) { pendingAttach = at.dataset.attach; el('attach-file').click(); return; }
   var d = e.target.closest('[data-dl]');
@@ -2149,7 +2195,7 @@ document.addEventListener('click', function (e) {
     db.sendOwnTake(ot.dbId).then(function () {
       flash('Sent. Your ' + role(ot.roleId).label.toLowerCase() + ' take is waiting for the creator, and stays in your version.');
       return refresh();
-    }).catch(function (err) { so2.disabled = false; so2.textContent = 'Send to the creator'; oops(err); });
+    }).catch(function (err) { so2.disabled = false; so2.textContent = 'Send to the creator'; oops(needsUpdate(err, '20261004120000_own_takes.sql') || err); });
     return;
   }
   var react = e.target.closest('[data-react]');
