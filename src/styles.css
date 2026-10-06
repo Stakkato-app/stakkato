@@ -513,12 +513,12 @@
   .lv i,.lv em{flex:none}
 
   @media (max-width:600px){
-    /* header on one row: logo left, the two tabs right */
-    .bar{flex-wrap:nowrap;min-height:0;padding-top:10px;padding-bottom:10px;gap:10px}
+    /* header: logo on top, the two tabs side by side under it */
+    .bar{flex-wrap:wrap;min-height:0;padding-top:10px;padding-bottom:10px;gap:8px 10px}
     .session{display:none}
     .brand .logo{height:22px}
-    .phases{width:auto;margin-left:auto;flex-wrap:nowrap;gap:4px}
-    .phase{min-height:36px;padding:0 10px;font-size:16px;gap:5px;white-space:nowrap}
+    .phases{width:100%;margin-left:0;flex-wrap:nowrap;gap:4px}
+    .phase{flex:1 1 0;justify-content:center;min-height:36px;padding:0 8px;font-size:15px;gap:5px;white-space:nowrap}
     .phase span{display:none}
     main{padding-top:16px}
 
