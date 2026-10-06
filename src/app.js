@@ -463,6 +463,7 @@ function ac() {
 }
 function anySolo(){ return tracks().some(function (t) { return ctl(t).solo; }); }
 function audible(t) {
+  if (only && only.indexOf('pair:') === 0) return t.id === 'seed' || t.id === only.slice(5);
   if (only) return t.id === only;
   if (ctl(t).mute) return false;
   if (anySolo() && !ctl(t).solo) return false;
@@ -556,6 +557,28 @@ function preview(t) {
   onlyAt = T;
   sources[t.id] = s;
   s.onended = function () { delete sources[t.id]; if (only === t.id) { only = null; render(); } };
+  startLoop();
+  render();
+}
+/* a take together with the original track, from the own-version block */
+function pairPreview(t) {
+  var key = 'pair:' + t.id;
+  if (only === key) { stopAll(); return; }
+  if (!t || !t.buf || !S.seed.buf) { flash('Still loading the audio.'); return; }
+  stopAll();
+  only = key;
+  ac().resume();
+  var T = ac().currentTime + 0.02, left = 2;
+  [S.seed, t].forEach(function (x) {
+    var s = ac().createBufferSource(), env = ac().createGain();
+    s.buffer = x.buf;
+    s.connect(env); env.connect(gainFor(x));
+    scheduleEnv(env, x, T, 0);
+    s.start(T);
+    sources[x.id] = s;
+    s.onended = function () { delete sources[x.id]; if (--left === 0 && only === key) { only = null; render(); } };
+  });
+  onlyAt = T;
   startLoop();
   render();
 }
@@ -1431,7 +1454,10 @@ function ocTake(t, extra) {
       (on ? I_PAUSE : I_PLAY) + '</button>' +
     ico(r.icon, col(r)) +
     '<div class="oc-who"><b>' + esc(t.by) + '</b><span>' + esc(r.label) + (extra ? ', ' + extra : '') + ' ' + secTag(t) + verTag(t.id) + '</span></div>' +
-    '<span class="oc-btns"><button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
+    '<span class="oc-btns">' + (secOf(t) === 'core' ? '<button class="btn btn-sm oc-pair' + (only === 'pair:' + t.id ? ' on' : '') + '" type="button" data-pair="' + t.id + '"' +
+      ' aria-label="Play the take by ' + esc(t.by) + ' with the original track"' + (t.buf && S.seed.buf ? '' : ' disabled') + '>' +
+      (only === 'pair:' + t.id ? I_PAUSE : I_PLAY) + ' With the original</button>' : '') +
+    '<button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
     (extra ? delBtn(t.id) : '') + '</span></li>';
 }
 function ocTakes() {
@@ -1536,7 +1562,7 @@ function dawTabs() {
   var building = S.view === 'build' && !S.override, main = !building && !S.override;
   return '<div class="dawtabs modes" role="tablist" aria-label="What plays">' +
     '<button type="button" role="tab" data-view="lineup" aria-selected="' + main + '">' +
-      '<span class="m-ico">' + I_PLAY + '</span><span class="m-txt"><b>The song</b><small>the takes the creator chose</small></span></button>' +
+      '<span class="m-ico">' + I_PLAY + '</span><span class="m-txt"><b>The song so far</b><small>the takes the creator chose</small></span></button>' +
     '<button type="button" role="tab" class="mode-own" data-view="build" aria-selected="' + building + '">' +
       '<span class="m-ico">+</span><span class="m-txt"><b>Your version</b><small>any take, plus your own takes</small></span></button>' +
     '</div>';
@@ -1546,10 +1572,10 @@ function renderDaw() {
   el('daw').classList.toggle('own', own);
   if (el('mix-title')) {
     el('mix-title').textContent = own ? 'Your version' : 'Layers in the song';
-    el('mix-kicker').textContent = own ? 'Same recordings, your choices' : 'The parts currently in the stack';
+    el('mix-kicker').textContent = own ? 'Same recordings, your choices' : 'The parts currently in the song';
   }
   /* the stack's instrument chips belong to the stack, not to your version */
-  el('instruments').style.display = own ? 'none' : '';
+  el('instruments').style.display = 'none';  /* the chips repeated the tracks right below them */
   if (own && el('lineup-sub')) el('lineup-sub').textContent = 'Saved versions show up under "Other versions", for everyone to hear.';
   var banner = '';
   if (S.override) {
@@ -1602,7 +1628,7 @@ function renderDaw() {
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
           '<button class="btn btn-sm" type="button" data-untrialpitch="1">Take it out</button></div>' : '') +
         (isTrial ? '<div class="t-try">' +
-          (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to stack</button>' : '') +
+          (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>' : '') +
           '<button class="btn btn-sm" type="button" data-untrial="1">Take it out</button></div>' : '') +
         '<div class="t-ctrl">' +
           '<button class="tbtn play-t' + (only === t.id ? ' on' : '') + '" type="button" data-prev="' + t.id + '" title="Play just this track" aria-label="Play only the take by ' + esc(t.by) + '">' +
@@ -1910,9 +1936,9 @@ function versionCard(v) {
 function officialCard() {
   var on = !S.override && S.view !== 'build' && running;
   return '<article class="vcard official">' +
-    '<div class="vc-top"><button class="play' + (on ? ' on' : '') + '" type="button" data-playofficial="1" aria-label="Play the stack">' +
+    '<div class="vc-top"><button class="play' + (on ? ' on' : '') + '" type="button" data-playofficial="1" aria-label="Play ' + esc(projName()) + '">' +
       (on ? I_PAUSE : I_PLAY) + '</button>' +
-    '<div><b>The stack</b><span class="tiny muted">official, chosen by the creator</span></div></div>' +
+    '<div><b>' + esc(projName()) + '</b><span class="tiny muted">official, chosen by the creator</span></div></div>' +
     '<div class="vc-chips">' + S.members.filter(onKeptSection).map(function (t) {
       var r = role(t.roleId);
       return '<span class="vchip">' + ico(r.icon, col(r)) + esc(t.by) + '</span>';
@@ -1992,7 +2018,7 @@ function applyCard(r) {
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
       (host && isOpen()
         ? '<div class="app-foot"><span class="acts">' +
-          (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to stack</button>') +
+          (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>') +
           '<button class="btn btn-sm btn-veto" type="button" data-no="' + t.id + '">Veto</button></span></div>'
         : '<div class="app-foot"><span class="tiny muted">Waiting for the creator</span></div>') +
       '</li>';
@@ -2574,6 +2600,8 @@ document.addEventListener('click', function (e) {
     }).catch(function (err) { oops(needsUpdate(err, '20261004130000_take_out_layer.sql') || err); });
     return;
   }
+  var pr = e.target.closest('[data-pair]');
+  if (pr) { pairPreview(findTake(pr.dataset.pair)); return; }
   var dp = e.target.closest('[data-droppart]');
   if (dp) { dropPart(findTake(dp.dataset.droppart)); return; }
   if (e.target.closest('[data-seedgo]')) { startSeed(); return; }

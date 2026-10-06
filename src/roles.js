@@ -5,13 +5,13 @@
    when the creator decides, there is no per-instrument cap. */
 
 export var ROLES = [
+  { id:'vocals', label:'Vocals',        slots:Infinity, color:'--vocals', icon:'vocals' },
   { id:'drums',  label:'Drums',         slots:Infinity, color:'--drums',  icon:'drums'  },
   { id:'guitar', label:'Guitar',        slots:Infinity, color:'--guitar', icon:'guitar' },
   { id:'bass',   label:'Bass',          slots:Infinity, color:'--bass',   icon:'bass'   },
   { id:'lead',   label:'Lead',          slots:Infinity, color:'--lead',   icon:'guitar' },
   { id:'atmos',  label:'Atmosphere',    slots:Infinity, color:'--atmos',  icon:'atmos'  },
-  { id:'wild',   label:'Wildcard',      slots:Infinity, color:'--wild',   icon:'wild'   },
-  { id:'vocals', label:'Vocals',        slots:Infinity, color:'--vocals', icon:'vocals' }
+  { id:'wild',   label:'Wildcard',      slots:Infinity, color:'--wild',   icon:'wild'   }
 ];
 
 export function role(id) {

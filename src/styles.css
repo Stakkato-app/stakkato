@@ -707,11 +707,14 @@
   .oc-who{min-width:0}
   .oc-who b{display:block;color:var(--paper);font-size:15px}
   .oc-who span{font-size:12px;color:#A9A3B6}
-  .oc-btns{display:flex;gap:6px}
+  .oc-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .owncta .oc-pair{background:transparent;color:var(--paper);border-color:rgba(252,251,244,.3);gap:6px;white-space:nowrap}
+  .owncta .oc-pair.on{background:var(--ember);border-color:var(--ember);color:var(--ink)}
   .owncta .play{border-color:rgba(252,251,244,.5);color:var(--paper);background:transparent}
   .owncta .play.on{background:var(--ember);border-color:var(--ember);color:var(--ink)}
   .owncta .icobtn{background:transparent;color:var(--paper);border-color:rgba(252,251,244,.3)}
   @media (max-width:760px){ .oc-takes{grid-template-columns:1fr} }
+  @media (max-width:600px){ .oc-take{grid-template-columns:auto auto minmax(0,1fr)} .oc-btns{grid-column:3 / -1;justify-content:flex-start} }
 
   /* ---------- your own takes in the version builder ---------- */
   .pk{flex-wrap:wrap}
