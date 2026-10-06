@@ -2014,7 +2014,7 @@ function applyCard(r) {
       (S.trial === t.id
         ? '<div class="trypair">' + mixToggle('this take') +
           '<button class="btn btn-sm trybtn on" type="button" data-try="' + t.id + '">Take it out again</button></div>'
-        : '<button class="btn btn-sm trybtn" type="button" data-try="' + t.id + '">Hear it in the stack</button>') +
+        : '<button class="btn btn-sm trybtn" type="button" data-try="' + t.id + '">Hear it in the mix</button>') +
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
       (host && isOpen()
         ? '<div class="app-foot"><span class="acts">' +
@@ -2039,8 +2039,8 @@ function renderBoards() {
     ? S.members.length + ' take(s) in the stack, on top of the original track.'
     : 'Nothing in the stack yet. Every take starts in the review list below.';
   el('apply-sub').textContent = isHost()
-    ? 'Hear each take in the stack, then add it or veto it. Your call alone.'
-    : 'The creator hears every take in the stack and decides what goes in.';
+    ? 'Hear each take in the mix, then add it to the song or veto it. Your call alone.'
+    : 'The creator hears every take in the mix and decides what goes in the song.';
 }
 function renderArchive() { /* the unused takes are listed in the "make your own version" block (ocTakes) */ }
 function renderLock() {
