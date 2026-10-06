@@ -1220,7 +1220,7 @@ var STEPS = {
   creator: {
     lead: 'One track, one decision-maker. Musicians add their takes on top, and anyone can build their own version from every take.',
     steps: [
-      ['Upload an audio track', 'Tempo and key are read from your file, and its length is the length of every take.'],
+      ['Upload an audio track', 'Strangers will stack their own layers on top. Tempo and key are read from your file, and its length is the length of every take.'],
       ['Anyone adds a take', 'Play along in your DAW with the click, or record right here. One instrument per take.'],
       ['You build the stack', 'You dropped the track, so you choose which takes go in the stack. It’s your call alone.'],
       ['You decide when it’s finished', 'Release the song when it feels right. The stack is the song, a mix is optional, and anyone can build their own version from every take.']
@@ -1420,6 +1420,31 @@ function renderOwnCta() {
     '<div class="oc-acts">' +
       '<button class="btn btn-ember btn-lg" type="button" data-ownstart="1">' + (building ? 'Go to your version' : 'Start your own version') + '</button>' +
       (isOpen() ? '<button class="btn btn-lg oc-alt" type="button" data-apply="">Add a take to the stack</button>' : '') +
+    '</div>' + ocTakes();
+}
+/* every take you can build with, inside the "make your own version" block: the ones the
+   song uses and the ones it doesn't (vetoed, or taken out by the creator) */
+function ocTake(t, extra) {
+  var r = role(t.roleId), on = only === t.id;
+  return '<li class="oc-take">' +
+    '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear the take by ' + esc(t.by) + ' on its own"' + (t.buf ? '' : ' disabled') + '>' +
+      (on ? I_PAUSE : I_PLAY) + '</button>' +
+    ico(r.icon, col(r)) +
+    '<div class="oc-who"><b>' + esc(t.by) + '</b><span>' + esc(r.label) + (extra ? ', ' + extra : '') + ' ' + secTag(t) + verTag(t.id) + '</span></div>' +
+    '<span class="oc-btns"><button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
+    (extra ? delBtn(t.id) : '') + '</span></li>';
+}
+function ocTakes() {
+  var used = S.members.filter(onKeptSection), unused = S.archive.slice().reverse();
+  return '<div class="oc-takes">' +
+    '<div class="oc-col"><div class="oc-h"><b>Used takes</b><span class="count">' + used.length + '</span></div>' +
+      '<p class="oc-sub">In the song right now.</p>' +
+      (used.length ? '<ul>' + used.map(function (t) { return ocTake(t, ''); }).join('') + '</ul>'
+        : '<p class="oc-empty">No takes in the song yet.</p>') + '</div>' +
+    '<div class="oc-col" id="archive-head"><div class="oc-h"><b>Unused takes</b><span class="count">' + unused.length + '</span></div>' +
+      '<p class="oc-sub">Nothing gets wasted. Use them in your own version.</p>' +
+      (unused.length ? '<ul>' + unused.map(function (a) { return ocTake(a.take, a.why); }).join('') + '</ul>'
+        : '<p class="oc-empty">Every take made it into the song so far.</p>') + '</div>' +
     '</div>';
 }
 function renderSeed() {
@@ -1511,7 +1536,7 @@ function dawTabs() {
   var building = S.view === 'build' && !S.override, main = !building && !S.override;
   return '<div class="dawtabs modes" role="tablist" aria-label="What plays">' +
     '<button type="button" role="tab" data-view="lineup" aria-selected="' + main + '">' +
-      '<span class="m-ico">' + I_PLAY + '</span><span class="m-txt"><b>The stack</b><small>the takes the creator chose</small></span></button>' +
+      '<span class="m-ico">' + I_PLAY + '</span><span class="m-txt"><b>The song</b><small>the takes the creator chose</small></span></button>' +
     '<button type="button" role="tab" class="mode-own" data-view="build" aria-selected="' + building + '">' +
       '<span class="m-ico">+</span><span class="m-txt"><b>Your version</b><small>any take, plus your own takes</small></span></button>' +
     '</div>';
@@ -1991,20 +2016,7 @@ function renderBoards() {
     ? 'Hear each take in the stack, then add it or veto it. Your call alone.'
     : 'The creator hears every take in the stack and decides what goes in.';
 }
-function renderArchive() {
-  var show = S.archive.length > 0;
-  el('archive-head').style.display = show ? '' : 'none';
-  el('archive').style.display = show ? '' : 'none';
-  if (!show) return;
-  el('archive').innerHTML = '<ul class="rows">' + S.archive.slice().reverse().map(function (a) {
-    var r = role(a.take.roleId);
-    return '<li class="row">' + ico(r.icon, col(r)) +
-      '<div><b>' + esc(a.take.by) + '</b><div class="meta">' + r.label + ', ' + a.why + ' ' + secTag(a.take) + verTag(a.take.id) + '</div></div>' +
-      '<button class="btn btn-sm icobtn" type="button" data-dl="' + a.take.id + '" aria-label="Download">' + I_DL + '</button>' +
-      delBtn(a.take.id) +
-      '<button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Record a new take</button></li>';
-  }).join('') + '</ul>';
-}
+function renderArchive() { /* the unused takes are listed in the "make your own version" block (ocTakes) */ }
 function renderLock() {
   el('lock-status').innerHTML = S.members.length + ' take(s) in the stack, ' + S.applicants.length + ' to review' +
     (hasSeed() ? '' : ', <strong>no track yet</strong>') +
@@ -2150,11 +2162,6 @@ function renderRelease() {
       '<div><b>' + esc(S.mix.by) + '</b><small>mix</small></div></div>' : '');
 
   renderVersionLists();
-  el('rel-archive').innerHTML = S.archive.length ? S.archive.map(function (a) {
-    var r = role(a.take.roleId);
-    return '<div class="credit dim">' + ico(r.icon, col(r)) +
-      '<div><b>' + esc(a.take.by) + '</b><small>' + r.label.toLowerCase() + ', ' + a.why + '</small></div></div>';
-  }).join('') : '<p class="tiny muted">Every take made it into the stack.</p>';
 
   [].forEach.call(document.querySelectorAll('[data-react]'), function (b) {
     var k = b.dataset.react;
