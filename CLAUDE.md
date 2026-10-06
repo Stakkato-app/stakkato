@@ -94,18 +94,20 @@ The code says seed, host and line-up; the UI says **original track**, **creator*
 - **Mix**: a finished, mixed recording of the stack, uploaded after release (`role_id = 'mix'`).
 - **Release**: publishing the end result (closing the session, `status = 'released'`).
 
+Layout rule: one main (orange) action per block. Secondary actions on a take (play on its own, download, delete, take out) live in its "⋯" menu (`menuBtn()` / `mi()` in app.js); a take's play button does the most useful thing for its block (in the mix for takes to review, with the original track in the own-version block). Messages show as a toast (`flash()`).
+
 ## Testing
 
 There's no automated test suite yet. Before shipping a change, run through this with two browsers (or a normal and a private window, which get different anonymous users):
 
 1. Browser A: load a seed with a name (or "Record right here": a pop-up with name, instrument, tempo, time, count-in and click, records until you stop, then "Start the session"; the session gets the tempo/time it was recorded at). Nothing starts until name and instrument are filled in. URL changes to `/s/<slug>`; tempo/key show up.
 2. Browser B: open the link. B sees "<name>'s track", no host controls, and can send a take. A take of the wrong length is rejected.
-3. A sees B's take appear without reloading, lets it in, and it shows in the line-up for both.
-4. A third user sends a take for the same or another role; A hears it in the mix and lets it in or vetoes it (there is no voting in the UI).
+3. A sees B's take appear under "Takes to review" without reloading, presses "Add to song", and it shows in the tracks for both.
+4. A third user sends a take for the same or another role; A presses its play button to hear it in the mix and adds it to the song or vetoes it (there is no voting in the UI).
 5. Someone builds and saves a version; others can play, like and fork it. In their version, B records or uploads a take of their own (it goes straight in, nobody approves it), then sends it to the creator from the picker; A sees it waiting. Stopping a recording early and keeping it gives a full-length take that is silent after the stop. A renames the project in the field above the original track and B sees the new name. B clicks the comment strip under the ruler, posts a comment; A sees the dot, it opens while the song plays past it, and A can hide it.
-6. B pitches a new part with the + on the song's edge; A hears it in place, keeps it, sets a crossfade and drags a fade handle; B sees the song get longer and can layer on that part. Recording in the page works both in the pop-up and on the grey track at the bottom of the DAW (the playhead runs over the other tracks and the take is drawn as it comes in; "Send it in" / "Add it to my version" opens the pop-up with the take loaded), and the click-track download works.
-7. A deletes a take (two clicks on the bin); it disappears for everyone.
-8. A closes the session; everyone moves to the release view; a mix can be uploaded; reactions count once per person.
+6. B pitches a new part with the + on the song's edge; A hears it in place, keeps it, sets a crossfade and drags a fade handle; B sees the song get longer and can layer on that part. Recording in the page works both in the pop-up and on the grey track at the bottom of the DAW (the playhead runs over the other tracks and the take is drawn as it comes in; "Add my take →" / "Add it to my version" opens the pop-up with the take loaded), and the click-track download under "Play along" works.
+7. A deletes a take (⋯ menu, then "Delete this take" twice); it disappears for everyone.
+8. A presses "Release the song"; everyone moves to the release view; a Mix can be uploaded; reactions count once per person.
 
 ## After pushing a branch
 
