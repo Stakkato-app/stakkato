@@ -955,7 +955,10 @@ function recStart() {
     var chunks = [], bar = barSeconds(), extend = M.mode === 'extend';
     var countIn = S.countIn, t0 = a.currentTime + 0.4, songStart = t0 + countIn * bar;
     var fixed = extend ? 0 : secLen(M.sec);
-    REC.songStart = songStart; REC.fixed = fixed; REC.level = 0; REC.peak = 0;
+    REC.songStart = songStart; REC.t0 = t0; REC.countIn = countIn; REC.fixed = fixed; REC.level = 0; REC.peak = 0;
+    /* the input's own delay, where the browser reports it */
+    var ts = got.stream.getAudioTracks()[0], st = ts && ts.getSettings ? ts.getSettings() : {};
+    REC.inLat = typeof st.latency === 'number' && st.latency > 0 && st.latency < 0.5 ? st.latency : 0;
     function onChunk(d, t, sr) {
       var pk = 0;
       for (var i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > pk) pk = v; }
@@ -1008,8 +1011,9 @@ function recStart() {
 function recFinish() {
   if (REC.state !== 'recording') return;
   var a = ac(), sr = a.sampleRate;
-  var lat = (a.outputLatency || 0) + (a.baseLatency || 0);
-  var from = REC.songStart + lat;
+  var lat = (a.outputLatency || 0) + (a.baseLatency || 0) + (REC.inLat || 0);
+  var pre = REC.songStart - REC.t0, preN = Math.round(pre * sr);
+  var from = REC.t0 + lat;
   var played = Math.max(0, a.currentTime - REC.songStart);
   var len = REC.fixed || played;
   recCleanup();
@@ -1022,13 +1026,27 @@ function recFinish() {
   /* Blocks are laid back to back, sample-exact: only the first block's timestamp places the
      take (timestamps jitter a little, and placing every block by its own left tiny gaps and
      overlaps you could hear). If a block really went missing, the next one resyncs to its time. */
-  var out = new Float32Array(Math.round(len * sr)), cursor = null;
+  /* everything from the first count-in click on, plus some room to line the take up later */
+  var room = Math.round(0.4 * sr);
+  var all = new Float32Array(preN + Math.round(len * sr) + room), cursor = null;
   REC.chunks.forEach(function (c) {
     var at = Math.round((c.t - from) * sr);
     if (cursor === null || Math.abs(at - cursor) > c.d.length) cursor = at;
-    for (var i = 0; i < c.d.length; i++) { var j = cursor + i; if (j >= 0 && j < out.length) out[j] = c.d[i]; }
+    for (var i = 0; i < c.d.length; i++) { var j = cursor + i; if (j >= 0 && j < all.length) all[j] = c.d[i]; }
     cursor += c.d.length;
   });
+  /* If the click got into the recording (speakers, or an interface that sends the computer's
+     sound back in), it shows exactly how late the recording runs: line the take up by it and
+     take the click back out. */
+  var shift = 0, bleed = REC.click ? findClick(all, sr, REC.countIn, len) : null;
+  if (bleed) {
+    shift = bleed.lag;
+    var ref = clickSamples(sr, REC.countIn, len + 0.4);
+    for (var q = 0; q < all.length - shift && q < ref.length; q++) if (q + shift >= 0) all[q + shift] -= bleed.gain * ref[q];
+  }
+  var out = all.slice(Math.max(0, preN + shift), Math.max(0, preN + shift) + Math.round(len * sr));
+  if (bleed) REC.warn = 'The click was in your recording' + (bleed.clean ? '' : ' (some of it may still be audible)') + ', so your input also picks up the computer’s sound. ' +
+    'We took it out and lined the take up with the beat. To keep it out next time, wear headphones and turn off the computer’s sound on the input you record from (Quad Cortex: don’t send USB playback to USB 1/2).';
   /* a very quiet take usually means the wrong input or channel (a DI channel, for one) */
   if (REC.peak > 0 && REC.peak < 0.06)
     REC.warn = 'This came in very quiet (peak ' + Math.round(20 * Math.log10(REC.peak)) + ' dB). On an interface with many channels, like a Quad Cortex, ' +
@@ -1042,6 +1060,58 @@ function recFinish() {
   REC.chunks = null;
   REC.state = 'done';
   renderRec();
+}
+/* Looks for the click in a recording. The count-in bars are the place to look: nobody plays
+   there yet, so anything shaped like a click is the click. Returns how many samples late it is
+   and how loud, or null when the click isn't in there. */
+function findClick(all, sr, countIn, len) {
+  var b = beatInfo(), ref = clickSamples(sr, countIn, len), T = Math.round(0.02 * sr);
+  var beats = [], k;
+  var nCount = countIn * b.beats;
+  for (k = 0; k < Math.min(nCount, 8); k++) beats.push(Math.round(k * b.beat * sr));
+  var quiet = beats.length >= 3;
+  if (!quiet) for (k = nCount; beats.length < 8 && k * b.beat < countIn * b.bar + len - 0.5; k++) beats.push(Math.round(k * b.beat * sr));
+  if (beats.length < 3) return null;
+  var lo = -Math.round(0.03 * sr), hi = Math.round(0.3 * sr);
+  /* running energy of the recording, for normalised correlation */
+  var e2 = new Float64Array(all.length + 1);
+  for (var i = 0; i < all.length; i++) e2[i + 1] = e2[i] + all[i] * all[i];
+  var lags = [], gains = [];
+  /* the window starts a little before each click: the silence there is what pins the onset
+     (a click is a short sine, so without it every period of the sine would fit) */
+  var P = Math.round(0.008 * sr);
+  beats.forEach(function (at0) {
+    var at = Math.max(0, at0 - P), c = ref.subarray(at, at + T + P), cc = 0, W = c.length;
+    for (var j = 0; j < W; j++) cc += c[j] * c[j];
+    if (!cc) return;
+    var best = 0, bestLag = 0, bestDot = 0;
+    for (var L = lo; L <= hi; L++) {
+      var p = at + L;
+      if (p < 0 || p + W > all.length) continue;
+      var xx = e2[p + W] - e2[p];
+      if (xx < 1e-9) continue;
+      var dot = 0;
+      for (var m = 0; m < W; m++) dot += all[p + m] * c[m];
+      var r = dot / Math.sqrt(xx * cc);
+      if (r > best) { best = r; bestLag = L; bestDot = dot; }
+    }
+    if (best > (quiet ? 0.6 : 0.75)) { lags.push(bestLag); gains.push(bestDot / cc); }
+  });
+  if (lags.length < Math.ceil(beats.length * 0.75)) return null;
+  var sorted = lags.slice().sort(function (x, y) { return x - y; }), lag = sorted[sorted.length >> 1];
+  if (lags.filter(function (l) { return Math.abs(l - lag) <= Math.round(0.002 * sr); }).length < Math.ceil(beats.length * 0.75)) return null;
+  var g = gains.slice().sort(function (x, y) { return x - y; })[gains.length >> 1];
+  /* how much is left on the count-in beats once it's taken out: next to nothing for a click
+     that came back digitally, more for one picked up by a microphone */
+  var before = 0, after = 0;
+  beats.slice(0, quiet ? beats.length : 0).forEach(function (at) {
+    for (var j = 0; j < T * 2; j++) {
+      var p = at + lag + j; if (p < 0 || p >= all.length) continue;
+      var x = all[p], y = x - g * (ref[at + j] || 0);
+      before += x * x; after += y * y;
+    }
+  });
+  return { lag:lag, gain:g, clean: quiet ? after < before * 0.05 : false };
 }
 function recCancel() {
   recCleanup();
