@@ -1510,17 +1510,23 @@ function ocTake(t, extra) {
       (core ? mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') : '') +
       mi('data-dl="' + t.id + '"', 'Download') + (extra ? miDel(t.id) : '')) + '</li>';
 }
+/* the takes stay folded away until you open one of the two lists */
 function ocTakes() {
   var used = S.members.filter(onKeptSection), unused = S.archive.slice().reverse();
+  S.ocOpen = S.ocOpen || {};
+  function col(key, title, sub, items, empty, id) {
+    var open = !!S.ocOpen[key];
+    return '<div class="oc-col' + (open ? ' open' : '') + '"' + (id ? ' id="' + id + '"' : '') + '>' +
+      '<button class="oc-h" type="button" data-ocopen="' + key + '" aria-expanded="' + open + '">' +
+        '<b>' + title + '</b><span class="count">' + items.length + '</span><span class="oc-chev" aria-hidden="true">&#9662;</span></button>' +
+      '<p class="oc-sub">' + sub + '</p>' +
+      (open ? (items.length ? '<ul>' + items.join('') + '</ul>' : '<p class="oc-empty">' + empty + '</p>') : '') + '</div>';
+  }
   return '<div class="oc-takes">' +
-    '<div class="oc-col"><div class="oc-h"><b>Used takes</b><span class="count">' + used.length + '</span></div>' +
-      '<p class="oc-sub">In the song right now. Play shows how each one sounds with the original track.</p>' +
-      (used.length ? '<ul>' + used.map(function (t) { return ocTake(t, ''); }).join('') + '</ul>'
-        : '<p class="oc-empty">No takes in the song yet.</p>') + '</div>' +
-    '<div class="oc-col" id="archive-head"><div class="oc-h"><b>Unused takes</b><span class="count">' + unused.length + '</span></div>' +
-      '<p class="oc-sub">Nothing gets wasted. Use them in your own version.</p>' +
-      (unused.length ? '<ul>' + unused.map(function (a) { return ocTake(a.take, a.why); }).join('') + '</ul>'
-        : '<p class="oc-empty">Every take made it into the song so far.</p>') + '</div>' +
+    col('used', 'Used takes', 'In the song right now. Play shows how each one sounds with the original track.',
+      used.map(function (t) { return ocTake(t, ''); }), 'No takes in the song yet.') +
+    col('unused', 'Unused takes', 'Nothing gets wasted. Use them in your own version.',
+      unused.map(function (a) { return ocTake(a.take, a.why); }), 'Every take made it into the song so far.', 'archive-head') +
     '</div>';
 }
 function renderSeed() {
@@ -1628,7 +1634,7 @@ function renderDaw() {
   el('daw').classList.toggle('own', own);
   if (el('mix-title')) {
     el('mix-title').textContent = own ? 'Your version' : 'Layers in the song';
-    el('mix-kicker').textContent = own ? 'Same recordings, your choices' : 'The parts currently in the song';
+    el('mix-kicker').textContent = own ? 'Same recordings, your choices' : 'Current stacks';
   }
   /* the stack's instrument chips belong to the stack, not to your version */
   el('instruments').style.display = 'none';  /* the chips repeated the tracks right below them */
@@ -2660,6 +2666,8 @@ document.addEventListener('click', function (e) {
   if (e.target.closest('[data-metaedit]')) { S.metaOpen = !S.metaOpen; render(); return; }
   var fx = e.target.closest('[data-fx]');
   if (fx) { S.fxOpen = S.fxOpen || {}; var ft = findTake(fx.dataset.fx); S.fxOpen[fx.dataset.fx] = !fxOpen(ft); render(); return; }
+  var oo = e.target.closest('[data-ocopen]');
+  if (oo) { S.ocOpen = S.ocOpen || {}; S.ocOpen[oo.dataset.ocopen] = !S.ocOpen[oo.dataset.ocopen]; render(); return; }
   var pr = e.target.closest('[data-pair]');
   if (pr) { pairPreview(findTake(pr.dataset.pair)); return; }
   var dp = e.target.closest('[data-droppart]');

@@ -959,3 +959,13 @@
   .tbtn.more.on{background:transparent;color:var(--ink);border-color:var(--line)}
   .owncta .tbtn.more.on{color:var(--paper)}
   .rec-dot{flex:none}
+  .menu-pop select{background-color:var(--paper);color:var(--ink);border:2px solid var(--line);border-radius:3px;padding:4px 8px}
+  .oc-takes{align-items:start}
+  .oc-h{width:100%;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+  .oc-chev{margin-left:auto;color:#A9A3B6;font-size:14px;transition:transform .15s}
+  .oc-col.open .oc-chev{transform:rotate(180deg)}
+  .oc-h:hover b{text-decoration:underline;text-underline-offset:4px}
+  .oc-col:not(.open){padding-bottom:6px}
+  .oc-col:not(.open) .oc-sub{margin-bottom:6px}
+  .oc-h .count{margin-left:0}
+  .menu-pop{color-scheme:light}
