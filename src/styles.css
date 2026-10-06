@@ -969,3 +969,4 @@
   .oc-col:not(.open) .oc-sub{margin-bottom:6px}
   .oc-h .count{margin-left:0}
   .menu-pop{color-scheme:light}
+  .rec-info{font-size:12px;color:var(--muted);margin:6px 0 0}

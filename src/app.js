@@ -869,7 +869,7 @@ function recCleanup() {
   if (REC.stream) REC.stream.getTracks().forEach(function (tr) { tr.stop(); });
   REC.stream = null;
 }
-function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.warn = ''; REC.partial = 0; REC.peaks = null; }
+function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.warn = ''; REC.info = ''; REC.partial = 0; REC.peaks = null; }
 function recBacking() {
   return hearable().filter(function (t) { return REC.hear[t.id] !== false && (REC.where !== 'daw' || audible(t)); });
 }
@@ -942,7 +942,7 @@ function recStart() {
     REC.err = 'This browser does not give pages access to a microphone.'; renderRec(); return;
   }
   stopAll();
-  REC.err = ''; REC.warn = ''; REC.state = 'asking'; renderRec();
+  REC.err = ''; REC.warn = ''; REC.info = ''; REC.state = 'asking'; renderRec();
   var a = ac(); a.resume();
   openMic().then(function (stream) {
     REC.stream = stream;
@@ -1045,6 +1045,23 @@ function recFinish() {
     for (var q = 0; q < all.length - shift && q < ref.length; q++) if (q + shift >= 0) all[q + shift] -= bleed.gain * ref[q];
   }
   var out = all.slice(Math.max(0, preN + shift), Math.max(0, preN + shift) + Math.round(len * sr));
+  /* A take of free length (the original track, a new part) ends on the bar where the playing
+     stops, not where you pressed stop: the silence after it would become part of the song. */
+  if (!REC.fixed) {
+    var pk = 0, i2;
+    for (i2 = 0; i2 < out.length; i2++) { var av = Math.abs(out[i2]); if (av > pk) pk = av; }
+    var thr = Math.max(0.003, pk * 0.01), last = -1;   // 40 dB under the loudest moment
+    for (i2 = out.length - 1; i2 >= 0; i2--) if (Math.abs(out[i2]) > thr) { last = i2; break; }
+    var barS = barSeconds(), bars = Math.max(1, Math.ceil((last / sr - 0.03) / barS));
+    var keep = Math.round(bars * barS * sr);
+    if (last >= 0 && keep < out.length - Math.round(0.05 * sr)) {
+      var cutSec = (out.length - keep) / sr;
+      out = out.slice(0, keep);
+      var fade = Math.min(keep, Math.round(0.01 * sr));
+      for (i2 = 0; i2 < fade; i2++) out[keep - fade + i2] *= 1 - (i2 + 1) / fade;
+      REC.info = 'Cut to ' + bars + ' bar' + (bars > 1 ? 's' : '') + ' (' + clockMs(keep / sr) + '): the ' + cutSec.toFixed(1) + ' s of silence before you pressed stop is left out.';
+    }
+  }
   if (bleed) REC.warn = 'The click was in your recording' + (bleed.clean ? '' : ' (some of it may still be audible)') + ', so your input also picks up the computer’s sound. ' +
     'We took it out and lined the take up with the beat. To keep it out next time, wear headphones and turn off the computer’s sound on the input you record from (Quad Cortex: don’t send USB playback to USB 1/2).';
   /* a very quiet take usually means the wrong input or channel (a DI channel, for one) */
@@ -1263,7 +1280,7 @@ function renderRec() {
         '<button class="btn btn-sm" type="button" data-rec="listen">Hear your take</button>' +
         (extend ? '' : '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the backing</button>') +
         '<button class="btn btn-sm" type="button" data-rec="again">Record again</button>' +
-      '</div></div>' + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
+      '</div></div>' + (REC.info && REC.state === 'done' ? '<p class="rec-info">' + esc(REC.info) + '</p>' : '') + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
     return;
   }
   var list = extend ? '' : '<div class="rec-hear"><span class="rec-lbl">What you hear while recording</span>' +
@@ -1486,7 +1503,7 @@ function renderSeedPop() {
       '<canvas id="seed-canvas"></canvas>' +
       '<div class="rec-acts"><button class="btn btn-sm" type="button" data-rec="listen">' + I_PLAY + ' Hear it</button>' +
       '<button class="btn btn-sm" type="button" data-seedrec="1">Record again</button></div>' +
-      (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
+      (REC.info && REC.state === 'done' ? '<p class="rec-info">' + esc(REC.info) + '</p>' : '') + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
   } else {
     box.className = 'seed-rec';
     box.innerHTML = '<button class="btn btn-ember rec-go" type="button" data-seedrec="1"><span class="rec-dot"></span> Start recording</button>' +
