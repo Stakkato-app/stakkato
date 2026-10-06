@@ -77,8 +77,15 @@ window.addEventListener('scroll', function () {
 }, { passive:true });
 window.addEventListener('resize', placeMenus);
 function mi(attr, label) { return '<button class="mi" type="button" role="menuitem" ' + attr + '>' + label + '</button>'; }
+/* the creator deletes any take but the original track while the song is open; whoever
+   recorded an own take (for their own version) can delete that one, also after release */
+function canDelete(t) {
+  if (!t || t.id === 'seed') return false;
+  if (isOwn(t) && mine(t)) return true;
+  return isHost() && isOpen();
+}
 function miDel(id) {
-  if (!isHost() || !isOpen()) return '';
+  if (!canDelete(findTake(id))) return '';
   var armed = armedFor(id);
   return '<button class="mi mi-del' + (armed ? ' armed' : '') + '" type="button" role="menuitem" data-del="' + id + '">' +
     (armed ? 'Click again to delete it for good' : 'Delete this take') + '</button>';
@@ -1352,9 +1359,10 @@ function delBtn(id, small) {
 }
 function deleteTake(id) {
   var t = findTake(id);
-  if (!t || t.id === 'seed' || !isHost()) return;
+  if (!canDelete(t)) return;
   var layers = t.roleId === 'part' ? S.members.concat(S.applicants).filter(function (m) { return m.sec === id; }).length : 0;
   stopAll();
+  S.build.picks = S.build.picks.filter(function (p) { return p !== id; });
   db.deleteTake(t.dbId).then(function () {
     flash('Deleted ' + (t.by || 'the take') + '\'s ' + role(t.roleId).label.toLowerCase() +
       (layers ? ', and the ' + layers + ' take' + (layers > 1 ? 's' : '') + ' on it' : '') + '.');
@@ -1786,7 +1794,8 @@ function renderDaw() {
             mi('data-dl="' + t.id + '"', 'Download') +
             (building && t.id !== 'seed' && !isPart ? mi('data-pick="' + t.id + '"', 'Remove from your version') : '') +
             (boss && isPart && !isPitch ? mi('data-droppart="' + t.id + '"', 'Take this part out of the song') : '') +
-            (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? mi('data-takeout="' + t.id + '"', 'Take out of the song') : '')) +
+            (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? mi('data-takeout="' + t.id + '"', 'Take out of the song') : '') +
+            (t.id !== 'seed' && (lineupView ? boss : isOwn(t)) ? miDel(t.id) : '')) +
         '</div>' +
         (fxOpen(t) ? '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' : '') +
         (boss && isPart ? '<label class="xf"><span>crossfade</span>' +
@@ -2053,6 +2062,7 @@ function renderPicker() {
         '<button class="btn btn-sm pk-btn' + (picked ? ' on' : '') + '" type="button" data-pick="' + t.id + '" aria-pressed="' + picked + '">' +
           (picked ? 'In' : 'Add') + '</button>' +
         (sendable ? '<button class="pk-send" type="button" data-sendown="' + t.id + '" title="The creator hears it and decides if it goes in the stack">Send to the creator</button>' : '') +
+        (isOwn(t) && mine(t) ? menuBtn('p:' + t.id, miDel(t.id)) : '') +
         '</li>';
     }).join('') : '<li class="empty">No takes yet.</li>';
     return '<div class="pk-col' + (takes.length ? '' : ' none') + '" style="color:' + col(r) + '"><div class="pk-head">' + ico(r.icon, col(r)) + '<b>' + r.label + '</b></div>' +
