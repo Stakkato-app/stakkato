@@ -44,7 +44,60 @@ function clockMs(sec) {
 }
 function el(id){ return document.getElementById(id); }
 function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function flash(m){ el('proto-hint').textContent = m; }
+function flash(m) {
+  var t = el('proto-hint');
+  t.textContent = m; t.classList.add('on');
+  clearTimeout(flash.tm);
+  flash.tm = setTimeout(function () { t.classList.remove('on'); }, 4200);
+}
+/* ---------- the "⋯" menus: secondary actions per take, opened one at a time ----------
+   The menu items reuse the ordinary data-* actions, so the click handler below runs them. */
+function menuBtn(key, items, label, cls) {
+  var open = S.menu === key;
+  return '<span class="menu-wrap">' +
+    '<button class="' + (cls || 'tbtn more') + (open ? ' on' : '') + '" type="button" data-menu="' + key + '" aria-haspopup="true" aria-expanded="' + open + '"' +
+      (label ? '' : ' aria-label="More"') + '>' + (label || '&#8943;') + '</button>' +
+    (open ? '<div class="menu-pop" role="menu">' + items + '</div>' : '') + '</span>';
+}
+/* menus float above everything (the DAW clips its overflow), next to their button */
+function placeMenus() {
+  [].forEach.call(document.querySelectorAll('.menu-wrap > .menu-pop'), function (pop) {
+    var r = pop.previousElementSibling.getBoundingClientRect();
+    pop.style.position = 'fixed';
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+    var top = r.bottom + 6;
+    if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+    pop.style.left = left + 'px'; pop.style.top = top + 'px'; pop.style.right = 'auto';
+  });
+}
+window.addEventListener('scroll', function () {
+  if (!S.menu) { placeMenus.y = window.scrollY; return; }
+  if (Math.abs(window.scrollY - (placeMenus.y || 0)) > 60) { S.menu = null; render(); } else placeMenus();
+}, { passive:true });
+window.addEventListener('resize', placeMenus);
+function mi(attr, label) { return '<button class="mi" type="button" role="menuitem" ' + attr + '>' + label + '</button>'; }
+function miDel(id) {
+  if (!isHost() || !isOpen()) return '';
+  var armed = armedFor(id);
+  return '<button class="mi mi-del' + (armed ? ' armed' : '') + '" type="button" role="menuitem" data-del="' + id + '">' +
+    (armed ? 'Click again to delete it for good' : 'Delete this take') + '</button>';
+}
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-menu]');
+  if (b) {
+    e.stopPropagation();
+    S.menu = S.menu === b.dataset.menu ? null : b.dataset.menu;
+    placeMenus.y = window.scrollY;
+    render();
+    return;
+  }
+  if (!S.menu) return;
+  var inside = e.target.closest('.menu-pop');
+  if (inside && (!e.target.closest('button') || e.target.closest('[data-del]'))) return;  // selects stay open, delete asks twice
+  S.menu = null;
+  if (inside) setTimeout(render, 0); else render();
+}, true);
 function oops(e) {
   console.error(e);
   var msg = (e && (e.message || e.error_description)) || 'Something went wrong.';
@@ -1442,29 +1495,26 @@ function renderOwnCta() {
       'Record or upload your own takes on top, as many as you like, and save your version. Nobody has to approve it.</p></div>' +
     '<div class="oc-acts">' +
       '<button class="btn btn-ember btn-lg" type="button" data-ownstart="1">' + (building ? 'Go to your version' : 'Start your own version') + '</button>' +
-      (isOpen() ? '<button class="btn btn-lg oc-alt" type="button" data-apply="">Add a take to the stack</button>' : '') +
     '</div>' + ocTakes();
 }
 /* every take you can build with, inside the "make your own version" block: the ones the
    song uses and the ones it doesn't (vetoed, or taken out by the creator) */
 function ocTake(t, extra) {
-  var r = role(t.roleId), on = only === t.id;
+  var r = role(t.roleId), core = secOf(t) === 'core', key = core ? 'pair:' + t.id : t.id, on = only === key;
   return '<li class="oc-take">' +
-    '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear the take by ' + esc(t.by) + ' on its own"' + (t.buf ? '' : ' disabled') + '>' +
-      (on ? I_PAUSE : I_PLAY) + '</button>' +
+    '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (core ? 'data-pair' : 'data-prev') + '="' + t.id + '" aria-label="Hear the take by ' + esc(t.by) +
+      (core ? ' with the original track' : '') + '"' + (t.buf && S.seed.buf ? '' : ' disabled') + '>' + (on ? I_PAUSE : I_PLAY) + '</button>' +
     ico(r.icon, col(r)) +
     '<div class="oc-who"><b>' + esc(t.by) + '</b><span>' + esc(r.label) + (extra ? ', ' + extra : '') + ' ' + secTag(t) + verTag(t.id) + '</span></div>' +
-    '<span class="oc-btns">' + (secOf(t) === 'core' ? '<button class="btn btn-sm oc-pair' + (only === 'pair:' + t.id ? ' on' : '') + '" type="button" data-pair="' + t.id + '"' +
-      ' aria-label="Play the take by ' + esc(t.by) + ' with the original track"' + (t.buf && S.seed.buf ? '' : ' disabled') + '>' +
-      (only === 'pair:' + t.id ? I_PAUSE : I_PLAY) + ' With the original</button>' : '') +
-    '<button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
-    (extra ? delBtn(t.id) : '') + '</span></li>';
+    menuBtn('o:' + t.id,
+      (core ? mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') : '') +
+      mi('data-dl="' + t.id + '"', 'Download') + (extra ? miDel(t.id) : '')) + '</li>';
 }
 function ocTakes() {
   var used = S.members.filter(onKeptSection), unused = S.archive.slice().reverse();
   return '<div class="oc-takes">' +
     '<div class="oc-col"><div class="oc-h"><b>Used takes</b><span class="count">' + used.length + '</span></div>' +
-      '<p class="oc-sub">In the song right now.</p>' +
+      '<p class="oc-sub">In the song right now. Play shows how each one sounds with the original track.</p>' +
       (used.length ? '<ul>' + used.map(function (t) { return ocTake(t, ''); }).join('') + '</ul>'
         : '<p class="oc-empty">No takes in the song yet.</p>') + '</div>' +
     '<div class="oc-col" id="archive-head"><div class="oc-h"><b>Unused takes</b><span class="count">' + unused.length + '</span></div>' +
@@ -1479,7 +1529,7 @@ function renderSeed() {
   el('session-sub').textContent = (hasSeed() ? 'track loaded, ' + fmt(s.len) : 'no track yet') +
     (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', released' : '');
   el('seedpanel').className = 'seed' + (hasSeed() ? '' : ' empty');
-  el('metabar').style.display = hasSeed() ? '' : 'none';
+  el('metabar').style.display = hasSeed() && host && isOpen() && S.metaOpen ? '' : 'none';
   el('metabar').classList.toggle('readonly', !host);
 
   if (hasSeed()) {
@@ -1490,8 +1540,8 @@ function renderSeed() {
       '<div class="who">' + (host ? 'Your track' : esc(s.by) + '’s track') + ', ' + fmt(s.len) + (s.buf ? '' : ' <span class="tiny muted">loading</span>') + '</div>' +
       seedWave() + '</div>' +
       '<div class="seed-side"><div class="facts" id="facts"></div>' +
-      (host && isOpen() ? '<button class="btn btn-sm" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
-        (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '') + '</div>';
+      (host && isOpen() ? '<button class="btn btn-sm' + (S.metaOpen ? ' on' : '') + '" type="button" data-metaedit="1" aria-expanded="' + !!S.metaOpen + '">' +
+        (S.metaOpen ? 'Done' : 'Edit') + '</button>' : '') + '</div>';
   } else if (asCreator()) {
     el('seedpanel').innerHTML = '<div class="dropbig">' + I_UP +
       '<h2>Drop an audio track</h2>' +
@@ -1547,7 +1597,9 @@ function renderSeed() {
         TIMES.map(function (t) { return '<option' + (t === S.meta.time ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
       '</select></label>' +
       '<label class="mini"><span>track is</span><select id="meta-seedrole"' + (host && isOpen() ? '' : ' disabled') + '>' + seedRoleOptions(S.meta.seedRole, 'not one instrument') + '</select></label>' +
-      '<span class="tiny muted">' + note + '</span>'
+      '<span class="tiny muted">' + note + '</span>' +
+      (host && isOpen() ? '<button class="btn btn-sm meta-replace" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
+        (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '')
     : '<span class="tiny muted">' + note + '</span>';
 }
 
@@ -1566,6 +1618,10 @@ function dawTabs() {
     '<button type="button" role="tab" class="mode-own" data-view="build" aria-selected="' + building + '">' +
       '<span class="m-ico">+</span><span class="m-txt"><b>Your version</b><small>any take, plus your own takes</small></span></button>' +
     '</div>';
+}
+/* the filter knobs show when you ask for them, or when a filter is already doing something */
+function fxOpen(t) {
+  return !!(S.fxOpen && S.fxOpen[t.id]) || cutOf(t, 'hp') > F_MIN || cutOf(t, 'lp') < F_MAX;
 }
 function renderDaw() {
   var list = tracks(), d = duration(), own = S.view === 'build' && !S.override;
@@ -1620,9 +1676,6 @@ function renderDaw() {
           '<div><b>' + esc(t.by || 'you') + (isTrial ? ' <span class="trybadge">trying out</span>' : '') +
           (status ? ' <span class="stag">' + status + '</span>' : '') + '</b>' +
           '<span class="tiny muted">' + esc(labelOf(t)) + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
-          (building && t.id !== 'seed' && !isPart ? '<button class="tbtn rm" type="button" data-pick="' + t.id + '" title="Take it out of your version" aria-label="Remove ' + esc(t.by) + ' from your version">&times;</button>' : '') +
-          (boss && isPart && !isPitch ? '<button class="tbtn rm" type="button" data-droppart="' + t.id + '" title="Take this part out of the song" aria-label="Take the part by ' + esc(t.by) + ' out of the song">&times;</button>' : '') +
-          (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? '<button class="tbtn rm" type="button" data-takeout="' + t.id + '" title="Take it out of the stack (it stays usable in versions)" aria-label="Take the take by ' + esc(t.by) + ' out of the stack">&times;</button>' : '') +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
@@ -1631,15 +1684,18 @@ function renderDaw() {
           (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>' : '') +
           '<button class="btn btn-sm" type="button" data-untrial="1">Take it out</button></div>' : '') +
         '<div class="t-ctrl">' +
-          '<button class="tbtn play-t' + (only === t.id ? ' on' : '') + '" type="button" data-prev="' + t.id + '" title="Play just this track" aria-label="Play only the take by ' + esc(t.by) + '">' +
-            (only === t.id ? I_PAUSE : I_PLAY) + '</button>' +
           '<button class="tbtn' + (c.mute ? ' on' : '') + '" type="button" data-mute="' + t.id + '" aria-pressed="' + !!c.mute + '" title="Mute">M</button>' +
           '<button class="tbtn' + (c.solo ? ' on solo' : '') + '" type="button" data-solo="' + t.id + '" aria-pressed="' + !!c.solo + '" title="Solo">S</button>' +
           '<input type="range" min="0" max="1" step="0.02" value="' + v + '" data-vol="' + t.id + '" aria-label="Volume for ' + esc(t.by) + '">' +
-          '<button class="tbtn" type="button" data-dl="' + t.id + '" title="Download this take">' + I_DL + '</button>' +
-
+          '<button class="tbtn eq' + (fxOpen(t) ? ' on' : '') + '" type="button" data-fx="' + t.id + '" aria-pressed="' + fxOpen(t) + '" title="Low cut and high cut">EQ</button>' +
+          menuBtn('t:' + t.id,
+            mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
+            mi('data-dl="' + t.id + '"', 'Download') +
+            (building && t.id !== 'seed' && !isPart ? mi('data-pick="' + t.id + '"', 'Remove from your version') : '') +
+            (boss && isPart && !isPitch ? mi('data-droppart="' + t.id + '"', 'Take this part out of the song') : '') +
+            (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? mi('data-takeout="' + t.id + '"', 'Take out of the song') : '')) +
         '</div>' +
-        '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' +
+        (fxOpen(t) ? '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' : '') +
         (boss && isPart ? '<label class="xf"><span>crossfade</span>' +
           '<input type="range" min="0" max="' + xfMax(t).toFixed(1) + '" step="0.1" value="' + xf(t) + '" data-xfade="' + t.id + '" aria-label="Crossfade for the part by ' + esc(t.by) + '">' +
           '<em>' + xf(t).toFixed(1) + ' s</em></label>' : '') +
@@ -1661,9 +1717,11 @@ function renderDaw() {
       '<button class="btn btn-sm" type="button" id="rewind" title="Back to the start">&#9198;</button>' +
       '<span class="readout" id="readout">' + clockMs(position()) + ' / ' + clockMs(d) + '</span>' +
       (building ? '' : '<span class="tiny muted">' + list.length + ' track(s), ' + barCount + ' bars at ' + (S.meta.bpm || '?') + ' bpm ' + S.meta.time + '</span>') +
-      '<span class="clickctl"><label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
-      '<button class="btn btn-sm" type="button" id="dl-click" title="A click at the session tempo, with the count-in in front">' + I_DL + ' Click track</button></span>' +
-      '<button class="btn btn-sm" type="button" id="dl-all">' + I_DL + ' Download these takes</button>' +
+      '<span class="clickctl">' + menuBtn('tools',
+        '<label class="mi-field"><span>Count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
+        '<button class="mi" type="button" id="dl-click">' + I_DL + ' Click track <small>at the session tempo, with the count-in</small></button>' +
+        '<button class="mi" type="button" id="dl-all">' + I_DL + ' Download these takes <small>every track, plus a session sheet</small></button>',
+        'Play along &#9662;', 'btn btn-sm') + '</span>' +
     '</div>' +
     '<div class="ruler"><span class="r-head"></span><span class="r-lane">' + ticks + '</span></div>' +
     cmRow() +
@@ -1732,7 +1790,7 @@ function cmRow() {
   return '<div class="track cmrow">' +
     '<div class="t-head"><div class="t-name"><span class="cm-ico">' + I_CM + '</span><div><b>Comments' + (n ? ' (' + n + ')' : '') + '</b>' +
       '<span class="tiny muted">' + (open ? 'click the strip to add one' : 'closed since the release') + '</span></div></div>' +
-      (open ? '<button class="btn btn-sm" type="button" data-cmhere="1">+ Comment here</button>' : '') + '</div>' +
+      '</div>' +
     '<div class="c-lane' + (open ? ' can' : '') + '" id="c-lane">' +
       (n || S.cmDraft ? '' : '<span class="cm-empty">' + (open ? 'No comments yet. Click anywhere on this strip to comment on that moment.' : 'No comments.') + '</span>') +
       marks + draft + '</div></div>';
@@ -2000,36 +2058,34 @@ function anLine(t) {
 /* how the "Add …" button names an instrument where the plural reads better */
 var ADD_AS = { guitar:'guitars', lead:'leads' };
 function applyCard(r) {
-  var list = waitingFor(r.id), host = isHost(), held = seedHolds(r.id);
-  var body = list.length ? list.map(function (t) {
-    var on = only === t.id && running;
+  var list = waitingFor(r.id), host = isHost(), held = seedHolds(r.id), open = isOpen();
+  var body = list.map(function (t) {
+    var on = S.trial === t.id;
     return '<li class="app">' +
       '<div class="app-top">' +
-        '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Preview the take by ' + esc(t.by) + '">' +
-          (on ? I_PAUSE : I_PLAY) + '</button>' +
+        '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-try="' + t.id + '" aria-label="' + (on ? 'Stop' : 'Hear the take by ' + esc(t.by) + ' in the mix') + '"' +
+          ' title="' + (on ? 'Stop' : 'Hear it in the mix') + '">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
         '<b>' + esc(t.by) + '</b><span class="len">' + fmt(t.len) + '</span>' +
-        '<button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
-        delBtn(t.id) +
-      '</div>' + anLine(t) + (secTag(t) || inVersions(t.id) ? '<div class="vline">' + secTag(t) + verTag(t.id) + '</div>' : '') +
-      (S.trial === t.id
-        ? '<div class="trypair">' + mixToggle('this take') +
-          '<button class="btn btn-sm trybtn on" type="button" data-try="' + t.id + '">Take it out again</button></div>'
-        : '<button class="btn btn-sm trybtn" type="button" data-try="' + t.id + '">Hear it in the mix</button>') +
+        menuBtn('a:' + t.id, mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
+          mi('data-dl="' + t.id + '"', 'Download') + miDel(t.id)) +
+      '</div>' + (on ? '<div class="trying">Playing in the mix</div>' : '') + anLine(t) +
+      (secTag(t) || inVersions(t.id) ? '<div class="vline">' + secTag(t) + verTag(t.id) + '</div>' : '') +
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
-      (host && isOpen()
+      (host && open
         ? '<div class="app-foot"><span class="acts">' +
           (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>') +
           '<button class="btn btn-sm btn-veto" type="button" data-no="' + t.id + '">Veto</button></span></div>'
         : '<div class="app-foot"><span class="tiny muted">Waiting for the creator</span></div>') +
       '</li>';
-  }).join('') : '<li class="empty">No takes to review.</li>';
-
-  return '<article class="gate apply" style="color:' + col(r) + '">' +
+  }).join('');
+  var addTxt = 'Add ' + esc(ADD_AS[r.id] || r.label.toLowerCase());
+  return '<article class="gate apply' + (list.length ? '' : ' none') + '" style="color:' + col(r) + '">' +
     '<div class="g-top"><div class="g-name">' + ico(r.icon, col(r)) + '<h3>' + r.label + '</h3>' +
-    '<span class="count">' + list.length + '</span></div>' +
-    '<div class="tiny muted">' + (held ? 'The original track plays this part' : 'No limit, the creator decides') + '</div></div>' +
-    '<ul class="takes">' + body + '</ul>' +
-    '<div class="g-foot"><button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + ' title="Send a ' + esc(r.label.toLowerCase()) + ' take to the creator">' + I_SEND + '<span>Add ' + esc(ADD_AS[r.id] || r.label.toLowerCase()) + '</span></button></div></article>';
+    (list.length ? '<span class="count">' + list.length + '</span>' : '') + '</div>' +
+    (held ? '<div class="tiny muted">The original track plays this part</div>' : '') + '</div>' +
+    (list.length ? '<ul class="takes">' + body + '</ul>' : '') +
+    (open ? '<button class="addlink" type="button" data-apply="' + r.id + '">' + (list.length ? '+ ' + addTxt : 'Nothing yet. <u>' + addTxt + '</u>') + '</button>'
+          : (list.length ? '' : '<p class="tiny muted g-empty">No takes.</p>')) + '</article>';
 }
 
 function renderBoards() {
@@ -2133,6 +2189,7 @@ function keepInputs(fn) {
 }
 function render() {
   keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
+  if (S.menu) placeMenus();
 }
 function renderAll() {
   render();
@@ -2541,7 +2598,7 @@ document.addEventListener('click', function (e) {
     ARMED.id = did; ARMED.until = Date.now() + 5000;
     ARMED.timer = setTimeout(function () { ARMED.id = null; render(); }, 5000);
     render();
-    flash('Click "Delete?" again to delete this take for good.');
+    flash('Click delete again to remove this take for good.');
     return;
   }
   var ex = e.target.closest('[data-extend]');
@@ -2600,6 +2657,9 @@ document.addEventListener('click', function (e) {
     }).catch(function (err) { oops(needsUpdate(err, '20261004130000_take_out_layer.sql') || err); });
     return;
   }
+  if (e.target.closest('[data-metaedit]')) { S.metaOpen = !S.metaOpen; render(); return; }
+  var fx = e.target.closest('[data-fx]');
+  if (fx) { S.fxOpen = S.fxOpen || {}; var ft = findTake(fx.dataset.fx); S.fxOpen[fx.dataset.fx] = !fxOpen(ft); render(); return; }
   var pr = e.target.closest('[data-pair]');
   if (pr) { pairPreview(findTake(pr.dataset.pair)); return; }
   var dp = e.target.closest('[data-droppart]');
@@ -2867,10 +2927,6 @@ el('lock-btn').addEventListener('click', function () {
     flash('The song is released. The Stack is the song as it stands, and anyone can still build versions or add a Mix.');
     return refresh();
   });
-});
-el('proto-toggle').addEventListener('click', function () {
-  var open = el('protobar').classList.toggle('open');
-  this.setAttribute('aria-expanded', String(open));
 });
 
 el('strip-1').innerHTML = statics(80);

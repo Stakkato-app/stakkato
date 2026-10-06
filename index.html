@@ -22,6 +22,16 @@
       <button class="phase" role="tab" aria-selected="true" data-phase="open"><span>1</span>Build the song</button>
       <button class="phase" role="tab" aria-selected="false" data-phase="released"><span>2</span>Release the song</button>
     </div>
+    <div class="hdr-acts">
+      <button class="btn btn-sm" id="copy-link" type="button">Invite people</button>
+      <details class="hdr-more">
+        <summary aria-label="More">&#8943;</summary>
+        <div class="menu-pop">
+          <a class="mi" href="/songs">All songs</a>
+          <a class="mi" href="/">Start a new session</a>
+        </div>
+      </details>
+    </div>
   </div>
 </header>
 
@@ -144,21 +154,7 @@
 
 </main>
 
-<div class="protobar" id="protobar">
-  <div class="wrap">
-    <button class="proto-toggle" id="proto-toggle" type="button" aria-expanded="false" aria-controls="proto-panel">
-      <span class="lbl">Session</span>
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 9l4-4 4 4"/></svg>
-    </button>
-    <div class="proto-panel" id="proto-panel">
-      <span class="lbl deskonly">Session</span>
-      <button class="btn btn-sm" id="copy-link" type="button">Copy the invite link</button>
-      <a class="btn btn-sm" href="/">Start a new session</a>
-      <a class="btn btn-sm" href="/songs">All songs</a>
-      <span class="tiny muted" style="margin-left:auto" id="proto-hint">Connecting...</span>
-    </div>
-  </div>
-</div>
+<div class="toast" id="proto-hint" role="status" aria-live="polite"></div>
 
 <input type="file" id="attach-file" accept="audio/*" style="position:absolute;width:1px;height:1px;opacity:0" aria-hidden="true" tabindex="-1">
 
