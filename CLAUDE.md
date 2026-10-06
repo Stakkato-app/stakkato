@@ -85,7 +85,14 @@ Planned: real accounts and profiles. Supabase lets an anonymous user be upgraded
 
 ## UI vocabulary
 
-The code says seed, host and line-up; the UI says **original track**, **creator** and **the project**, and calls a take on the floor a **layer**. Keep the copy in the UI's words.
+The code says seed, host and line-up; the UI says **original track**, **creator** and **the stack**. Keep the copy in the UI's words, and use these terms the same way everywhere (buttons, tooltips, messages, empty states):
+
+- **Layer**: a role in the song (drums, bass, vocals...). In the code that is a role.
+- **Take**: one concrete recording by a musician for a layer.
+- **Stack**: the chosen takes that together form the song (the line-up). "Takes to review" are the waiting ones; "Unused takes" are archived ones.
+- **Version**: someone's own combination of the available takes.
+- **Mix**: a finished, mixed recording of the stack, uploaded after release (`role_id = 'mix'`).
+- **Release**: publishing the end result (closing the session, `status = 'released'`).
 
 ## Testing
 

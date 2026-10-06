@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
-<meta name="description" content="Make a song with strangers. One seed, one call, the room stacks layers on top.">
-<title>Stackato — the mix</title>
+<meta name="description" content="Make a song with strangers. One original track, then musicians add their takes, layer by layer, until the stack becomes a song.">
+<title>Stackato — build the song</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,8 +19,8 @@
     </a>
     <div class="session"><span id="session-name">New session</span><br><span id="session-sub">no track yet</span></div>
     <div class="phases" role="tablist" aria-label="Phase">
-      <button class="phase" role="tab" aria-selected="true" data-phase="open"><span>1</span>The mix</button>
-      <button class="phase" role="tab" aria-selected="false" data-phase="released"><span>2</span>Release</button>
+      <button class="phase" role="tab" aria-selected="true" data-phase="open"><span>1</span>Build the song</button>
+      <button class="phase" role="tab" aria-selected="false" data-phase="released"><span>2</span>Release the song</button>
     </div>
   </div>
 </header>
@@ -47,8 +47,8 @@
 
       <div class="head" id="mix-head">
         <div>
-          <div class="kicker" id="mix-kicker">In the mix</div>
-          <h2 id="mix-title">Active instruments</h2>
+          <div class="kicker" id="mix-kicker">The parts currently in the stack</div>
+          <h2 id="mix-title">Layers in the song</h2>
         </div>
         <p id="lineup-sub"></p>
       </div>
@@ -62,8 +62,8 @@
       <div class="wrap">
         <div class="head" id="apply" style="margin-top:0">
           <div>
-            <div class="kicker">Up for it</div>
-            <h2>Takes waiting</h2>
+            <div class="kicker">New takes waiting for the creator</div>
+            <h2>Takes to review</h2>
           </div>
           <p id="apply-sub"></p>
         </div>
@@ -76,24 +76,24 @@
 
       <div class="head" id="versions-head">
         <div>
-          <div class="kicker">Everyone's take on it</div>
-          <h2>Versions</h2>
+          <div class="kicker">Different takes on the same song</div>
+          <h2>Other versions</h2>
         </div>
         <p id="fan-sub"></p>
       </div>
       <div class="vgrid" id="fanmixes"></div>
       <div class="head" id="archive-head">
         <div>
-          <div class="kicker">Didn't make it</div>
-          <h2>The archive</h2>
+          <div class="kicker">Nothing gets wasted.</div>
+          <h2>Unused takes</h2>
         </div>
-        <p>Vetoed takes and layers the creator took out stay here. Anyone can use them in their own version, or have another go at that spot.</p>
+        <p>Takes the creator passed on or took out of the stack stay here. Anyone can use them in their own version, or record a new take for that layer.</p>
       </div>
       <div class="panel" id="archive"></div>
 
       <div class="lockbar">
         <div class="status" id="lock-status"></div>
-        <button class="btn btn-ember" id="lock-btn" type="button" style="margin-left:auto">Close the session</button>
+        <button class="btn btn-ember" id="lock-btn" type="button" style="margin-left:auto">Release the song</button>
       </div>
 
       <div class="strip" id="strip-1" aria-hidden="true"></div>
@@ -104,19 +104,19 @@
     <div class="wrap">
       <div class="release">
         <div style="grid-column:1 / -1">
-          <div class="kicker" id="rel-kicker">Closed</div>
+          <div class="kicker" id="rel-kicker">Released</div>
           <input class="titlefield" id="song-title" value="Untitled" aria-label="Song title">
         </div>
       </div>
 
       <div class="versions">
         <article class="panel version">
-          <div class="p-head"><h3>The raw version</h3><span class="tiny muted">everything the room let in, playing together</span></div>
+          <div class="p-head"><h3>The Stack</h3><span class="tiny muted">Every chosen layer, playing together.</span></div>
           <div class="up" id="raw-box"></div>
         </article>
 
         <article class="panel version">
-          <div class="p-head"><h3>A mixed version</h3><span class="tiny muted">optional, sits next to the raw one</span></div>
+          <div class="p-head"><h3>The Mix (optional)</h3><span class="tiny muted">A polished mix of the same song.</span></div>
           <div class="up" id="mix-box"></div>
         </article>
       </div>
@@ -124,27 +124,27 @@
       <div class="head">
         <div>
           <div class="kicker">Credits</div>
-          <h2>The riffraff</h2>
+          <h2>The musicians</h2>
         </div>
-        <p>Everyone who got a spot, in the order they got it.</p>
+        <p>Everyone who became part of the song.</p>
       </div>
       <div class="credits" id="credits"></div>
 
       <div class="head">
         <div>
-          <div class="kicker">Everyone's take on it</div>
+          <div class="kicker">Other versions</div>
           <h2>Versions from the room</h2>
         </div>
-        <p>Other people built their own song out of the same takes. Only their choice of takes and levels is stored.</p>
+        <p>Same recordings. Different choices. See what other people made from the stack.</p>
       </div>
       <div class="vgrid" id="rel-fanmixes"></div>
 
       <div class="head">
         <div>
-          <div class="kicker">Also ran</div>
-          <h2>What it could have been</h2>
+          <div class="kicker">Nothing gets wasted.</div>
+          <h2>Unused takes</h2>
         </div>
-        <p>Takes that were vetoed or lost their spot along the way.</p>
+        <p>Takes that didn't make the stack. They are still there for anyone's version.</p>
       </div>
       <div class="credits" id="rel-archive"></div>
 
@@ -180,14 +180,14 @@
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div class="modal">
-    <h3 id="modal-title"><span id="modal-ico"></span> <span id="modal-head">Add a layer</span></h3>
+    <h3 id="modal-title"><span id="modal-ico"></span> <span id="modal-head">Add a take</span></h3>
     <p class="tiny muted" id="modal-sub"></p>
     <div class="field" id="sec-field" hidden>
-      <label for="take-sec">Layer it on</label>
+      <label for="take-sec">Which part of the song</label>
       <select id="take-sec"></select>
     </div>
     <div class="field" id="role-field">
-      <label for="take-role">Instrument</label>
+      <label for="take-role">Layer</label>
       <select id="take-role"></select>
       <span class="tiny muted" id="role-hint"></span>
     </div>
@@ -212,13 +212,13 @@
       <input type="text" id="take-name" placeholder="how you'll appear in the credits">
     </div>
     <div class="field">
-      <label for="take-note" id="note-label">One line to the room</label>
+      <label for="take-note" id="note-label">Say something to the room (optional)</label>
       <textarea id="take-note" placeholder="what you were going for"></textarea>
     </div>
     <p class="err" id="modal-err"></p>
     <div class="modal-foot">
       <button class="btn" type="button" id="modal-cancel">Cancel</button>
-      <button class="btn btn-ember" type="button" id="modal-send">Send it in</button>
+      <button class="btn btn-ember" type="button" id="modal-send">Add my take →</button>
     </div>
   </div>
 </div>
@@ -227,7 +227,7 @@
 <div class="scrim" id="sr-scrim" role="dialog" aria-modal="true" aria-labelledby="sr-title">
   <div class="modal">
     <h3 id="sr-title"><span class="rec-dot"></span> Record your track</h3>
-    <p class="tiny muted">Pick the tempo and time, then play along with the click. It records until you stop.</p>
+    <p class="tiny muted">Pick the tempo and time, then play along with the click. It records until you stop. This becomes the original track everyone builds on.</p>
     <div class="sr-two">
       <div class="field"><label for="sr-by">Your name</label><input type="text" id="sr-by" maxlength="60" placeholder="how you show up in the credits"></div>
       <div class="field"><label for="sr-role">What is it</label><select id="sr-role"></select></div>
