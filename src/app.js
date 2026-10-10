@@ -15,6 +15,7 @@
    id, or null for the original track. arrangement() works out where everything starts. */
 
 import './styles.css';
+import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
 import { analyse, sureness, PCS } from './analysis.js';
@@ -1734,7 +1735,7 @@ function renderHow() {
   var seen = false;
   try { seen = localStorage.getItem('stackato:seen-how') === '1'; } catch (e) {}
   document.body.classList.toggle('seen-how', seen);
-  if (seen && hasSeed() && !S.howFolded) { S.howFolded = true; el('howbox').open = false; }
+  /* "How it works" stays open: people can fold it themselves */
   if (hasSeed() && S.session && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
 }
 function renderInstruments() {
@@ -2741,6 +2742,8 @@ function keepInputs(fn) {
     try { if (sel) el(aid).setSelectionRange(sel[0], sel[1]); } catch (e) {}
   }
 }
+/* canvases are drawn in the theme's colours: redraw everything when it changes */
+window.addEventListener('stackato:theme', function () { render(); });
 function render() {
   keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
   if (S.menu) placeMenus();
@@ -2906,7 +2909,6 @@ function loadSeed(file, confirmed) {
     }
     return db.updateSession(S.session.id, patch).then(function () {
       stopAll();
-      if (el('howbox')) el('howbox').open = false;
       flash((created ? 'Session started. Share the link from the bar below. ' : '') +
         (patch.bpm ? 'Heard about ' + patch.bpm + ' bpm in ' + patch.music_key + '. Correct it if it is off.' : 'Track loaded.'));
       return refresh();

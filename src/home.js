@@ -9,6 +9,7 @@
 
    The markup is built from strings like in app.js; render() redraws the whole list. */
 
+import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
@@ -388,7 +389,7 @@ function folded(k) { return !S.fold[k]; }
 function countDesc(r, id) { return kids(r, id).reduce(function (n, k) { return n + 1 + countDesc(r, k.id); }, 0); }
 function foldBtn(r, id) {
   var n = countDesc(r, id), k = r.id + ':' + id;
-  return '<button class="fold" type="button" data-fold="' + k + '">' + (folded(k) ? '&#9656; ' + n + (n > 1 ? ' replies' : ' reply') : '&#9662; Hide replies') + '</button>';
+  return '<button class="fold' + (folded(k) ? '' : ' open') + '" type="button" data-fold="' + k + '" aria-expanded="' + !folded(k) + '">' + (folded(k) ? '&#9656; Show ' + n + (n > 1 ? ' replies' : ' reply') : '&#9662; Hide replies') + '</button>';
 }
 function kidsHtml(r, p, depth) {
   var ks = kids(r, p.id);
@@ -434,6 +435,24 @@ function replyHtml(r, p, depth) {
       (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
   return html + kidsHtml(r, p, depth);
 }
+/* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
+   replied, what kind of replies there are and the latest one, so it reads as "there's a
+   conversation here" rather than a small link. */
+function threadBar(r, open) {
+  var live = livePosts(r), n = live.length;
+  if (!r.posts.length) return '';
+  var takes = live.filter(function (p) { return p.layer && p.kind !== 'part'; }).length, parts = live.filter(function (p) { return p.kind === 'part'; }).length;
+  var words = n - takes - parts, seen = {}, faces = [];
+  live.forEach(function (p) { var who = p.mine ? 'You' : p.by; if (!seen[who]) { seen[who] = 1; faces.push(ava(who, p.layer && p.kind !== 'part' ? p.layer : null, true)); } });
+  var last = live.slice().sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); })[0];
+  var what = [takes ? takes + (takes > 1 ? ' takes' : ' take') : '', parts ? parts + (parts > 1 ? ' new parts' : ' new part') : '', words ? words + (words > 1 ? ' comments' : ' comment') : ''].filter(Boolean).join(', ');
+  var lastTxt = last ? (last.mine ? 'You' : last.by) + (last.layer && last.kind !== 'part' ? ' added ' + lay(last.layer).label : last.kind === 'part' ? ' added a new part' : ': “' + (last.text.length > 60 ? last.text.slice(0, 57) + '…' : last.text) + '”') + ', ' + last.time : '';
+  return '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '" aria-controls="replies-' + r.id + '">' +
+    (faces.length ? '<span class="faces">' + faces.slice(0, 4).join('') + '</span>' : '') +
+    '<span class="tb-txt"><b>' + (n ? n + (n > 1 ? ' replies' : ' reply') : 'Replies') + '</b>' + (what ? ' · ' + what : '') +
+      (lastTxt && !open ? '<small>Latest: ' + esc(lastTxt) + '</small>' : '') + '</span>' +
+    '<span class="tb-go">' + (open ? 'Hide the thread <i aria-hidden="true">&#9652;</i>' : 'Show the thread <i aria-hidden="true">&#9662;</i>') + '</span></button>';
+}
 function riffHtml(r) {
   var on = S.playing === key(r), ps = players(r), n = livePosts(r).length, open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
@@ -444,16 +463,16 @@ function riffHtml(r) {
     '<div class="player"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas></div>' +
     '<div class="stats">' + (ps.length ? '<span class="faces">' + ps.slice(0, 5).map(function (p) { return ava(p.mine ? 'You' : p.by, p.layer, true); }).join('') + '</span>' +
-      '<span>' + ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along · ' + n + ' repl' + (n > 1 ? 'ies' : 'y') + '</span>' +
+      '<span>' + ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' +
       (song.length ? '<button class="ghost songplay" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '')
-      : '<span>' + (n ? n + ' repl' + (n > 1 ? 'ies' : 'y') + '. Nobody played along yet.' : 'Nobody played along yet. Be the first.') + '</span>') + '</div>' +
+      : '<span>Nobody played along yet. Be the first.</span>') + '</div>' +
     '<div class="racts">' + (r.open ? '<button class="btn btn-sm btn-ember" type="button" data-reply="' + r.id + '">+ Play along</button>' : '') +
-      (r.posts.length ? '<button class="ghost" type="button" data-expand="' + r.id + '">' + (open ? 'Hide replies' : 'Show replies (' + n + ')') + '</button>' : '') +
       mixLink('Open in mix view', r, null) + commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
       '<span class="grow"></span>' + voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
   if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
     (r.mix ? '<button class="btn btn-sm btn-ember" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
-  if (open && r.posts.length) html += '<div class="replies">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
+  html += threadBar(r, open);
+  if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
 }
 function render() {
@@ -701,6 +720,7 @@ document.addEventListener('click', function (e) {
 });
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeScrims(); });
 window.addEventListener('resize', drawWaves);
+window.addEventListener('stackato:theme', drawWaves);
 
 /* ---------- sign in (email accounts are real; sign-up and Google are stubbed) ---------- */
 var AUTH = { tab:'in' };
@@ -719,7 +739,8 @@ function authTab(t) {
 function renderAuth() {
   var name = db.accountName(me), acts = document.querySelector('header.top .hdr-acts');
   [].forEach.call(acts.querySelectorAll('[data-auth], .hdr-user, .hdr-signup, [data-signout]'), function (x) { x.remove(); });
-  acts.insertAdjacentHTML('afterbegin', name
+  var slot = acts.querySelector('[data-theme-toggle]');
+  (slot ? slot.insertAdjacentHTML.bind(slot, 'afterend') : acts.insertAdjacentHTML.bind(acts, 'afterbegin'))(name
     ? '<span class="hdr-user"><i>' + esc(name.charAt(0).toUpperCase()) + '</i>' + esc(name) + '</span><button class="ghost" type="button" data-signout="1">Sign out</button>'
     : '<button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn hdr-signup" type="button" disabled title="Sign-up opens soon">Sign up</button>');
   [].forEach.call(document.querySelectorAll('.hero-cta'), function (w) { w.hidden = !!name; });

@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="en">
 <head>
+<script>try{var t=localStorage.getItem("stackato:theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){}</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="light dark">
 <meta name="description" content="Make a song with strangers. One original track, then musicians add their takes, layer by layer, until the stack becomes a song.">
 <title>Stackato — build the song</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -24,6 +25,7 @@
       <button class="phase" role="tab" aria-selected="false" data-phase="released"><span>2</span>Release the song</button>
     </div>
     <div class="hdr-acts">
+      <span data-theme-toggle></span>
       <button class="btn btn-sm" id="copy-link" type="button">Invite people</button>
       <details class="hdr-more">
         <summary aria-label="More">&#8943;</summary>

@@ -2,6 +2,7 @@
    Read-only; sessions are readable by everyone under RLS, so no sign-in is needed. */
 
 import './styles.css';
+import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
 import { ico } from './icons.js';

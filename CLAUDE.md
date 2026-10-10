@@ -41,7 +41,8 @@ src/supabase.js             client setup from env vars
 src/analysis.js             tempo + key detection (unchanged from the prototype)
 src/roles.js                instrument roles, colours, icons (mirror of the roles table)
 src/icons.js, src/zip.js    inline SVG icons; store-only zip writer for stem downloads
-src/styles.css              all styles (dark theme tokens on :root)
+src/styles.css              the song view's and /songs' styles (colour tokens on :root)
+src/theme.js, src/dark.css  light/dark mode: the toggle in every header ([data-theme-toggle]) and the dark tokens
 supabase/migrations/        schema, RLS policies, RPC functions, storage bucket, realtime
 ```
 
@@ -90,6 +91,7 @@ Planned: real sign-up and profiles. Supabase lets an anonymous user be upgraded 
 - Match the existing style in `app.js`: `var`, function declarations, string-built HTML, `esc()` on every user-provided string that goes into markup or attributes.
 - UI copy is plain, sentence case, and speaks from the user's side ("Send a take", "Let it in"). Errors say what happened and what to do.
 - Keep the visual design as is unless asked; it's the original author's. Colours are CSS custom properties on `:root`.
+- Dark mode: `<html data-theme="dark">` (set before first paint by a small inline script in each page's head; the choice is remembered under `stackato:theme`, otherwise the device setting wins). `src/dark.css` redefines the tokens; a colour written out instead of a token needs a dark override there. The dark bands (`.startband`, `.owncta`, ...) bring the light-mode paper/ink back inside, so they look the same in both modes. Canvases redraw on the `stackato:theme` event.
 - New database changes go in a new, timestamped file in `supabase/migrations/`. Never edit a migration that has already been applied.
 
 ## UI vocabulary
