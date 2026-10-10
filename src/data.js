@@ -68,13 +68,14 @@ export async function loadSessionById(id) {
 }
 
 export async function loadSnapshot(sessionId) {
-  const [takes, votes, versions, likes, reactions, comments] = await Promise.all([
+  const [takes, votes, versions, likes, reactions, comments, stackLikes] = await Promise.all([
     supabase.from('takes').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('votes').select('take_id, voter_id, value').eq('session_id', sessionId),
     supabase.from('versions').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('version_likes').select('version_id, user_id').eq('session_id', sessionId),
     supabase.from('reactions').select('user_id, kind').eq('session_id', sessionId),
-    supabase.from('comments').select('*').eq('session_id', sessionId).order('created_at')
+    supabase.from('comments').select('*').eq('session_id', sessionId).order('created_at'),
+    supabase.from('stack_likes').select('stack_key, user_id').eq('session_id', sessionId)
   ]);
   /* comments come from a later migration; until it is applied the page works without them */
   if (comments.error) console.warn('Timeline comments are not available:', comments.error.message);
@@ -84,7 +85,8 @@ export async function loadSnapshot(sessionId) {
     versions: check(versions),
     likes: check(likes),
     reactions: check(reactions),
-    comments: comments.error ? null : comments.data
+    comments: comments.error ? null : comments.data,
+    stackLikes: stackLikes.error ? [] : stackLikes.data
   };
 }
 
@@ -252,6 +254,11 @@ export async function likeVersion({ versionId, sessionId, userId }) {
     .insert({ version_id: versionId, session_id: sessionId, user_id: userId }));
 }
 
+export async function likeStack({ stackKey, sessionId, userId }) {
+  return ignoreDuplicate(await supabase.from('stack_likes')
+    .insert({ stack_key: stackKey, session_id: sessionId, user_id: userId }));
+}
+
 export async function react({ sessionId, userId, kind }) {
   return ignoreDuplicate(await supabase.from('reactions')
     .insert({ session_id: sessionId, user_id: userId, kind }));
@@ -277,6 +284,7 @@ export function subscribe(sessionId, onChange) {
      main channel keeps working */
   const notes = supabase.channel(`comments:${sessionId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: bySession }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'stack_likes', filter: bySession }, onChange)
     .subscribe();
   return () => { supabase.removeChannel(channel); supabase.removeChannel(notes); };
 }

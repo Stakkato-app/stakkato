@@ -186,12 +186,264 @@ function mine(t) { return !!(t && me && t.authorId === me.id); }
 function isOwn(t) { return !!(t && t.status === 'own'); }
 /* where a take stands, as shown in your version */
 function standing(t) {
-  if (S.members.indexOf(t) > -1) return 'in the stack';
+  if (S.members.indexOf(t) > -1) return 'in the creation';
+  if (t.on) return t.on.length ? 'on ' + onOf(t).map(function (u) { return u.by; }).join(', ') : 'on the original';
   if (S.applicants.indexOf(t) > -1) return 'waiting';
   if (isOwn(t)) return mine(t) ? 'your own take' : 'own take';
   return 'unused';
 }
 /* is this take used by a saved version or the one you are building? */
+/* ---------- stacks: one jam, every branch of the thread ----------
+   Every take remembers the takes it was played on (on_takes). Following them gives a path from the
+   original track to that take; a path nobody played on yet is a stack. The author's creation is the
+   line-up (the takes "in" the song). Without one, the stack with the most instruments plays first. */
+var WANT = (function () { try { return new URLSearchParams(location.search).get('stack'); } catch (e) { return null; } })();
+window.__stackId = function () { return S.stack || null; };
+/* wait until the audio is in and the page has its final height, then show the tracks */
+/* jump to a new part in the tracks: the song plays from where the part starts */
+function goPart(pid, n, gesture) {
+  n = n || 0;
+  if ((loadingCount() || !tracks().length) && n < 60) return setTimeout(function () { goPart(pid, n + 1, gesture); }, 150);
+  var p = TAKES[pid]; if (!p) return;
+  stopAll(true); S.override = null; S.trial = null; S.view = 'lineup'; S.stack = null; refreshGains(); render();
+  var at = startOf(p); offset = at; render();
+  setTimeout(function () { var h = el('mix-head'); if (h) h.scrollIntoView({ block:'start', behavior: gesture ? 'smooth' : 'auto' }); }, 80);
+  if (gesture) { play(at); return; }
+  try { ac().resume(); } catch (e) {}
+  setTimeout(function () {
+    if (ac().state === 'running') play(at);
+    else flash('Press Play to hear ' + p.by + '’s new part. The song starts where the part begins.');
+  }, 250);
+}
+function scrollToMix(n) {
+  if ((loadingCount() || !tracks().length) && n < 60) return setTimeout(function () { scrollToMix(n + 1); }, 150);
+  setTimeout(function () { var h = el('mix-head'); if (h) h.scrollIntoView({ block:'start' }); }, 120);
+}
+function threadTakes() {
+  return Object.keys(TAKES).map(function (k) { return TAKES[k]; }).filter(function (t) {
+    return live(t) && t.id !== 'seed' && t.roleId !== 'part' && t.roleId !== 'mix' && !t.sec &&
+      ['waiting','in','archived'].indexOf(t.status) > -1;
+  });
+}
+function onOf(t) { return (t.on || []).map(function (id) { return TAKES[id]; }).filter(live); }
+function groupOf(t) {
+  if (!t.group) return [t];
+  return threadTakes().filter(function (x) { return x.group === t.group; }).sort(function (a, b) { return String(a.created).localeCompare(String(b.created)) || String(a.dbId).localeCompare(String(b.dbId)); });
+}
+function lead(t) { return groupOf(t)[0] || t; }   /* the take that stands for its reply */
+function isLead(t) { return lead(t) === t; }
+function pathOf(t) { return onOf(t).concat(groupOf(t)); }
+function keyOf(list) { return list.map(function (t) { return t.dbId; }).sort().join(','); }
+function onKey(t) { return (t.on || []).slice().sort().join(','); }
+function parentOf(t) {
+  var k = onKey(t); if (!k) return null;
+  var hit = threadTakes().filter(function (p) { return keyOf(pathOf(p)) === k; })[0];
+  if (hit) return lead(hit);
+  if (nodeKeySet()[k]) return null;   /* played on the song: hangs under the song update */
+  /* played on part of a branch (some tracks left out): hang under the deepest take that was kept */
+  var best = null;
+  onOf(t).forEach(function (u) { if (!best || pathOf(u).length > pathOf(best).length) best = u; });
+  return best ? lead(best) : null;
+}
+function instCount(list) {
+  var seen = {}; seen[S.meta.seedRole || 'seed'] = 1;
+  list.forEach(function (t) { seen[t.roleId] = 1; });
+  return Object.keys(seen).length;
+}
+function likesOf(list) { return (S.stackLikes || {})[keyOf(list)] || 0; }
+function likedStack(list) { return !!(S.stackLiked || {})[keyOf(list)]; }
+function stackList() {
+  var all = threadTakes(), used = {};
+  all.forEach(function (t) { var k = onKey(t); if (k) used[k] = 1; });
+  var out = all.filter(function (t) { return isLead(t) && !used[keyOf(pathOf(t))]; }).map(function (t) {
+    var p = pathOf(t);
+    return { id:t.dbId, takes:p, inst:instCount(p), name:t.by + '’s stack', last:t, created:t.created || '', likes:likesOf(p) };
+  });
+  /* stacks people put together from every branch ("Create your own"), saved as versions */
+  (S.versions || []).forEach(function (v) {
+    var tk = byIds(v.picks).filter(function (t) { return live(t) && t.roleId !== 'part'; });
+    if (!tk.length) return;
+    out.push({ id:'v-' + v.id, takes:tk, inst:instCount(tk), name:v.name || (v.by + '’s stack'), mixed:true, by:v.by, created:v.created || '', likes:likesOf(tk) });
+  });
+  var made = S.members.filter(onKeptSection);
+  if (made.length) {
+    var mk = keyOf(made);
+    out = out.filter(function (x) { return keyOf(x.takes) !== mk; });
+    out.sort(function (a, b) { return b.inst - a.inst || b.likes - a.likes || b.takes.length - a.takes.length || String(b.created).localeCompare(String(a.created)); });
+    out.unshift({ id:'main', takes:made, inst:instCount(made), name:'Author’s creation', creation:true, likes:likesOf(made) });
+  } else {
+    out.sort(function (a, b) { return b.inst - a.inst || b.likes - a.likes || b.takes.length - a.takes.length || String(b.created).localeCompare(String(a.created)); });
+    if (out[0]) out[0].largest = true;
+  }
+  return out;
+}
+function currentStack() {
+  var list = stackList();
+  /* tab 2: the original track on its own, to build on from scratch */
+  if (S.stack === '__seed') return { id:'__seed', takes:[], inst:instCount([]), name:(S.seed.by ? S.seed.by + '’s original track' : 'The original track'), partial:true, pure:true };
+  /* tab 2: a take you picked in the thread, with everything it was played on */
+  if (S.stack && TAKES[S.stack] && live(TAKES[S.stack])) {
+    var t0 = lead(TAKES[S.stack]), p0 = pathOf(t0);
+    return { id:t0.dbId, takes:p0, inst:instCount(p0), name:t0.by + '’s ' + groupOf(t0).map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + '), partial:true, last:t0 };
+  }
+  return list[0] || null;  /* tab 1: the song, the author's creation, or the room's suggestion until there is one */
+  if (S.stack && S.stack !== 'main') {
+    var hit = list.filter(function (x) { return x.id === S.stack; })[0];
+    if (hit) return hit;
+    var t = TAKES[S.stack];
+    if (t && live(t)) { var p = pathOf(t); return { id:t.dbId, takes:p, inst:instCount(p), name:'Up to ' + t.by + '’s ' + role(t.roleId).label.toLowerCase(), partial:true, last:t }; }
+  }
+  return list[0] || null;
+}
+function isMainStack(st) { var l = stackList(); return !!(st && l[0] && l[0].id === st.id); }
+/* takes someone played on top of the author's creation, still waiting for the author */
+function onCreation() {
+  var made = S.members.filter(onKeptSection); if (!made.length) return [];
+  var mk = keyOf(made);
+  return threadTakes().filter(function (t) { return t.status !== 'in' && onKey(t) === mk; });
+}
+function makeCreation(list) {
+  var ids = list.map(function (t) { return t.dbId; });
+  var ins = list.filter(function (t) { return t.status !== 'in'; }), outs = S.members.filter(function (t) { return ids.indexOf(t.dbId) < 0; });
+  return Promise.all(ins.map(function (t) { return db.letIn(t.dbId); }).concat(outs.map(function (t) { return db.takeOutLayer(t.dbId); })))
+    .then(function () { S.stack = null; S.override = null; S.view = 'lineup'; return refresh(); })
+    .then(function () { flash('This is the Author’s creation now. It plays first, for everyone.'); }, oops);
+}
+function stacksBar() {
+  var song = stackList()[0], pure = S.sel === '__seed', sel = !pure && S.sel && TAKES[S.sel] && live(TAKES[S.sel]) ? lead(TAKES[S.sel]) : null, onSel = !!(S.stack && (sel || pure));
+  var tab = function (id, on, title, small, lanes) {
+    return '<button type="button" role="tab" data-stack="' + id + '" aria-selected="' + on + '">' +
+      '<span class="m-ico st-ico" aria-hidden="true">' + [S.seed].concat(lanes).map(function (t) {
+        return '<i style="background:' + (t.id === 'seed' ? (seedInstr() ? col(seedInstr()) : 'var(--muted)') : col(role(t.roleId))) + '"></i>'; }).join('') + '</span>' +
+      '<span class="m-txt"><b>' + title + '</b><small>' + small + '</small></span></button>';
+  };
+  return '<div class="dawtabs modes stacktabs" role="tablist" aria-label="What you hear">' +
+    tab('main', !onSel, 'The song so far', song && song.creation ? 'picked by the author' : 'the room’s suggestion', song ? song.takes : []) +
+    (pure ? tab('seed', onSel, esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')), 'the first clip on its own, build on it from scratch', [])
+    : sel ? tab(sel.dbId, onSel, esc(sel.by) + '’s ' + esc(groupOf(sel).map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + ')), 'from the thread, with what it was played on', pathOf(sel))
+         : '<div class="st-hint">Pick any take in the thread below to hear it here, and to play on it.</div>') +
+  '</div>';
+  var building = S.view === 'build' && !S.override, cur = currentStack();
+  return '<div class="dawtabs modes stacktabs" role="tablist" aria-label="Stacks">' + stackList().map(function (x) {
+    var sel = !building && !S.override && cur && cur.id === x.id;
+    return '<button type="button" role="tab" data-stack="' + x.id + '" aria-selected="' + sel + '">' +
+      '<span class="m-ico st-ico" aria-hidden="true">' + [S.seed].concat(x.takes).map(function (t) {
+        return '<i style="background:' + (t.id === 'seed' ? (seedInstr() ? col(seedInstr()) : 'var(--muted)') : col(role(t.roleId))) + '"></i>'; }).join('') + '</span>' +
+      '<span class="m-txt"><b>' + esc(x.name) + '</b><small>' + (x.creation ? '' : x.largest ? '<em class="st-tag big">Largest stack</em>' : '') +
+        x.inst + ' instruments' + (x.likes ? ' &middot; &#9829; ' + x.likes : '') + '</small></span></button>';
+  }).join('') +
+  (isHost() && isOpen() ? '<button type="button" role="tab" class="mode-own" data-view="build" aria-selected="' + building + '">' +
+    '<span class="m-ico">+</span><span class="m-txt"><b>Compose the song</b><small>pick takes from every branch</small></span></button>' : '') +
+  '</div>';
+}
+/* ---------- the thread: the same takes, as replies ---------- */
+function threadPost(t) {
+  var r = role(t.roleId), cur = S.view !== 'build' && !S.override ? currentStack() : null, on = running && cur && cur.id === t.dbId;
+  var under = onOf(t), here = !!herePath()[t.dbId], last = !!(S.stack && cur && cur.id === t.dbId);
+  var grp = groupOf(t), inSongAll = grp.every(function (g) { return S.members.indexOf(g) > -1; });
+  var kidsOf = threadTakes().filter(function (k) { var p = parentOf(k); return isLead(k) && p && p.dbId === t.dbId; })
+    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
+  var open = kidsOf.length && (here && !last || (S.tOpen || {})[t.dbId]), below = countBelow(t);
+  return '<div class="tp' + (here ? ' here' : '') + (last ? ' last' : '') + '" id="tp-' + t.dbId + '">' +
+    '<div class="tp-row" data-tsel="' + t.dbId + '">' +
+      '<button class="play sm' + (on && S.stack ? ' on' : '') + '" type="button" data-tplay="' + t.dbId + '" aria-label="Play ' + esc(t.by) + '’s take with everything under it">' + (on && S.stack ? I_PAUSE : I_PLAY) + '</button>' +
+      ico(r.icon, col(r)) +
+      '<div class="tp-body"><div class="tp-meta"><b>' + esc(t.by) + '</b> <span class="muted">added</span> ' +
+        grp.map(function (g) { var gr = role(g.roleId); return '<b style="color:' + col(gr) + '">' + esc(gr.label.toLowerCase()) + '</b>'; }).join(' + ') +
+        (inSongAll ? ' <em class="st-tag auth">In the song</em>' : '') + '</div>' +
+        (t.note ? '<p class="tp-note">' + esc(t.note) + '</p>' : '') +
+        '<div class="tp-on">on top of <span class="vchip">' + (seedInstr() ? ico(seedInstr().icon, col(seedInstr())) : '') + 'original track</span>' +
+          under.map(function (u) { var ur = role(u.roleId); return '<span class="vchip">' + ico(ur.icon, col(ur)) + esc(u.by) + '</span>'; }).join('') +
+          leftOut(t) + '</div>' +
+        (isOpen() ? '<div class="tp-acts"><button class="addlink" type="button" data-tstack="' + t.dbId + '">' + (last ? 'In the tracks above' : 'Play on this') + '</button>' +
+          (isHost() && !inSongAll ? '<button class="addlink" type="button" data-yesg="' + t.dbId + '">☆ Add to song</button>' : '') +
+          (kidsOf.length && !(here && !last) ? '<button class="addlink quiet" type="button" data-ttoggle="' + t.dbId + '">' + (open ? 'Hide replies' : below + (below > 1 ? ' replies' : ' reply') + ' ▾') + '</button>' : '') + '</div>' : '') +
+      '</div>' +
+    '</div>' +
+    (open ? '<div class="tp-kids">' + kidsOf.map(threadPost).join('') + '</div>' : '') +
+  '</div>';
+}
+/* the takes on the thread path of the stack you hear (none for a stack that was put together) */
+function herePath() {
+  var c = S.view !== 'build' && !S.override && S.stack ? currentStack() : null, set = {};
+  for (var t = c && c.last; t; t = parentOf(t)) set[t.dbId] = 1;
+  return set;
+}
+function nodeKeySet() {
+  var set = {}, made = S.members.filter(onKeptSection);
+  if (made.length) set[keyOf(made)] = 1;
+  (S.versions || []).forEach(function (v) { set[keyOf(byIds(v.picks).filter(live))] = 1; });
+  return set;
+}
+function onNode(key) {
+  /* takes played on a saved stack or on the author's creation hang under that update */
+  return threadTakes().filter(function (k) { return isLead(k) && !parentOf(k) && onKey(k) === key; })
+    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
+}
+function updatePost(o) {
+  var cur = S.view !== 'build' && !S.override ? currentStack() : null, last = !!(cur && cur.id === o.id), on = running && last;
+  var kids = o.key ? onNode(o.key) : [], hp = herePath(), inner = kids.some(function (k) { return hp[k.dbId]; });
+  var open = kids.length && (last || inner || (S.tOpen || {})[o.id]);
+  return '<div class="tp tp-up' + (last ? ' here last' : inner ? ' here' : '') + '" id="tp-' + o.id + '">' +
+    '<div class="tp-row"' + (o.stack ? ' data-tsel="' + o.id + '"' : o.part ? ' data-tpart="' + o.part + '"' : '') + '>' +
+      '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (o.stack ? 'data-tplay="' + o.id + '"' : o.part ? 'data-tpart="' + o.part + '"' : 'data-playmain="1"') + ' aria-label="Play">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
+      '<span class="tp-badge" aria-hidden="true">' + o.icon + '</span>' +
+      '<div class="tp-body"><div class="tp-meta"><b>' + esc(o.by) + '</b> <span class="muted">' + o.what + '</span>' + (o.tag || '') + '</div>' +
+        (o.note ? '<p class="tp-note">' + o.note + '</p>' : '') +
+        (o.takes ? '<div class="tp-on">' + o.takes.map(function (u) { var ur = role(u.roleId); return '<span class="vchip">' + ico(ur.icon, col(ur)) + esc(u.by) + '</span>'; }).join('') + '</div>' : '') +
+        (isOpen() ? '<div class="tp-acts"><button class="addlink" type="button" data-treply="' + o.reply + '">+ Reply with audio</button>' +
+          (o.stack ? (last ? '<span class="tp-in">In the tracks above</span>' : '<button class="addlink quiet" type="button" data-tstack="' + o.id + '">Show in the tracks</button>') : '') +
+          (o.part ? '<button class="addlink quiet" type="button" data-tpart="' + o.part + '">Show in the tracks</button>' : '') +
+          (kids.length && !last && !inner ? '<button class="addlink quiet" type="button" data-ttoggle="' + o.id + '">' + (open ? 'Hide replies' : kids.length + (kids.length > 1 ? ' replies' : ' reply') + ' ▾') + '</button>' : '') + '</div>' : '') +
+      '</div></div>' +
+    (open ? '<div class="tp-kids">' + kids.map(threadPost).join('') + '</div>' : '') +
+  '</div>';
+}
+function threadUpdates() {
+  var host = S.session ? S.session.host_id : null, list = [];
+  S.parts.forEach(function (p) {
+    list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, by:S.seed.by || 'The author', icon:'&#8596;',
+      what:'extended the track', note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long. Play on it, it’s part of the song now.',
+      reply:'part:' + p.id, part:p.id }) });
+  });
+  var made = S.members.filter(onKeptSection);
+  if (made.length) list.push({ at:made.reduce(function (m, t) { return String(t.joinedAt) > m ? String(t.joinedAt) : m; }, ''), html:updatePost({ id:'main', key:keyOf(made), stack:true, by:S.seed.by || 'The author', icon:'&#9733;',
+    what:'made the Author’s creation', tag:' <em class="st-tag auth">Plays first</em>', takes:made, reply:'main' }) });
+  (S.versions || []).forEach(function (v) {
+    var tk = byIds(v.picks).filter(live); if (!tk.length) return;
+    list.push({ at:v.created || '', html:updatePost({ id:'v-' + v.id, key:keyOf(tk), stack:true, by:v.by, icon:'&#9776;',
+      what:'made a stack: <b>' + esc(v.name) + '</b>', takes:tk, reply:'v-' + v.id }) });
+  });
+  return list;
+}
+function countBelow(t) {
+  var ks = threadTakes().filter(function (k) { var p = parentOf(k); return p && p.dbId === t.dbId; });
+  return ks.reduce(function (n, k) { return n + 1 + countBelow(k); }, 0);
+}
+/* tracks of the branch that were muted when the take was played: "without Tom's drums" */
+function leftOut(t) {
+  var par = parentOf(t); if (!par) return '';
+  var on = t.on || [], miss = pathOf(par).filter(function (x) { return on.indexOf(x.dbId) < 0; });
+  return miss.length ? ' <span class="tp-without">without ' + miss.map(function (x) { return esc(x.by) + '’s ' + esc(role(x.roleId).label.toLowerCase()); }).join(', ') + '</span>' : '';
+}
+function threadHtml() {
+  var nodeKeys = {};
+  if (S.members.filter(onKeptSection).length) nodeKeys[keyOf(S.members.filter(onKeptSection))] = 1;
+  (S.versions || []).forEach(function (v) { nodeKeys[keyOf(byIds(v.picks).filter(live))] = 1; });
+  var roots = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; }).map(function (t) { return { at:String(t.created), html:threadPost(t) }; })
+    .concat(threadUpdates()).sort(function (a, b) { return String(a.at).localeCompare(String(b.at)); });
+  var si = seedInstr();
+  var seedHere = S.stack === '__seed' && !S.override && S.view !== 'build';
+  return '<div class="tp tp-op' + (seedHere ? ' here last' : '') + '"><div class="tp-row" data-tsel="seed">' +
+      '<button class="play sm' + (seedHere && running ? ' on' : '') + '" type="button" data-tplay="seed" aria-label="Play the original track on its own">' + (seedHere && running ? I_PAUSE : I_PLAY) + '</button>' +
+      (si ? ico(si.icon, col(si)) : '') +
+      '<div class="tp-body"><div class="tp-meta"><b>' + esc(S.seed.by || 'The creator') + '</b> <span class="muted">started the jam</span></div>' +
+        '<p class="tp-note">' + esc(projName()) + '</p>' +
+        (isOpen() ? '<div class="tp-acts"><button class="addlink" type="button" data-treply="seed">+ Reply with audio</button>' +
+          (seedHere ? '<span class="tp-in">In the tracks above</span>' : '<button class="addlink quiet" type="button" data-tstack="seed">Play on this</button>') + '</div>' : '') +
+      '</div></div></div>' +
+    (roots.length ? roots.map(function (r) { return r.html; }).join('') : '<p class="tiny muted">Nobody played along yet.</p>');
+}
 function picked(id) {
   return S.build.picks.indexOf(id) > -1 || S.versions.some(function (v) { return v.picks.indexOf(id) > -1; });
 }
@@ -261,12 +513,13 @@ function startOf(tk) {
   return a.lead;
 }
 function tracks() {
-  var extra = partTakes().slice(), tp = trialPitchTake();
+  var extra = S.stack === '__seed' && !S.override && S.view !== 'build' ? [] : partTakes().slice(), tp = trialPitchTake();
   if (tp) extra.push(tp);
   var core;
   if (S.override) core = [S.seed].concat(byIds(S.override.picks));
   else if (S.view === 'build') core = [S.seed].concat(byIds(S.build.picks));
-  else { var tr = trialTake(); core = [S.seed].concat(S.members, tr ? [tr] : []); }
+  else { var tr = trialTake(), cs = currentStack(); core = [S.seed].concat(cs ? cs.takes : [], tr ? [tr] : []); }
+  if (!S.override && S.view !== 'build') core = core.concat((S.drafts || []).map(function (d) { return d.t; }));
   return core.concat(extra).filter(function (t) { return t && t.buf && (t.roleId === 'part' || t.id === 'seed' || onKeptSection(t)); });
 }
 /* per-context mixer settings: the project uses the take itself, a version keeps its own */
@@ -313,7 +566,7 @@ function applySnapshot(sess, snap) {
     t.by = row.author_name; t.authorId = row.author_id; t.roleId = row.role_id; t.note = row.note;
     t.status = row.status; t.why = row.archive_reason; t.fileName = row.file_name; t.path = row.storage_path;
     t.url = db.publicUrl(row.storage_path); t.joinedAt = row.joined_at; t.created = row.created_at;
-    t.pos = row.part_pos || null; t.sec = row.section_id || null;
+    t.pos = row.part_pos || null; t.sec = row.section_id || null; t.on = row.on_takes || null; t.group = row.group_id || null;
     /* keep what the creator is dragging or saving right now */
     if (!t.fadeBusy && !(drag && drag.t === t)) { t.fin = row.fade_in || 0; t.fout = row.fade_out || 0; t.xfade = row.xfade || 0; }
     if (!t.buf) t.len = row.duration_sec;
@@ -363,10 +616,20 @@ function applySnapshot(sess, snap) {
     if (me && l.user_id === me.id) liked[l.version_id] = true;
   });
   S.versions = snap.versions.map(function (v) {
-    return { id:v.id, name:v.name, by:v.by_name, authorId:v.author_id, picks:v.picks || [], ctl:v.ctl || {}, likes:likeCount[v.id] || 0, liked:!!liked[v.id] };
+    return { id:v.id, name:v.name, by:v.by_name, authorId:v.author_id, picks:v.picks || [], ctl:v.ctl || {}, likes:likeCount[v.id] || 0, liked:!!liked[v.id], created:v.created_at };
   });
 
   /* timeline comments (null when their migration isn't applied yet) */
+  /* a link from the feed (?stack=<take>) opens the mix view on that take's stack */
+  if (WANT && TAKES[WANT] && TAKES[WANT].roleId === 'part') { var wp = WANT; WANT = null; goPart(wp); }  /* a new part is part of the song: open the song on it */
+  else if (WANT && TAKES[WANT]) { S.stack = lead(TAKES[WANT]).dbId; S.sel = S.stack; WANT = null; scrollToMix(0); }
+  else if (WANT === 'seed') { WANT = null; S.stack = '__seed'; S.sel = '__seed'; scrollToMix(0); }  /* the first clip on its own */
+  else if (WANT === 'song') { WANT = null; S.stack = null; scrollToMix(0); }  /* the song itself: the first tab */
+  S.stackLikes = {}; S.stackLiked = {};
+  (snap.stackLikes || []).forEach(function (l) {
+    S.stackLikes[l.stack_key] = (S.stackLikes[l.stack_key] || 0) + 1;
+    if (me && l.user_id === me.id) S.stackLiked[l.stack_key] = true;
+  });
   S.cmAvailable = snap.comments !== null && snap.comments !== undefined;
   S.comments = (snap.comments || []).filter(function (c) { return !c.hidden; }).map(function (c) {
     return { id:c.id, by:c.author_name, authorId:c.author_id, body:c.body, at:c.at_sec, created:c.created_at };
@@ -620,6 +883,21 @@ function preview(t) {
   startLoop();
   render();
 }
+/* a reply on its own, every instrument in it together, nothing else */
+function previewGroup(t) {
+  var key = 'grp:' + t.id, list = groupOf(t).filter(function (g) { return g.buf; });
+  if (only === key) { stopAll(); return; }
+  if (!list.length) { flash('Still loading that take.'); return; }
+  stopAll(); only = key; ac().resume();
+  var T = ac().currentTime + 0.02, left = list.length;
+  list.forEach(function (g) {
+    var s2 = ac().createBufferSource(), env = ac().createGain();
+    s2.buffer = g.buf; s2.connect(env); env.connect(gainFor(g));
+    scheduleEnv(env, g, T, 0); s2.start(T); sources[g.id] = s2;
+    s2.onended = function () { delete sources[g.id]; if (--left <= 0 && only === key) { only = null; render(); } };
+  });
+  onlyAt = T; startLoop(); render();
+}
 /* a take together with the original track, from the own-version block */
 function pairPreview(t) {
   var key = 'pair:' + t.id;
@@ -659,8 +937,8 @@ function seedWaveBars() {
 function seedWave() {
   var bars = seedWaveBars();
   if (!bars) return '<div class="seedwave loading" id="seed-viz" aria-hidden="true">' + vizMarkup(SEED_BARS) + '</div>';
-  return '<div class="seedwave" id="seed-viz" aria-hidden="true"><div class="sw-bars">' + bars + '</div>' +
-    '<div class="sw-prog" id="seed-prog"><div class="sw-bars">' + bars + '</div></div></div>';
+  return '<div class="seedwave real" id="seed-viz" aria-hidden="true"><canvas class="sw-c" data-seedwave="base"></canvas>' +
+    '<div class="sw-prog" id="seed-prog"><canvas class="sw-c" data-seedwave="prog"></canvas></div></div>';
 }
 function seedProgress() {
   var L = S.seed.len || 0;
@@ -688,6 +966,7 @@ function frame() {
     var at = +marks[mi].dataset.at;
     marks[mi].classList.toggle('near', running && !only && p >= at - 0.05 && p < at + 2.5);
   }
+  if (el('stage-released') && el('stage-released').classList.contains('on')) drawRelWave();
   var ph = el('playhead'), rd = el('readout');
   var lane = document.querySelector('.t-lane'), daw = el('daw');
   if (ph && d && lane && daw) {
@@ -718,10 +997,42 @@ function peaksOf(buf, n) {
   }
   return out;
 }
+/* the highest and lowest sample per column: drawn as one shape, it looks like a real waveform */
+function minMaxOf(buf, n) {
+  var d = buf.getChannelData(0), step = d.length / n, hi = new Float32Array(n), lo = new Float32Array(n), peak = 0;
+  for (var x = 0; x < n; x++) {
+    var a = Math.floor(x * step), z = Math.min(d.length, Math.floor((x + 1) * step)), mx = 0, mn = 0;
+    for (var i = a; i < z; i++) { var v = d[i]; if (v > mx) mx = v; else if (v < mn) mn = v; }
+    hi[x] = mx; lo[x] = mn; if (mx > peak) peak = mx; if (-mn > peak) peak = -mn;
+  }
+  return { hi:hi, lo:lo, peak:peak || 1 };
+}
+function waveShape(g, mm, x0, cw, h, amp) {
+  var n = mm.hi.length, mid = h / 2, k = (mid - 2) / mm.peak, x, j, a;
+  g.beginPath(); g.moveTo(x0, mid);
+  for (x = 0; x < cw; x++) { j = Math.floor(x / cw * n); a = amp ? amp(x / cw) : 1; g.lineTo(x0 + x, mid - Math.max(.6, mm.hi[j] * k * a)); }
+  for (x = cw - 1; x >= 0; x--) { j = Math.floor(x / cw * n); a = amp ? amp(x / cw) : 1; g.lineTo(x0 + x, mid - Math.min(-.6, mm.lo[j] * k * a)); }
+  g.closePath(); g.fill();
+}
+function drawSeedWave() {
+  [].forEach.call(document.querySelectorAll('canvas[data-seedwave]'), function (c) {
+    var t = S.seed; if (!t.buf) return;
+    if (!t.mm) t.mm = minMaxOf(t.buf, 2400);
+    var dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (!w || !h) return;
+    c.width = w * dpr; c.height = h * dpr;
+    var g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+    /* the original track stays orange: faint where it hasn't played yet, full where it has */
+    g.fillStyle = cvar('--ember'); g.globalAlpha = c.dataset.seedwave === 'prog' ? 1 : .32;
+    waveShape(g, t.mm, 0, w, h);
+    g.globalAlpha = 1;
+  });
+}
 function setBuffer(t, buf) {
   t.buf = buf;
   t.len = buf.duration;
   t.peaks = peaksOf(buf, 1200);
+  t.mm = minMaxOf(buf, 2400);
   delete gains[t.id];
 }
 
@@ -740,11 +1051,14 @@ function uploadTake(file, buf, o) {
       session_id: sid, author_id: me.id, author_name: o.name, role_id: o.role, note: o.note || '',
       status: o.status, storage_path: path, file_name: file.name, mime_type: type, duration_sec: buf.duration,
       part_pos: o.pos || null, section_id: o.sec || null,
+      on_takes: o.on ? o.on : o.status === 'waiting' && o.role !== 'part' && !o.sec ? (currentStack() || { takes:[] }).takes.filter(function (x) { return !x.mute; }).map(function (x) { return x.dbId; }) : null,
+      group_id: o.group || null,
       an_bpm: an && an.tempo ? an.tempo.bpm : null, an_key: an && an.key ? an.key.key : null
     }).then(function (row) {
       var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{},
                                 roleId:row.role_id, status:row.status, by:row.author_name, authorId:row.author_id,
-                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0 };
+                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0, on:row.on_takes || null, group:row.group_id || null, created:row.created_at };
+      if (row.status === 'waiting' && row.role_id !== 'part' && !o.group) { S.stack = row.id; S.sel = row.id; }
       setBuffer(t, buf);
       file.arrayBuffer().then(function (ab) { t.bytes = new Uint8Array(ab); });
       return { row:row, analysis:an };
@@ -1331,7 +1645,7 @@ function keepPart(t) {
   stopAll();
   if (S.trialPitch === t.id) S.trialPitch = null;
   db.letIn(t.dbId).then(function () {
-    flash('The song just got longer: ' + t.by + '\'s part is in, ' + (t.pos === 'before' ? 'before' : 'after') + ' the track.');
+    flash('The song just got longer. It’s in the thread too, so people can play on the new part.');
     return refresh();
   }).catch(oops);
 }
@@ -1389,21 +1703,21 @@ var I_UP = '<svg class="db-ico" width="46" height="46" viewBox="0 0 24 24" fill=
 
 var STEPS = {
   creator: {
-    lead: 'One track, one decision-maker. Musicians add their takes on top, and anyone can build their own version from every take.',
+    lead: 'Your clip, strangers’ instruments. Everything people play lands in the thread; you pick what becomes the song.',
     steps: [
-      ['Upload an audio track', 'Strangers will stack their own layers on top. Tempo and key are read from your file, and its length is the length of every take.'],
-      ['Anyone adds a take', 'Play along in your DAW with the click, or record right here. One instrument per take.'],
-      ['You build the stack', 'You dropped the track, so you choose which takes go in the stack. It’s your call alone.'],
-      ['You decide when it’s finished', 'Release the song when it feels right. The stack is the song, a mix is optional, and anyone can build their own version from every take.']
+      ['Drop your clip', 'It sets the tempo, key and length for everyone. Every take on top is exactly as long.'],
+      ['Strangers play along', 'On your clip, on each other’s takes or on the song. Every take is a reply in the thread.'],
+      ['You pick the takes', 'Press “Add to song” on any take in the thread. Until you do, the room’s suggestion plays: the stack with the most instruments.'],
+      ['Release it when it’s ready', 'Shape the song here: fades, new parts, and the release. Every other take stays in the thread.']
     ]
   },
   musician: {
-    lead: 'Someone dropped a track and wants strangers to finish it. Add a take, and the creator decides what goes in the stack.',
+    lead: 'Someone dropped a clip and wants strangers to play on it. Play along on the song; the author decides what goes in.',
     steps: [
-      ['Listen to the track', 'Tempo, key and length come from the creator’s track. Every take has to fit them.'],
-      ['Add your take', 'Grab the click and the other takes, play along in your DAW, or record right here. One instrument per take.'],
-      ['The creator decides', 'Your take waits until the creator puts it in the stack. Not picked? You can still use it in your own version.'],
-      ['Or make your own version', 'Use any take, record your own takes on top, and save your version. Send a take to the creator whenever you like.']
+      ['Listen to the song', 'This is what the author picked so far, or the room’s suggestion when nothing is picked yet.'],
+      ['Add your instruments', 'Record right here or upload up to four files, on the song or on any take you pick in the thread. They go out as one reply.'],
+      ['Your take is a reply', 'It shows up in the thread with your comment, and it remembers exactly what you played on.'],
+      ['The author decides', 'If it fits, the author adds it to the song. If not, it stays in the thread, and anyone can play on it.']
     ]
   }
 };
@@ -1583,14 +1897,12 @@ function renderOwnCta() {
   if (!box) return;
   box.style.display = hasSeed() && S.session ? '' : 'none';
   if (!hasSeed() || !S.session) { box.innerHTML = ''; return; }
-  var building = S.view === 'build' && !S.override, n = pool().length;
-  box.innerHTML = '<div class="oc-copy"><div class="kicker">Make it yours</div>' +
-      '<h2>Make your own version</h2>' +
-      '<p>Use every take in this song' + (n ? ' (' + n + ' so far)' : '') + ', the ones that made it and the ones that didn’t. ' +
-      'Record or upload your own takes on top, as many as you like, and save your version. Nobody has to approve it.</p></div>' +
+  box.innerHTML = '<div class="oc-copy"><div class="kicker">Got an idea of your own?</div>' +
+      '<h2>Start your own song</h2>' +
+      '<p>Drop a riff, a groove or a vocal line, or record one right here. Strangers stack their instruments on top, and you decide what becomes the song.</p></div>' +
     '<div class="oc-acts">' +
-      '<button class="btn btn-ember btn-lg" type="button" data-ownstart="1">' + (building ? 'Go to your version' : 'Start your own version') + '</button>' +
-    '</div>' + ocTakes();
+      '<button class="btn btn-ember btn-lg" type="button" data-newsong="1">Start your own song</button>' +
+    '</div>';
 }
 /* every take you can build with, inside the "make your own version" block: the ones the
    song uses and the ones it doesn't (vetoed, or taken out by the creator) */
@@ -1624,8 +1936,19 @@ function ocTakes() {
       unused.map(function (a) { return ocTake(a.take, a.why); }), 'Every take made it into the song so far.', 'archive-head') +
     '</div>';
 }
+/* the breadcrumbs back to this jam's thread on the homepage; "back" opens the take whose stack is open */
+function renderCrumbs() {
+  var nav = el('crumbs'); if (!nav) return;
+  nav.hidden = !(S.session && hasSeed());
+  if (nav.hidden) return;
+  var href = '/?open=' + encodeURIComponent(S.session.id), tk = S.stack && TAKES[S.stack];
+  el('crumb-jam').textContent = (S.seed.by ? S.seed.by + '’s jam: ' : 'The jam: ') + projName();
+  el('crumb-jam').href = href;
+  el('crumb-back').href = href + (tk && tk.dbId && tk.roleId !== 'seed' ? '&tid=' + encodeURIComponent(tk.dbId) : '');
+}
 function renderSeed() {
   var s = S.seed, host = isHost(), loading = loadingCount(), ri = seedInstr();
+  renderCrumbs();
   el('session-name').textContent = S.session ? projName() : 'New session';
   el('session-sub').textContent = (hasSeed() ? 'track loaded, ' + fmt(s.len) : 'no track yet') +
     (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', released' : '');
@@ -1702,6 +2025,7 @@ function renderSeed() {
       (host && isOpen() ? '<button class="btn btn-sm meta-replace" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
         (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '')
     : '<span class="tiny muted">' + note + '</span>';
+  drawSeedWave();
 }
 
 /* ---------- the DAW view ---------- */
@@ -1728,26 +2052,51 @@ function renderDaw() {
   var list = tracks(), d = duration(), own = S.view === 'build' && !S.override;
   el('daw').classList.toggle('own', own);
   if (el('mix-title')) {
-    el('mix-title').textContent = own ? 'Your version' : 'Layers in the song';
-    el('mix-kicker').textContent = own ? 'Same recordings, your choices' : 'Current stacks';
+    var cs0 = currentStack();
+    el('mix-title').textContent = cs0 && cs0.partial ? cs0.name : 'The song so far';
+    el('mix-kicker').textContent = cs0 && cs0.partial ? 'From the thread' : cs0 && !cs0.creation ? 'Suggested by the room' : 'Author’s creation';
   }
   /* the stack's instrument chips belong to the stack, not to your version */
   el('instruments').style.display = 'none';  /* the chips repeated the tracks right below them */
-  if (own && el('lineup-sub')) el('lineup-sub').textContent = 'Saved versions show up under "Other versions", for everyone to hear.';
+  if (own && el('lineup-sub')) el('lineup-sub').textContent = 'Pick takes in the columns below. Nothing changes for anyone else until you make it the Author’s creation.';
   var banner = '';
   if (S.override) {
     banner = '<div class="listening"><span>Listening to <b>' + esc(S.override.name) + '</b> by ' + esc(S.override.by) + '</span>' +
       '<button class="btn btn-sm" type="button" data-fork="' + S.override.id + '">Build on this one</button>' +
       '<button class="btn btn-sm" type="button" data-view="lineup">Back to the stack</button></div>';
+  } else if (S.view === 'build' && isHost()) {
+    banner = '<div class="listening build"><span><b>Compose the song.</b> Pick takes from every branch of the thread. ' +
+      'Make it the Author’s creation and it plays first, for everyone. It shows up in the thread too.</span>' +
+      '<button class="btn btn-sm btn-ember" type="button" data-makecreation="build"' + (S.build.picks.length ? '' : ' disabled') + '>Make this the Author’s creation</button></div>';
   } else if (S.view === 'build') {
     var mineOwn = S.own.filter(mine).length;
-    banner = '<div class="listening build"><span><b>Your version.</b> The original track is always in. Pick any take below, ' +
-      'including unused takes and ones still waiting for review, or record your own.' +
-      (mineOwn && isOpen() ? ' Like one of your own takes? Send it to the creator from the list below.' : '') + '</span>' +
-      '<button class="btn btn-sm btn-ember" type="button" data-own="">+ Record or upload your own</button></div>';
+    banner = '<div class="listening build"><span><b>Create your own stack.</b> Pick takes from every branch of the thread, name it and save it. ' +
+      'It shows up with the stacks and in the thread, and anyone can play on it.</span></div>';
+  }
+  if (!S.override && S.view !== 'build' && S.stack === '__seed') {
+    banner = '<div class="listening build"><span>You hear <b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own, the way it was first posted. ' +
+      'Record or upload below to start a new branch from scratch, with whatever instruments you like.</span></div>';
+  } else if (!S.override && S.view !== 'build' && S.stack && currentStack() && currentStack().partial) {
+    var cp = currentStack(), lt = cp.last, grp = groupOf(lt), picked = grp.every(function (g) { return S.members.indexOf(g) > -1; });
+    banner = '<div class="listening build"><span>You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
+      'Record below to play on this. Mute a track to leave it out of what you play on.</span>' +
+      (isHost() && isOpen() && !picked ? '<button class="btn btn-sm btn-ember" type="button" data-yesg="' + lt.dbId + '">Add to song</button>' : '') +
+      (picked ? '<span class="tp-in">In the song</span>' : '') + '</div>';
+  } else if (!S.override && S.view !== 'build') {
+    var cs = currentStack(), ups = onCreation();
+    if (cs && isHost() && isOpen() && !cs.creation)
+      banner = '<div class="listening"><span><b>Nothing picked yet.</b> This is the room’s suggestion: the stack from the thread with the most instruments. ' +
+        'Use it as the song, or pick takes with “Add to song” in the thread.</span>' +
+        '<button class="btn btn-sm btn-ember" type="button" data-makecreation="' + cs.id + '">Use this as the song</button></div>';
+    else if (cs && cs.creation && isHost() && isOpen() && ups.length)
+      banner = '<div class="listening"><span><b>' + ups.map(function (t) { return esc(t.by) + '’s ' + esc(role(t.roleId).label.toLowerCase()); }).join(', ') +
+        '</b> ' + (ups.length > 1 ? 'were' : 'was') + ' played on the song. It stays out until you add it.</span>' +
+        ups.map(function (t) { return '<button class="btn btn-sm" type="button" data-try="' + t.id + '">Hear it with the song</button><button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>'; }).join('') + '</div>';
+    else if (cs && cs.largest && !isHost())
+      banner = '<div class="listening build"><span><b>The author hasn’t picked takes yet.</b> Until then you hear the room’s suggestion: the stack from the thread with the most instruments.</span></div>';
   }
   if (!list.length) {
-    el('daw').innerHTML = dawTabs() + banner + '<div class="empty-state"><b>' + (hasSeed() ? 'Loading audio' : 'No audio yet') + '</b>' +
+    el('daw').innerHTML = stacksBar() + banner + '<div class="empty-state"><b>' + (hasSeed() ? 'Loading audio' : 'No audio yet') + '</b>' +
       '<p class="tiny muted">' + (hasSeed() ? 'The takes are coming down from storage.' : 'Drop an audio track, then add takes to the stack. They stack up here like tracks in a DAW.') + '</p></div>';
     renderPicker();
     renderPitches();
@@ -1761,7 +2110,7 @@ function renderDaw() {
   }
 
   var building = S.view === 'build' && !S.override, host = isHost();
-  var lineupView = !S.override && !building, boss = lineupView && host && isOpen();
+  var lineupView = !S.override && !building, curSt = lineupView ? currentStack() : null, boss = lineupView && host && isOpen() && !!(curSt && curSt.creation);
   var rows = list.map(function (t) {
     var r = role(t.roleId), c = ctl(t), v = volOf(t);
     var isTrial = lineupView && S.trial === t.id;
@@ -1789,13 +2138,14 @@ function renderDaw() {
           '<button class="tbtn' + (c.solo ? ' on solo' : '') + '" type="button" data-solo="' + t.id + '" aria-pressed="' + !!c.solo + '" title="Solo">S</button>' +
           '<input type="range" min="0" max="1" step="0.02" value="' + v + '" data-vol="' + t.id + '" aria-label="Volume for ' + esc(t.by) + '">' +
           '<button class="tbtn eq' + (fxOpen(t) ? ' on' : '') + '" type="button" data-fx="' + t.id + '" aria-pressed="' + fxOpen(t) + '" title="Low cut and high cut">EQ</button>' +
+          (t.status === 'draft' ? menuBtn('t:' + t.id, mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') + mi('data-draftdel="' + t.id + '"', 'Remove from your draft')) :
           menuBtn('t:' + t.id,
             mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
             mi('data-dl="' + t.id + '"', 'Download') +
             (building && t.id !== 'seed' && !isPart ? mi('data-pick="' + t.id + '"', 'Remove from your version') : '') +
             (boss && isPart && !isPitch ? mi('data-droppart="' + t.id + '"', 'Take this part out of the song') : '') +
             (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? mi('data-takeout="' + t.id + '"', 'Take out of the song') : '') +
-            (t.id !== 'seed' && (lineupView ? boss : isOwn(t)) ? miDel(t.id) : '')) +
+            (t.id !== 'seed' && (lineupView ? boss : isOwn(t)) ? miDel(t.id) : ''))) +
         '</div>' +
         (fxOpen(t) ? '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' : '') +
         (boss && isPart ? '<label class="xf"><span>crossfade</span>' +
@@ -1811,10 +2161,10 @@ function renderDaw() {
       '</div></div>';
   }).join('');
 
-  el('daw').innerHTML = dawTabs() + banner +
+  el('daw').innerHTML = stacksBar() + banner +
     '<div class="daw-bar">' +
       '<button class="btn btn-ember" type="button" id="transport">' + (running ? I_PAUSE + ' Stop' : I_PLAY + ' Play') + '</button>' +
-      (building ? '<button class="btn btn-ink" type="button" id="ver-save-top"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save your version</button>' +
+      (building && !isHost() ? '<button class="btn btn-ink" type="button" id="ver-save-top"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save your stack</button>' +
         (S.buildDirty && S.build.picks.length ? '<span class="unsaved">not saved yet</span>' : '') : '') +
       '<button class="btn btn-sm" type="button" id="rewind" title="Back to the start">&#9198;</button>' +
       '<span class="readout" id="readout">' + clockMs(position()) + ' / ' + clockMs(d) + '</span>' +
@@ -1827,7 +2177,7 @@ function renderDaw() {
     '</div>' +
     '<div class="ruler"><span class="r-head"></span><span class="r-lane">' + ticks + '</span></div>' +
     cmRow() +
-    '<div class="tracks">' + rows + addRow(building) + '</div>' +
+    '<div class="tracks">' + rows + moreRow(building) + addRow(building) + '</div>' + draftBar() +
     '<div class="playhead" id="playhead"></div>';
 
   list.forEach(function (t) { drawWave(t); });
@@ -1862,6 +2212,7 @@ function cmX(songSec) { var d = duration() || 1; return Math.max(0, Math.min(1, 
 function cmLeft(x) { return 'left:clamp(12px,' + x.toFixed(2) + '%,calc(100% - 12px))'; }
 function cmPos(x) { return 'left:' + x.toFixed(2) + '%;transform:translateX(-' + x.toFixed(2) + '%)'; }
 function cmRow() {
+  return '';  /* comments on the timeline are left out of this concept */
   if (!hasSeed() || !S.session || !S.cmAvailable || !duration()) return '';
   var s0 = startOf(S.seed), open = isOpen(), host = isHost();
   var marks = S.comments.map(function (c) {
@@ -1924,8 +2275,78 @@ function postComment() {
    other tracks while you play), or upload a file. In the stack the take goes to the
    creator; in your own version it goes straight in. Not shown while listening to someone
    else's version. */
+/* ---------- your draft: up to four tracks, posted as one reply ---------- */
+var GUESS = [[/drum|kick|snare|hat|perc|beat/i,'drums'],[/bass/i,'bass'],[/voc|vox|sing|voice/i,'vocals'],[/lead|solo/i,'lead'],[/pad|key|synth|atmo|piano|organ/i,'atmos'],[/gtr|guit/i,'guitar']];
+function guessRole(name) { for (var i = 0; i < GUESS.length; i++) if (GUESS[i][0].test(name || '')) return GUESS[i][1]; return S.recRole || ROLES[0].id; }
+var DRAFT_N = 0;
+function addDraft(file, buf, roleId) {
+  S.drafts = S.drafts || [];
+  if (S.drafts.length >= 4) { flash('A reply holds up to 4 instruments. Post this one first.'); return; }
+  if (!S.drafts.length) { S.draftBase = (currentStack() || { takes:[] }).takes.filter(function (x) { return !x.mute; }); S.draftOn = currentStack() ? currentStack().name : 'the song'; }
+  var t = { id:'draft-' + (++DRAFT_N), dbId:null, by:'Your draft', roleId:roleId, status:'draft', vol:1, mute:false, solo:false, votes:{}, fin:0, fout:0, xfade:0 };
+  setBuffer(t, buf);
+  S.drafts.push({ t:t, file:file });
+}
+function draftBar() {
+  var ds = S.drafts || [];
+  if (!ds.length || S.override || S.view === 'build') return '';
+  return '<div class="draftbar"><div class="db-head"><b>Your draft</b> · ' + ds.length + (ds.length > 1 ? ' tracks' : ' track') + ', played on ' + esc(S.draftOn || 'the song') +
+      (S.draftBase && S.draftBase.length ? ' <span class="tiny muted">(' + S.draftBase.map(function (x) { return esc(x.by); }).join(', ') + ')</span>' : '') + '</div>' +
+    '<div class="db-rows">' + ds.map(function (d) {
+      return '<label class="db-row">' + ico(role(d.t.roleId).icon, col(role(d.t.roleId))) + '<select data-draftrole="' + d.t.id + '">' +
+        ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === d.t.roleId ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') + '</select>' +
+        '<span class="tiny muted">' + esc(d.file.name) + ', ' + clockMs(d.t.len) + '</span><button class="ghost" type="button" data-draftdel="' + d.t.id + '">Remove</button></label>';
+    }).join('') + '</div>' +
+    '<div class="db-post"><label class="field"><span>Say something (optional)</span><input type="text" id="draft-note" maxlength="200" placeholder="what you were going for"></label>' +
+      '<label class="field"><span>Your name</span><input type="text" id="draft-name" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
+      '<button class="btn btn-ember" type="button" data-draftpost="1">Post my take →</button>' +
+      '<button class="ghost" type="button" data-draftclear="1">Throw the draft away</button></div></div>';
+}
+function postDraft() {
+  var ds = S.drafts || [], name = ((el('draft-name') && el('draft-name').value) || '').trim(), note = ((el('draft-note') && el('draft-note').value) || '').trim();
+  if (!ds.length) return;
+  if (!name) { flash('Add your name first, it goes in the credits.'); if (el('draft-name')) el('draft-name').focus(); return; }
+  rememberName(name);
+  var gid = ds.length > 1 ? crypto.randomUUID() : null, on = (S.draftBase || []).map(function (x) { return x.dbId; }), first = null;
+  stopAll(true);
+  ds.reduce(function (pr, d, i) {
+    return pr.then(function () {
+      return uploadTake(d.file, d.t.buf, { role:d.t.roleId, status:'waiting', name:name, note:note, analyse:false, group:gid, on:on }).then(function (res) { if (!first) first = res.row.id; });
+    });
+  }, Promise.resolve()).then(function () {
+    S.drafts = []; S.draftBase = null;
+    if (first) { S.sel = first; S.stack = first; }
+    flash('Posted as one reply in the thread. The author decides if it goes in the song.');
+    return refresh();
+  }).catch(oops);
+}
+/* the author, on the song: every take from the thread that isn't in it yet, to add with one click */
+function unusedTakes() {
+  return threadTakes().filter(function (t) { return isLead(t) && t.status !== 'deleted' && groupOf(t).some(function (g) { return S.members.indexOf(g) < 0; }); })
+    .sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
+}
+function moreRow(building) {
+  if (S.override || building || !isOpen() || !isHost() || S.stack) return '';
+  var list = unusedTakes(); if (!list.length) return '';
+  var open = !!S.moreOpen;
+  var head = '<div class="t-head"><div class="t-name"><span class="add-ico" aria-hidden="true">+</span><div><b>Add another take</b>' +
+    '<span class="tiny muted">' + list.length + ' unused in the thread</span></div></div></div>';
+  var lane = '<div class="more-lane"><button class="btn btn-sm" type="button" data-moretoggle="1" aria-expanded="' + open + '">' +
+    (open ? 'Hide the unused takes' : 'Show the unused takes (' + list.length + ')') + '</button>' +
+    (open ? '<ul class="more-list">' + list.map(function (t) {
+      var grp = groupOf(t), under = onOf(t), tr = grp.some(function (g) { return S.trial === g.id; });
+      return '<li>' +
+        (t.status === 'waiting' ? '<button class="play sm' + (tr ? ' on' : '') + '" type="button" data-try="' + t.id + '" aria-label="Hear it with the song" title="Hear it with the song">' + (tr ? I_PAUSE : I_PLAY) + '</button>' : '<span class="play-gap"></span>') +
+        '<div class="more-who"><b>' + esc(t.by) + '</b> ' + grp.map(function (g) { var r = role(g.roleId); return '<span class="vchip">' + ico(r.icon, col(r)) + r.label.toLowerCase() + '</span>'; }).join('') +
+          '<span class="tiny muted">on ' + (under.length ? under.map(function (u) { return esc(u.by) + '’s ' + role(u.roleId).label.toLowerCase(); }).join(', ') : 'the original track') + '</span>' +
+          (t.note ? '<span class="tiny muted more-note">“' + esc(t.note) + '”</span>' : '') + '</div>' +
+        '<div class="more-acts"><button class="btn btn-sm" type="button" data-alone="' + t.id + '" aria-pressed="' + (only === 'grp:' + t.id) + '">' + (only === 'grp:' + t.id ? I_PAUSE + ' Stop' : I_PLAY + ' On its own') + '</button>' +
+        '<button class="btn btn-sm" type="button" data-yesg="' + t.dbId + '">Add to song</button></div></li>';
+    }).join('') + '</ul>' : '') + '</div>';
+  return '<div class="track morerow">' + head + lane + '</div>';
+}
 function addRow(building) {
-  if (S.override || (!building && !isOpen())) return '';
+  if (S.override || building || !isOpen()) return '';
   return '<div class="track addrow' + (REC.where === 'daw' && REC.state !== 'idle' ? ' rec-on' : '') + '" id="addrow">' + addRowInner(building) + '</div>';
 }
 function addRowInner(building) {
@@ -1944,23 +2365,23 @@ function addRowInner(building) {
     head = '<div class="t-name">' + ico(r.icon, col(r)) + '<div><b>Your take</b><span class="tiny muted">' + esc(r.label) + ', ' +
       (REC.partial ? clockMs(REC.partial) + ' played, rest silent' : clockMs(REC.buf.duration)) + '</span></div></div>';
     lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
-      '<button class="btn btn-sm btn-ember" type="button" data-dawsend="1">' + (building ? 'Add it to my version' : 'Add my take →') + '</button>' +
+      '<button class="btn btn-sm btn-ember" type="button" data-draftkeep="1">Keep it as a track</button>' +
       '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the rest</button>' +
       '<button class="btn btn-sm" type="button" data-dawrec="1">Record again</button>' +
       '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>' +
       (REC.warn ? '<p class="rec-warn lane-warn">' + esc(REC.warn) + '</p>' : '');
   } else {
     head = '<div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
-      '<div><b>Your take</b><span class="tiny muted">' + (building ? 'only in your version' : 'for the stack') + '</span></div></div>' +
+      '<div><b>Your take</b><span class="tiny muted">' + (building ? 'only in your version' : 'on what you hear') + '</span></div></div>' +
       '<select class="rec-role" id="daw-rec-role" aria-label="Which layer your take is for">' +
         ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rid ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') +
       '</select>';
     lane = '<div class="a-lane"><span>' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
-        : 'Play along and record your take right here, or upload a file. The creator decides if it goes in the stack.') +
+        : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
       ' <em>Wear headphones.</em></span>' +
       '<button class="btn btn-ember" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
-      '<button class="btn" type="button" ' + (building ? 'data-own=""' : 'data-apply=""') + '>Upload a file</button>' +
+      '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
       micPicker() + err + '</div>';
   }
   return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
@@ -2067,15 +2488,17 @@ function renderPicker() {
     }).join('') : '<li class="empty">No takes yet.</li>';
     return '<div class="pk-col' + (takes.length ? '' : ' none') + '" style="color:' + col(r) + '"><div class="pk-head">' + ico(r.icon, col(r)) + '<b>' + r.label + '</b></div>' +
       '<ul>' + items + '</ul>' +
-      '<button class="pk-rec" type="button" data-own="' + r.id + '">+ Record or upload ' + esc(r.label.toLowerCase()) + '</button></div>';
+      '</div>';
   }).join('');
 
   box.innerHTML =
-    '<div class="pk-grid">' + cols + '</div>' +
+    '<div class="pk-grid">' + cols + '</div>';
+  if (isHost()) return;
+  box.innerHTML +=
     '<div class="pk-save">' +
-      '<label class="field"><span>Name your version</span><input type="text" id="ver-name" maxlength="60" placeholder="e.g. The one with both basses"></label>' +
+      '<label class="field"><span>Name your stack</span><input type="text" id="ver-name" maxlength="60" placeholder="e.g. Half-time with the lead"></label>' +
       '<label class="field"><span>Your name</span><input type="text" id="ver-by" maxlength="60" placeholder="how you show up under the session" value="' + esc(savedName()) + '"></label>' +
-      '<button class="btn btn-ember" type="button" id="ver-save"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save this version</button>' +
+      '<button class="btn btn-ember" type="button" id="ver-save"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save this stack</button>' +
       '<span class="tiny muted">' + S.build.picks.length + ' take(s) on top of the original track. Only the choice is saved, nothing gets re-uploaded.</span>' +
     '</div>';
 }
@@ -2112,7 +2535,7 @@ function renderVersionLists() {
   if (el('fan-sub')) el('fan-sub').textContent = S.versions.length
     ? S.versions.length + ' version(s) from the room, sorted by hearts. The stack stays on top.'
     : 'Nobody has built their own version yet. Switch to "Your version" above the tracks to make one.';
-  if (el('play-raw')) el('play-raw').textContent = (running && !S.override) ? 'Stop' : 'Play the stack';
+  if (el('play-raw')) el('play-raw').innerHTML = (running && !S.override) ? 'Stop' : I_PLAY + ' Play the song';
 }
 function playVersion(v) {
   if (S.override && S.override.id === v.id && running) { stopAll(); return; }
@@ -2125,7 +2548,8 @@ function playVersion(v) {
 }
 function drawWave(t) {
   var c = document.querySelector('[data-wave="' + t.id + '"]');
-  if (!c || !t.peaks) return;
+  if (!c || !t.buf) return;
+  if (!t.mm) t.mm = minMaxOf(t.buf, 2400);
   var dpr = window.devicePixelRatio || 1;
   var w = c.clientWidth || 600, h = 72;
   c.width = w * dpr; c.height = h * dpr;
@@ -2134,17 +2558,11 @@ function drawWave(t) {
   g.clearRect(0, 0, w, h);
   var d = duration() || t.len, st = startOf(t);
   var x0 = Math.round(st / d * w), x1 = Math.round((st + t.len) / d * w), cw = Math.max(1, x1 - x0);
-  g.fillStyle = cvar(role(t.roleId).color);
-  g.globalAlpha = .08;
-  g.fillRect(x0, 2, cw, h - 4);
-  g.globalAlpha = ctl(t).mute ? .3 : .85;
-  var n = t.peaks.length, mid = h / 2;
+  var hearing = running && audible(t) && (!only || only === t.id);
+  g.fillStyle = cvar(hearing ? '--ink' : '--wave');
+  g.globalAlpha = ctl(t).mute ? .35 : 1;
   var e = envOf(t);
-  for (var x = 0; x < cw; x++) {
-    var p = (t.peaks[Math.floor(x / cw * n)] || 0) * envAt(x / cw * t.len, t.len, e);
-    var bar = Math.max(1, p * (h - 6));
-    g.fillRect(x0 + x, mid - bar / 2, 1, bar);
-  }
+  waveShape(g, t.mm, x0, cw, h, function (f) { return envAt(f * t.len, t.len, e); });
   g.globalAlpha = .9;
   g.strokeStyle = cvar('--ink'); g.lineWidth = 1.25;
   if (e.fi > 0.01) { g.beginPath(); g.moveTo(x0, h - 3); g.lineTo(x0 + e.fi / t.len * cw, 3); g.stroke(); }
@@ -2191,15 +2609,48 @@ function applyCard(r) {
           : (list.length ? '' : '<p class="tiny muted g-empty">No takes.</p>')) + '</article>';
 }
 
+/* every instrument with all its takes: pick the layer you want to play */
+function layerCard(r) {
+  var list = threadTakes().filter(function (t) { return t.roleId === r.id; })
+    .sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
+  var held = seedHolds(r.id), open = isOpen(), cur = S.view !== 'build' && !S.override ? currentStack() : null;
+  var body = list.map(function (t) {
+    var on = running && cur && cur.id === t.dbId, made = S.members.indexOf(t) > -1, under = onOf(t);
+    return '<li class="app">' +
+      '<div class="app-top">' +
+        '<button class="play sm' + (S.trial === t.id ? ' on' : '') + '" type="button" data-try="' + t.id + '" aria-label="Hear ' + esc(t.by) + ' with the song" title="Hear it with the song">' + (S.trial === t.id ? I_PAUSE : I_PLAY) + '</button>' +
+        '<b>' + esc(t.by) + '</b><span class="len">' + fmt(t.len) + '</span>' +
+        menuBtn('a:' + t.id, mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
+          mi('data-dl="' + t.id + '"', 'Download') + (isHost() && open && !made ? mi('data-yesg="' + t.dbId + '"', 'Add take to song') : '')) +
+      '</div>' +
+      '<div class="vline">' + (made ? '<em class="st-tag auth">In Author’s creation</em>' : '') +
+        '<span class="tiny muted">on ' + (under.length ? under.map(function (u) { return esc(u.by); }).join(', ') : 'the original track') + '</span></div>' +
+      (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
+      '</li>';
+  }).join('');
+  var addTxt = 'Add ' + esc(ADD_AS[r.id] || r.label.toLowerCase());
+  var show = S.showLayers && list.length;
+  return '<article class="gate apply' + (show ? '' : ' none') + '" style="color:' + col(r) + '">' +
+    '<div class="g-top"><div class="g-name">' + ico(r.icon, col(r)) + '<h3>' + r.label + '</h3>' +
+    (show ? '<span class="count">' + list.length + '</span>' : '') + '</div>' +
+    (held ? '<div class="tiny muted">The original track plays this part</div>' : '') + '</div>' +
+    (show ? '<ul class="takes">' + body + '</ul>' : '') +
+    (open ? '<button class="addlink" type="button" data-apply="' + r.id + '">' + (list.length ? (show ? '+ ' : list.length + (list.length > 1 ? ' takes. ' : ' take. ')) : 'Nothing yet. ') + '<u>' + addTxt + '</u></button>'
+          : (list.length ? '' : '<p class="tiny muted g-empty">No takes.</p>')) + '</article>';
+}
 function renderBoards() {
   /* every instrument keeps its card: it shows people straight away what they can add */
-  el('applyboard').innerHTML = ROLES.map(applyCard).join('');
-  if (!(S.view === 'build' && !S.override)) el('lineup-sub').textContent = S.members.length
-    ? S.members.length + ' take(s) in the stack, on top of the original track.'
-    : 'Nothing in the stack yet. Every take starts in the review list below.';
-  el('apply-sub').textContent = isHost()
-    ? 'Hear each take in the mix, then add it to the song or veto it. Your call alone.'
-    : 'The creator hears every take in the mix and decides what goes in the song.';
+  if (el('applyboard')) el('applyboard').innerHTML = ROLES.map(layerCard).join('');
+  if (el('thread')) el('thread').innerHTML = threadHtml();
+  var nAll = threadTakes().length;
+  if (el('layer-toggle')) el('layer-toggle').innerHTML = nAll ? '<button class="btn btn-sm" type="button" data-showlayers="1" aria-expanded="' + !!S.showLayers + '">' +
+    (S.showLayers ? 'Hide the takes' : 'Show the takes already in this session (' + nAll + ')') + '</button>' : '';
+  var cs = currentStack();
+  if (!(S.view === 'build' && !S.override)) el('lineup-sub').textContent = !cs ? 'Nobody played along yet. Add the first take.'
+    : cs.creation ? 'Picked by the author, from takes in the thread.'
+    : cs.largest ? 'Until the author picks takes, the room’s suggestion plays.'
+    : 'One branch of the thread: every take in it was played on the ones before it.';
+  if (el('apply-sub')) el('apply-sub').textContent = 'Pick what you play. You play along on the song above.';
 }
 function renderArchive() { /* the unused takes are listed in the "make your own version" block (ocTakes) */ }
 function renderLock() {
@@ -2278,7 +2729,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name', 'seed-bpm', 'seed-time'];
+var KEEP = ['draft-note', 'draft-name', 'ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name', 'seed-bpm', 'seed-time'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -2314,17 +2765,21 @@ function renderRelease() {
   if (document.activeElement !== tf) tf.value = S.title;
   tf.readOnly = !host;
 
+  el('rel-song').textContent = S.title || 'The song';
+  var nMus = {}; list.forEach(function (t) { nMus[t.by || ''] = 1; });
   el('raw-box').innerHTML =
+    '<div class="rel-wave" id="rel-wave-box"><canvas id="rel-wave"></canvas></div>' +
     '<div class="rawrow">' +
-      '<button class="btn btn-ember" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : 'Play the stack') + '</button>' +
-      '<span class="tiny muted">' + list.length + ' track(s), unmixed, every chosen take as it was played</span></div>' +
-    '<p class="tiny muted">The creator can balance the stack with the faders. That is what everyone hears.</p>' +
+      '<button class="btn btn-ember" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : I_PLAY + ' Play the song') + '</button>' +
+      '<span class="rel-time" id="rel-time">' + clockMs(running && !S.override ? position() : 0) + ' / ' + clockMs(duration()) + '</span>' +
+      '<span class="tiny muted">' + Object.keys(nMus).length + ' musicians, ' + list.length + ' tracks</span></div>' +
     '<button class="btn btn-sm" type="button" id="dl-all2">' + I_DL + ' Download the stems</button>';
+  drawRelWave();
 
   el('mix-box').innerHTML = S.mix
     ? '<div class="rawrow"><button class="btn btn-ember btn-sm" type="button" id="play-mix">' + I_PLAY + ' Play the Mix</button>' +
       '<div><b>' + esc(S.mix.by) + '</b><div class="tiny muted">' + esc(S.mix.fileName) + '</div></div></div>' +
-      '<p class="tiny muted">Sits next to the Stack, it does not replace it.</p>'
+      '<p class="tiny muted">Sits next to the song, it does not replace it.</p>'
     : isOpen()
       ? '<p class="tiny muted">Anyone can add a Mix once the creator releases the song.</p>'
       : '<div class="dropzone" id="mixzone"><b>Upload a Mix</b>' +
@@ -2355,6 +2810,35 @@ function renderRelease() {
     b.disabled = !!S.reacted[k] || !S.session;
     b.classList.toggle('on', !!S.reacted[k]);
   });
+}
+var RELWAVE = { key:'', peaks:null };
+function relPeaks() {
+  var list = tracks().filter(function (t) { return t.buf && audible(t); }), d = duration(), n = 900;
+  var key = list.map(function (t) { return t.id + ':' + (ctl(t).vol == null ? 1 : ctl(t).vol) + ':' + startOf(t); }).join('|') + '|' + d;
+  if (RELWAVE.key === key) return RELWAVE.peaks;
+  var sr = 4000, N = Math.max(1, Math.ceil(d * sr)), mix = new Float32Array(N);
+  list.forEach(function (t) {
+    var ch = t.buf.getChannelData(0), step = t.buf.sampleRate / sr, at = Math.round(startOf(t) * sr), v = ctl(t).vol == null ? 1 : ctl(t).vol;
+    for (var i = 0; i < t.buf.duration * sr && at + i < N; i++) mix[at + i] += ch[Math.floor(i * step)] * v;
+  });
+  var out = new Float32Array(n), per = N / n, mx = 0;
+  for (var k = 0; k < n; k++) { var m = 0; for (var j = Math.floor(k * per); j < Math.floor((k + 1) * per); j++) { var a = Math.abs(mix[j]); if (a > m) m = a; } out[k] = m; if (m > mx) mx = m; }
+  if (mx) for (k = 0; k < n; k++) out[k] /= mx;
+  RELWAVE.key = key; RELWAVE.peaks = out;
+  return out;
+}
+function drawRelWave() {
+  var cv = el('rel-wave'); if (!cv || !cv.clientWidth) return;
+  var w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1, pk = relPeaks();
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  var g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+  var d = duration(), at = running && !S.override && d ? position() / d : 0, bars = Math.floor(w / 3), mid = h / 2;
+  for (var i = 0; i < bars; i++) {
+    var v = pk[Math.floor(i / bars * pk.length)] || 0, bh = Math.max(2, v * (h - 4));
+    g.fillStyle = i / bars < at ? cvar('--ember') : cvar('--wave') || '#B3AC9F';
+    g.fillRect(i * 3, mid - bh / 2, 2, bh);
+  }
+  var tm = el('rel-time'); if (tm) tm.textContent = clockMs(running && !S.override ? position() : 0) + ' / ' + clockMs(d);
 }
 function setPhase(p) {
   [].forEach.call(document.querySelectorAll('.phase'), function (b) {
@@ -2666,7 +3150,7 @@ el('modal-send').addEventListener('click', function () {
           S.override = null; S.view = 'build';
           refreshGains();
           flash('It is in your version. Save the version to keep it, or send the take to the creator from the list.');
-        } else flash('Your take is in the takes to review. The creator decides if it goes in the stack.');
+        } else flash('Your take is in the thread, as a reply to the song. The author decides if it goes in.');
         return refresh();
       }, upFail);
   }).catch(function () { fail('That file could not be read.'); });
@@ -2692,6 +3176,64 @@ function patchSession(patch) {
 }
 
 document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-playmain]')) { stopAll(true); S.stack = null; S.view = 'lineup'; S.override = null; refreshGains(); play(0); return; }
+  var yg = e.target.closest('[data-yesg]');
+  if (yg) {
+    var gt = TAKES[yg.dataset.yesg]; if (!gt || !isHost()) return;
+    var ins = groupOf(gt).filter(function (g) { return S.members.indexOf(g) < 0; });
+    Promise.all(ins.map(function (g) { return db.letIn(g.dbId); })).then(function () { flash('In the song. Everyone hears it on the first tab now.'); return refresh(); }, oops);
+    return;
+  }
+  if (e.target.closest('[data-draftkeep]')) {
+    if (REC.buf && REC.file) { addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
+    return;
+  }
+  if (e.target.closest('[data-draftup]')) { el('draft-files').click(); return; }
+  var ddel = e.target.closest('[data-draftdel]');
+  if (ddel) { S.drafts = (S.drafts || []).filter(function (d) { return d.t.id !== ddel.dataset.draftdel; }); if (!S.drafts.length) S.draftBase = null; stopAll(true); renderDaw(); return; }
+  if (e.target.closest('[data-draftclear]')) { S.drafts = []; S.draftBase = null; stopAll(true); renderDaw(); return; }
+  if (e.target.closest('[data-draftpost]')) { postDraft(); return; }
+  var tt = e.target.closest('[data-ttoggle]');
+  if (tt) { S.tOpen = S.tOpen || {}; S.tOpen[tt.dataset.ttoggle] = !S.tOpen[tt.dataset.ttoggle]; renderBoards(); return; }
+  if (e.target.closest('[data-showlayers]')) { S.showLayers = !S.showLayers; renderBoards(); return; }
+  var ns = e.target.closest('[data-newsong]');
+  if (ns) { location.href = '/#start'; return; }
+  var lk = e.target.closest('[data-likestack]');
+  if (lk) {
+    var cst = currentStack(); if (!cst || !S.session || !me) return;
+    var k = keyOf(cst.takes);
+    S.stackLiked[k] = true; S.stackLikes[k] = (S.stackLikes[k] || 0) + 1; renderDaw();
+    db.likeStack({ stackKey:k, sessionId:S.session.id, userId:me.id }).then(refresh, oops);
+    return;
+  }
+  var tpt = e.target.closest('[data-tpart]'), tpb = e.target.closest('button, a, input, select');
+  if (tpt && (!tpb || tpb.hasAttribute('data-tpart'))) { goPart(tpt.dataset.tpart, 0, true); return; }
+  var stb = e.target.closest('[data-stack], [data-tplay], [data-tstack], [data-treply], [data-makecreation]');
+  if (!stb) { var sel = e.target.closest('[data-tsel]'); if (sel && !e.target.closest('button, a, input, select')) stb = { dataset:{ tstack:sel.dataset.tsel } }; }
+  if (stb) {
+    var d = stb.dataset, was = running;
+    if (d.makecreation) {
+      if (d.makecreation === 'build') return makeCreation(byIds(S.build.picks));
+      var st = currentStack(); return st ? makeCreation(st.takes) : null;
+    }
+    var id = d.stack || d.tplay || d.tstack || d.treply;
+    if (d.tplay && running && currentStack() && currentStack().id === (id === 'seed' ? '__seed' : id) && S.view !== 'build' && !S.override) { stopAll(true); render(); return; }
+    stopAll(true); S.override = null; S.trial = null; S.view = 'lineup';
+    if (d.tplay || d.tstack || d.treply) offset = 0;  /* a take from the thread always starts at the top */
+    if (/^part:/.test(id)) id = 'main';
+    if ((S.drafts || []).length && id !== (S.stack || 'main')) flash('Your draft was played on ' + (S.draftOn || 'the song') + '. It still posts there.');
+    S.stack = id === 'main' || id === 'seed' ? null : id;
+    if (S.stack && TAKES[S.stack]) S.sel = lead(TAKES[S.stack]).dbId;
+    if (id === 'seed') { S.stack = '__seed'; S.sel = '__seed'; }
+    refreshGains(); render();
+    if (d.tplay || d.tstack || (d.stack && was)) play(0);
+    if (d.tstack || d.tplay) { var dw = el('mix-head'); if (dw && (d.tstack || stb.closest && stb.closest('#thread'))) dw.scrollIntoView({ behavior:'smooth', block:'start' }); }
+    if (d.treply) {
+      if (/^part:/.test(d.treply)) { S.stack = null; openModal(null); var sp = d.treply.slice(5); if (el('take-sec')) { el('take-sec').value = sp; el('take-sec').dispatchEvent(new Event('change')); } }
+      else openModal(null);
+    }
+    return;
+  }
   var dl2 = e.target.closest('[data-del]');
   if (dl2) {
     e.stopPropagation();
@@ -2781,9 +3323,13 @@ document.addEventListener('click', function (e) {
     if (REC.state === 'recording' || REC.state === 'asking') recCancel();
     stopAll();
     S.override = null; S.view = vw.dataset.view;
-    if (S.view === 'build') S.trial = null;
+    if (S.view === 'build') {
+      S.trial = null;
+      /* start from the stack that plays first, so the creator only changes what they want */
+      if (isHost() && !S.build.picks.length) { var st0 = stackList()[0]; if (st0) S.build.picks = st0.takes.map(function (t) { return t.id; }); }
+    }
     refreshGains(); render();
-    flash(S.view === 'build' ? 'Pick takes for every layer, then save your version.' : 'Back to the stack.');
+    flash(S.view === 'build' ? 'Start from the stack that plays first. Swap any take for one from another branch.' : 'Back to the stack.');
     return;
   }
   var pk = e.target.closest('[data-pick]');
@@ -2797,14 +3343,17 @@ document.addEventListener('click', function (e) {
   if (e.target.closest('#ver-save') || e.target.closest('#ver-save-top')) {
     if (!S.build.picks.length || !S.session || !me) return;
     var who = ((el('ver-by') && el('ver-by').value) || savedName() || '').trim() || 'someone';
-    var nm = ((el('ver-name') && el('ver-name').value) || '').trim() || ('Version by ' + who);
+    var nm = ((el('ver-name') && el('ver-name').value) || '').trim() || (who + '’s stack');
     rememberName(who);
     db.saveVersion({ session_id:S.session.id, author_id:me.id, name:nm.slice(0, 60), by_name:who.slice(0, 60),
                      picks:S.build.picks.slice(), ctl:JSON.parse(JSON.stringify(S.build.ctl)) })
-      .then(function () {
+      .then(function (row) {
         if (el('ver-name')) el('ver-name').value = '';
-        S.buildDirty = false;
-        flash('Saved "' + nm + '". It is in the versions list below the waiting takes.');
+        S.buildDirty = false; S.build.picks = [];
+        var v = row && (row[0] || row);
+        if (v && v.id) { S.stack = 'v-' + v.id; }
+        S.view = 'lineup';
+        flash('Saved "' + nm + '". It is with the stacks above the tracks, and in the thread.');
         return refresh();
       }).catch(oops);
     return;
@@ -2845,6 +3394,9 @@ document.addEventListener('click', function (e) {
     }
     return;
   }
+  if (e.target.closest('[data-moretoggle]')) { S.moreOpen = !S.moreOpen; renderDaw(); return; }
+  var alone = e.target.closest('[data-alone]');
+  if (alone) { if (S.trial) { S.trial = null; refreshGains(); } previewGroup(findTake(alone.dataset.alone)); return; }
   var tr = e.target.closest('[data-try]');
   if (tr) {
     var tid = tr.dataset.try;
@@ -2949,7 +3501,7 @@ document.addEventListener('click', function (e) {
   }
   if (e.target.closest('#copy-link')) {
     if (!S.session) { flash('Drop a track first, then you get a link to share.'); return; }
-    var link = location.origin + '/s/' + S.session.slug;
+    var link = 'https://riffraff.vercel.app/s/' + S.session.slug;
     (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
       .then(function () { flash('Link copied. Anyone with it can add takes.'); },
             function () { flash('Share this link: ' + link); });
@@ -3015,12 +3567,30 @@ document.addEventListener('change', function (e) {
       return uploadTake(f, buf, { role:'mix', status:'mix', name:by, analyse:false });
     }).then(function () {
       mixEl = null;
-      flash('The Mix is added next to the Stack.');
+      flash('The Mix is added next to the song.');
       return refresh();
     }).catch(oops);
   }
 });
-window.addEventListener('resize', function () { tracks().forEach(drawWave); placeFadeHandles(); });
+(function () {
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.multiple = true; inp.id = 'draft-files'; inp.hidden = true;
+  document.body.appendChild(inp);
+  inp.addEventListener('change', function () {
+    var files = [].slice.call(inp.files || []).slice(0, 4 - (S.drafts || []).length), want = secLen('core');
+    Promise.all(files.map(function (f) { return decode(f).then(function (b) { return { f:f, b:b }; }); })).then(function (list) {
+      var bad = list.filter(function (x) { return want && Math.abs(x.b.duration - want) > TOL; });
+      list.filter(function (x) { return bad.indexOf(x) < 0; }).forEach(function (x) { addDraft(x.f, x.b, guessRole(x.f.name)); });
+      if (bad.length) flash(bad.map(function (x) { return x.f.name; }).join(', ') + ': not ' + fmt(want) + ' long, so left out. Every track has to be as long as the clip.');
+      inp.value = ''; refreshGains(); renderDaw();
+    }).catch(function () { flash('One of those files could not be read. Try wav or mp3.'); inp.value = ''; });
+  });
+  document.addEventListener('change', function (e) {
+    var sel = e.target.closest && e.target.closest('[data-draftrole]'); if (!sel) return;
+    (S.drafts || []).forEach(function (d) { if (d.t.id === sel.dataset.draftrole) d.t.roleId = sel.value; });
+    renderDaw();
+  });
+})();
+window.addEventListener('resize', function () { tracks().forEach(drawWave); drawSeedWave(); placeFadeHandles(); });
 
 [].forEach.call(document.querySelectorAll('.phase'), function (b) {
   b.addEventListener('click', function () { setPhase(b.dataset.phase); });
@@ -3029,7 +3599,7 @@ el('lock-btn').addEventListener('click', function () {
   if (!isHost()) return;
   stopAll();
   patchSession({ status:'released', released_at:new Date().toISOString() }).then(function () {
-    flash('The song is released. The Stack is the song as it stands, and anyone can still build versions or add a Mix.');
+    flash('The song is released. It plays as it stands, and anyone can still add a Mix.');
     return refresh();
   });
 });

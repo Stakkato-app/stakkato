@@ -12,6 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Sans:opsz,wght@9..40,400..700&display=swap" rel="stylesheet">
 </head>
 <body>
+<nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" hidden><a href="/">Jams</a><span aria-hidden="true">›</span><a class="crumb-jam" id="crumb-jam" href="/">The jam</a><span aria-hidden="true">›</span><b>The song</b><a class="crumb-back crumb-jam" id="crumb-back" href="/">← Back to the thread</a></nav>
 <header>
   <div class="wrap bar">
     <a class="brand" href="#top" aria-label="Stackato, back to top">
@@ -67,32 +68,21 @@
       <div class="daw" id="daw"></div>
       <div class="pitches" id="pitches" style="display:none"></div>
       <div class="picker" id="picker" style="display:none"></div>
-    </div>
 
-    <div class="lightband">
-      <div class="wrap">
-        <div class="head" id="apply" style="margin-top:0">
-          <div>
-            <div class="kicker">New takes waiting for the creator</div>
-            <h2>Takes to review</h2>
-          </div>
-          <p id="apply-sub"></p>
+      <div class="head" id="thread-head">
+        <div>
+          <div class="kicker">Everything people played</div>
+          <h2>The thread</h2>
         </div>
-        <div class="gates" id="applyboard"></div>
+        <p>Pick a take to hear it in the second tab above, with everything it was played on. Record there to play on it.</p>
       </div>
+      <div class="thread" id="thread"></div>
+
     </div>
 
     <div class="wrap">
       <div class="owncta" id="owncta" style="display:none"></div>
 
-      <div class="head" id="versions-head">
-        <div>
-          <div class="kicker">Different takes on the same song</div>
-          <h2>Other versions</h2>
-        </div>
-        <p id="fan-sub"></p>
-      </div>
-      <div class="vgrid" id="fanmixes"></div>
 
       <div class="lockbar">
         <div class="status" id="lock-status"></div>
@@ -114,7 +104,7 @@
 
       <div class="versions">
         <article class="panel version">
-          <div class="p-head"><h3>The Stack</h3><span class="tiny muted">Every chosen layer, playing together.</span></div>
+          <div class="p-head"><h3 id="rel-song">The song</h3><span class="tiny muted">Every take in the song, mixed by the creator.</span></div>
           <div class="up" id="raw-box"></div>
         </article>
 
@@ -133,14 +123,6 @@
       </div>
       <div class="credits" id="credits"></div>
 
-      <div class="head">
-        <div>
-          <div class="kicker">Other versions</div>
-          <h2>Versions from the room</h2>
-        </div>
-        <p>Same recordings. Different choices. See what other people made from the stack.</p>
-      </div>
-      <div class="vgrid" id="rel-fanmixes"></div>
 
 
       <div class="reactions">

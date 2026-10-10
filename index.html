@@ -347,6 +347,13 @@ html{scroll-behavior:smooth}
 .sitefoot{border-top:1px solid var(--line);margin-top:48px;padding:18px 40px 28px;font-size:13px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
 .sitefoot a{color:var(--ink);font-weight:700}
 .r-len{font-size:13px}
+/* seeking in a waveform: the playhead, and a line + time where the pointer is */
+.player,.ra{position:relative}
+canvas[data-wave]{cursor:pointer}
+.phead,.shead{position:absolute;width:2px;margin-left:-1px;pointer-events:none;border-radius:1px}
+.phead{background:var(--ember)}
+.shead{background:var(--ink);opacity:.55}
+.shead::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translate(-50%,-3px);font-size:11px;font-weight:700;line-height:1;padding:3px 5px;border-radius:3px;background:var(--ink);color:var(--paper);white-space:nowrap}
 .btn:disabled,.btn:disabled:hover{background:var(--tint);border-color:var(--line);color:var(--muted);opacity:1;cursor:not-allowed}
 .auth-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .ghost.del:hover{color:var(--red)}
