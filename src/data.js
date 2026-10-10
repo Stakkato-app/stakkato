@@ -68,19 +68,23 @@ export async function loadSessionById(id) {
 }
 
 export async function loadSnapshot(sessionId) {
-  const [takes, votes, versions, likes, reactions] = await Promise.all([
+  const [takes, votes, versions, likes, reactions, comments] = await Promise.all([
     supabase.from('takes').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('votes').select('take_id, voter_id, value').eq('session_id', sessionId),
     supabase.from('versions').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('version_likes').select('version_id, user_id').eq('session_id', sessionId),
-    supabase.from('reactions').select('user_id, kind').eq('session_id', sessionId)
+    supabase.from('reactions').select('user_id, kind').eq('session_id', sessionId),
+    supabase.from('comments').select('*').eq('session_id', sessionId).order('created_at')
   ]);
+  /* comments come from a later migration; until it is applied the page works without them */
+  if (comments.error) console.warn('Timeline comments are not available:', comments.error.message);
   return {
     takes: check(takes),
     votes: check(votes),
     versions: check(versions),
     likes: check(likes),
-    reactions: check(reactions)
+    reactions: check(reactions),
+    comments: comments.error ? null : comments.data
   };
 }
 
@@ -199,6 +203,27 @@ export async function setFades(takeId, { fadeIn, fadeOut, xfade }) {
   return check(await supabase.rpc('set_fades', { p_take: takeId, p_in: fadeIn, p_out: fadeOut, p_xfade: xfade }));
 }
 
+/* ---------- timeline comments ---------- */
+
+export async function addComment(row) {
+  return check(await supabase.from('comments').insert(row).select().single());
+}
+
+/* The creator hides a comment; it stays in the table. */
+export async function hideComment(commentId) {
+  return check(await supabase.rpc('hide_comment', { p_comment: commentId }));
+}
+
+/* The creator takes a layer out of the project; it goes to the archive, still usable in versions. */
+export async function takeOutLayer(takeId) {
+  return check(await supabase.rpc('take_out_layer', { p_take: takeId }));
+}
+
+/* An own take (recorded for your own version) goes to the creator as a waiting take. */
+export async function sendOwnTake(takeId) {
+  return check(await supabase.rpc('send_own_take', { p_take: takeId }));
+}
+
 /* "Deleting" marks the take as deleted; the row stays so realtime can report it. */
 export async function deleteTake(takeId) {
   return check(await supabase.rpc('delete_take', { p_take: takeId }));
@@ -248,5 +273,10 @@ export function subscribe(sessionId, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'version_likes', filter: bySession }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions', filter: bySession }, onChange)
     .subscribe();
-  return () => supabase.removeChannel(channel);
+  /* comments on their own channel: if their migration isn't applied yet, the session's
+     main channel keeps working */
+  const notes = supabase.channel(`comments:${sessionId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: bySession }, onChange)
+    .subscribe();
+  return () => { supabase.removeChannel(channel); supabase.removeChannel(notes); };
 }

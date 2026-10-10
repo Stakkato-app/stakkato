@@ -1,4 +1,4 @@
-/* Riffraff, the floor.
+/* Stackato, the session page.
    The UI, audio engine and rendering are carried over from the original artifact.
    What changed: state comes from Supabase (see data.js) instead of living only in memory,
    every visitor has an identity, the original track's owner is the creator (host), and
@@ -44,12 +44,79 @@ function clockMs(sec) {
 }
 function el(id){ return document.getElementById(id); }
 function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function flash(m){ el('proto-hint').textContent = m; }
+function flash(m) {
+  var t = el('proto-hint');
+  t.textContent = m; t.classList.add('on');
+  clearTimeout(flash.tm);
+  flash.tm = setTimeout(function () { t.classList.remove('on'); }, 4200);
+}
+/* ---------- the "⋯" menus: secondary actions per take, opened one at a time ----------
+   The menu items reuse the ordinary data-* actions, so the click handler below runs them. */
+function menuBtn(key, items, label, cls) {
+  var open = S.menu === key;
+  return '<span class="menu-wrap">' +
+    '<button class="' + (cls || 'tbtn more') + (open ? ' on' : '') + '" type="button" data-menu="' + key + '" aria-haspopup="true" aria-expanded="' + open + '"' +
+      (label ? '' : ' aria-label="More"') + '>' + (label || '&#8943;') + '</button>' +
+    (open ? '<div class="menu-pop" role="menu">' + items + '</div>' : '') + '</span>';
+}
+/* menus float above everything (the DAW clips its overflow), next to their button */
+function placeMenus() {
+  [].forEach.call(document.querySelectorAll('.menu-wrap > .menu-pop'), function (pop) {
+    var r = pop.previousElementSibling.getBoundingClientRect();
+    pop.style.position = 'fixed';
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+    var top = r.bottom + 6;
+    if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+    pop.style.left = left + 'px'; pop.style.top = top + 'px'; pop.style.right = 'auto';
+  });
+}
+window.addEventListener('scroll', function () {
+  if (!S.menu) { placeMenus.y = window.scrollY; return; }
+  if (Math.abs(window.scrollY - (placeMenus.y || 0)) > 60) { S.menu = null; render(); } else placeMenus();
+}, { passive:true });
+window.addEventListener('resize', placeMenus);
+function mi(attr, label) { return '<button class="mi" type="button" role="menuitem" ' + attr + '>' + label + '</button>'; }
+/* the creator deletes any take but the original track while the song is open; whoever
+   recorded an own take (for their own version) can delete that one, also after release */
+function canDelete(t) {
+  if (!t || t.id === 'seed') return false;
+  if (isOwn(t) && mine(t)) return true;
+  return isHost() && isOpen();
+}
+function miDel(id) {
+  if (!canDelete(findTake(id))) return '';
+  var armed = armedFor(id);
+  return '<button class="mi mi-del' + (armed ? ' armed' : '') + '" type="button" role="menuitem" data-del="' + id + '">' +
+    (armed ? 'Click again to delete it for good' : 'Delete this take') + '</button>';
+}
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-menu]');
+  if (b) {
+    e.stopPropagation();
+    S.menu = S.menu === b.dataset.menu ? null : b.dataset.menu;
+    placeMenus.y = window.scrollY;
+    render();
+    return;
+  }
+  if (!S.menu) return;
+  var inside = e.target.closest('.menu-pop');
+  if (inside && (!e.target.closest('button') || e.target.closest('[data-del]'))) return;  // selects stay open, delete asks twice
+  S.menu = null;
+  if (inside) setTimeout(render, 0); else render();
+}, true);
 function oops(e) {
   console.error(e);
   var msg = (e && (e.message || e.error_description)) || 'Something went wrong.';
   if (/anonymous/i.test(msg)) msg = 'Anonymous sign-ins are off in Supabase. Turn them on under Authentication, Sign In / Providers.';
   flash(msg);
+}
+/* a database change this page relies on isn't applied yet: say so instead of a raw error */
+function needsUpdate(e, file) {
+  var m = String((e && (e.message || e.details)) || '');
+  if (/row-level security|status_check|violates check constraint|could not find the function|schema cache/i.test(m))
+    return new Error('This needs a database update that is not applied yet (' + file + '). Ask whoever runs the database to apply it, then try again.');
+  return null;
 }
 function savedName() { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } }
 function rememberName(n) { try { if (n) localStorage.setItem(NAME_KEY, n); } catch (e) {} }
@@ -69,9 +136,10 @@ function placeholderSeed() {
   return { id:'seed', dbId:null, by:'', roleId:'seed', note:'', len:0, vol:1, mute:false, solo:false, votes:{}, fin:0, fout:0, xfade:0 };
 }
 function blank() {
-  return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], trial:null, title:'Untitled', mix:null,
+  return { session:null, seed:placeholderSeed(), members:[], applicants:[], archive:[], own:[], trial:null, title:'Untitled', mix:null,
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
-           pitches:[], parts:[], trialPitch:null, countIn:2,
+           pitches:[], parts:[], trialPitch:null, countIn:2, recRole:null,
+           comments:[], cmAvailable:true, cmDraft:null, cmOpen:null,
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
            meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
@@ -108,9 +176,24 @@ function live(t) { return t && t.status !== 'deleted'; }
 function trialTake() {
   return S.trial ? S.applicants.filter(function (t) { return t.id === S.trial; })[0] : null;
 }
+/* takes you can pick for your own version: everything sent to the project, plus what
+   you recorded for your own versions (other people's own takes stay in their versions) */
 function pool() {
-  return S.members.concat(S.applicants, S.archive.map(function (a) { return a.take; }))
+  return S.members.concat(S.applicants, S.archive.map(function (a) { return a.take; }), S.own.filter(mine))
     .filter(function (t) { return t && t.buf; });
+}
+function mine(t) { return !!(t && me && t.authorId === me.id); }
+function isOwn(t) { return !!(t && t.status === 'own'); }
+/* where a take stands, as shown in your version */
+function standing(t) {
+  if (S.members.indexOf(t) > -1) return 'in the stack';
+  if (S.applicants.indexOf(t) > -1) return 'waiting';
+  if (isOwn(t)) return mine(t) ? 'your own take' : 'own take';
+  return 'unused';
+}
+/* is this take used by a saved version or the one you are building? */
+function picked(id) {
+  return S.build.picks.indexOf(id) > -1 || S.versions.some(function (v) { return v.picks.indexOf(id) > -1; });
 }
 function byIds(ids) {
   return ids.map(function (id) { return findTake(id); }).filter(function (t) { return live(t) && t.buf; });
@@ -251,8 +334,10 @@ function applySnapshot(sess, snap) {
   function byJoin(a, b) { return String(a.joinedAt).localeCompare(String(b.joinedAt)); }
   S.members = layers.filter(function (t) { return t.status === 'in'; }).sort(byJoin);
   S.applicants = layers.filter(function (t) { return t.status === 'waiting'; });
+  S.own = layers.filter(function (t) { return t.status === 'own'; });
   S.archive = layers.filter(function (t) { return t.status === 'archived'; }).map(function (t) {
-    return { take:t, why: t.why === 'vetoed' ? (isHost() ? 'vetoed by you' : 'vetoed by the creator') : (t.why || 'archived') };
+    return { take:t, why: t.why === 'vetoed' ? (isHost() ? 'vetoed by you' : 'vetoed by the creator')
+                        : t.why === 'removed' ? (isHost() ? 'taken out by you' : 'taken out by the creator') : (t.why || 'archived') };
   });
   S.pitches = parts.filter(function (t) { return t.status === 'waiting'; });
   S.parts = parts.filter(function (t) { return t.status === 'in'; }).sort(byJoin);
@@ -278,8 +363,15 @@ function applySnapshot(sess, snap) {
     if (me && l.user_id === me.id) liked[l.version_id] = true;
   });
   S.versions = snap.versions.map(function (v) {
-    return { id:v.id, name:v.name, by:v.by_name, picks:v.picks || [], ctl:v.ctl || {}, likes:likeCount[v.id] || 0, liked:!!liked[v.id] };
+    return { id:v.id, name:v.name, by:v.by_name, authorId:v.author_id, picks:v.picks || [], ctl:v.ctl || {}, likes:likeCount[v.id] || 0, liked:!!liked[v.id] };
   });
+
+  /* timeline comments (null when their migration isn't applied yet) */
+  S.cmAvailable = snap.comments !== null && snap.comments !== undefined;
+  S.comments = (snap.comments || []).filter(function (c) { return !c.hidden; }).map(function (c) {
+    return { id:c.id, by:c.author_name, authorId:c.author_id, body:c.body, at:c.at_sec, created:c.created_at };
+  });
+  if (S.cmOpen && !S.comments.some(function (c) { return c.id === S.cmOpen; })) S.cmOpen = null;
 
   S.reactions = { banger:0, mess:0, again:0 }; S.reacted = {};
   snap.reactions.forEach(function (r) {
@@ -318,6 +410,7 @@ function loadMissingAudio() {
     if (t.status === 'mix' || t.status === 'deleted' || t.buf || t.loading || t.failed || !t.url) return;
     if (t.roleId === 'seed' && t !== S.seed) return;              // an old, replaced seed
     if (t.roleId === 'part' && t.status === 'archived') return;   // a part nobody hears any more
+    if (isOwn(t) && !mine(t) && !picked(t.id)) return;            // someone's own take no version uses
     t.loading = true;
     loadQueue.push(t);
   });
@@ -372,8 +465,8 @@ function canVote(t) {
   return S.members.some(function (m) { return m.authorId === me.id && !(stake && stake.id === m.id); });
 }
 function voteBlock(t) {
-  if (seedHolds(t.roleId, secOf(t))) return '<div class="lvotes"><span class="tiny muted">The original track plays this part, so this layer can only go in versions.</span></div>';
-  if (!S.members.length) return '<div class="lvotes"><span class="tiny muted">Nobody in the project yet to weigh in.</span></div>';
+  if (seedHolds(t.roleId, secOf(t))) return '<div class="lvotes"><span class="tiny muted">The original track plays this part, so this take can only go in versions.</span></div>';
+  if (!S.members.length) return '<div class="lvotes"><span class="tiny muted">Nobody in the stack yet to weigh in.</span></div>';
   var stake = atStake(t), tl = tallyOf(t);
   var chips = S.members.map(function (m) {
     var v = t.votes[m.id], r = role(m.roleId), isStake = stake && stake.id === m.id;
@@ -387,7 +480,7 @@ function voteBlock(t) {
       '<button class="btn btn-sm' + (mine === 'up' ? ' on' : '') + '" type="button" data-vote="up" data-take="' + t.id + '" aria-pressed="' + (mine === 'up') + '">&#8593; For</button>' +
       '<button class="btn btn-sm' + (mine === 'down' ? ' on' : '') + '" type="button" data-vote="down" data-take="' + t.id + '" aria-pressed="' + (mine === 'down') + '">&#8595; Against</button></div>'
     : '';
-  return '<div class="lvotes"><div class="lv-sum"><b>The project</b> ' + tl.up + ' for, ' + tl.down + ' against' +
+  return '<div class="lvotes"><div class="lv-sum"><b>The stack</b> ' + tl.up + ' for, ' + tl.down + ' against' +
     (tl.voters - tl.up - tl.down > 0 ? ', ' + (tl.voters - tl.up - tl.down) + ' quiet' : '') + '</div>' +
     '<div class="lv-chips">' + chips + '</div>' + myButtons + '</div>';
 }
@@ -430,6 +523,7 @@ function ac() {
 }
 function anySolo(){ return tracks().some(function (t) { return ctl(t).solo; }); }
 function audible(t) {
+  if (only && only.indexOf('pair:') === 0) return t.id === 'seed' || t.id === only.slice(5);
   if (only) return t.id === only;
   if (ctl(t).mute) return false;
   if (anySolo() && !ctl(t).solo) return false;
@@ -476,6 +570,7 @@ function stopAll(keep) {
   render();
 }
 function play(from, soloId) {
+  if (REC.state === 'recording' || REC.state === 'asking') return;
   var list = tracks();
   if (!list.length) return;
   stopAll(true);
@@ -504,7 +599,7 @@ function play(from, soloId) {
 function mixToggle(what) {
   var on = running && !only;
   return '<button class="btn btn-sm mixtgl' + (on ? ' on' : '') + '" type="button" data-mixtgl="1" aria-label="' +
-    (on ? 'Pause' : 'Play') + ' the mix with ' + what + '">' + (on ? I_PAUSE + ' Pause' : I_PLAY + ' Play') + '</button>';
+    (on ? 'Pause' : 'Play') + ' the stack with ' + what + '">' + (on ? I_PAUSE + ' Pause' : I_PLAY + ' Play') + '</button>';
 }
 function toggleTransport(){ running ? stopAll(true) : play(); }
 function preview(t) {
@@ -519,33 +614,80 @@ function preview(t) {
   var T = ac().currentTime + 0.02;
   scheduleEnv(env, t, T, 0);
   s.start(T);
+  onlyAt = T;
   sources[t.id] = s;
   s.onended = function () { delete sources[t.id]; if (only === t.id) { only = null; render(); } };
   startLoop();
   render();
 }
-var vizBars = null;
-function bindViz(){ vizBars = document.querySelectorAll('#seed-viz i'); }
-function drawViz(active) {
-  if (!vizBars || !vizBars.length || !document.contains(vizBars[0])) bindViz();
-  if (!vizBars || !vizBars.length) return;
-  var n = vizBars.length;
-  if (!active || !analyser) {
-    for (var i = 0; i < n; i++) vizBars[i].style.height = '14%';
-    return;
-  }
-  analyser.getByteFrequencyData(freq);
-  var bins = Math.min(freq.length, 96);
-  for (var b = 0; b < n; b++) {
-    var from = Math.floor(Math.pow(b / n, 1.7) * bins), to = Math.max(from + 1, Math.floor(Math.pow((b + 1) / n, 1.7) * bins));
-    var m = 0;
-    for (var k = from; k < to; k++) if (freq[k] > m) m = freq[k];
-    vizBars[b].style.height = Math.max(6, Math.min(100, (m / 255) * 115)) + '%';
-  }
+/* a take together with the original track, from the own-version block */
+function pairPreview(t) {
+  var key = 'pair:' + t.id;
+  if (only === key) { stopAll(); return; }
+  if (!t || !t.buf || !S.seed.buf) { flash('Still loading the audio.'); return; }
+  stopAll();
+  only = key;
+  ac().resume();
+  var T = ac().currentTime + 0.02, left = 2;
+  [S.seed, t].forEach(function (x) {
+    var s = ac().createBufferSource(), env = ac().createGain();
+    s.buffer = x.buf;
+    s.connect(env); env.connect(gainFor(x));
+    scheduleEnv(env, x, T, 0);
+    s.start(T);
+    sources[x.id] = s;
+    s.onended = function () { delete sources[x.id]; if (--left === 0 && only === key) { only = null; render(); } };
+  });
+  onlyAt = T;
+  startLoop();
+  render();
 }
+/* The original track's waveform at the top: real peaks, with the part already played
+   coloured in while the original track sounds (on its own or in the mix). */
+var onlyAt = 0, SEED_BARS = 160;
+function seedWaveBars() {
+  var pk = S.seed.peaks;
+  if (!pk || !pk.length) return '';
+  var step = pk.length / SEED_BARS, vals = [], max = 0;
+  for (var i = 0; i < SEED_BARS; i++) {
+    var m = 0;
+    for (var j = Math.floor(i * step); j < Math.floor((i + 1) * step); j++) if (pk[j] > m) m = pk[j];
+    vals.push(m); if (m > max) max = m;
+  }
+  return vals.map(function (v) { return '<i style="height:' + Math.max(4, Math.round((max ? v / max : 0) * 100)) + '%"></i>'; }).join('');
+}
+function seedWave() {
+  var bars = seedWaveBars();
+  if (!bars) return '<div class="seedwave loading" id="seed-viz" aria-hidden="true">' + vizMarkup(SEED_BARS) + '</div>';
+  return '<div class="seedwave" id="seed-viz" aria-hidden="true"><div class="sw-bars">' + bars + '</div>' +
+    '<div class="sw-prog" id="seed-prog"><div class="sw-bars">' + bars + '</div></div></div>';
+}
+function seedProgress() {
+  var L = S.seed.len || 0;
+  if (!L) return 0;
+  if (only === 'seed' && sources.seed) return (ac().currentTime - onlyAt) / L;
+  if (running && !only) return (position() - startOf(S.seed)) / L;
+  return 0;
+}
+function drawViz() {
+  var pr = el('seed-prog');
+  if (!pr) return;
+  var f = Math.max(0, Math.min(1, seedProgress()));
+  pr.style.clipPath = 'inset(0 ' + ((1 - f) * 100).toFixed(2) + '% 0 0)';
+}
+function bindViz() {}
 function frame() {
-  var busy = running || Object.keys(sources).length > 0;
-  var p = position(), d = duration();
+  var dawRec = REC.where === 'daw' && REC.state === 'recording';
+  var seedRec = REC.where === 'seed' && REC.state === 'recording';
+  var busy = running || Object.keys(sources).length > 0 || dawRec || seedRec;
+  if (seedRec) drawSeedRec();
+  var p = dawRec ? Math.max(0, startOf(S.seed) + ac().currentTime - REC.songStart) : position(), d = duration();
+  if (dawRec) drawRecLane();
+  var marks = document.querySelectorAll('.cm-mark[data-at]');
+  for (var mi = 0; mi < marks.length; mi++) {
+    var at = +marks[mi].dataset.at;
+    marks[mi].classList.toggle('near', running && !only && p >= at - 0.05 && p < at + 2.5);
+  }
   var ph = el('playhead'), rd = el('readout');
   var lane = document.querySelector('.t-lane'), daw = el('daw');
   if (ph && d && lane && daw) {
@@ -600,7 +742,9 @@ function uploadTake(file, buf, o) {
       part_pos: o.pos || null, section_id: o.sec || null,
       an_bpm: an && an.tempo ? an.tempo.bpm : null, an_key: an && an.key ? an.key.key : null
     }).then(function (row) {
-      var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{} };
+      var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{},
+                                roleId:row.role_id, status:row.status, by:row.author_name, authorId:row.author_id,
+                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0 };
       setBuffer(t, buf);
       file.arrayBuffer().then(function (ab) { t.bytes = new Uint8Array(ab); });
       return { row:row, analysis:an };
@@ -614,9 +758,9 @@ function fileName(t, i) {
   return (i !== undefined ? ('0' + (i + 1)).slice(-2) + ' ' : '') + clean(labelOf(t)) + ' - ' + clean(t.by || 'you') + '.' + extOf(t.fileName);
 }
 function sheet(list) {
-  return 'Riffraff session sheet\r\n\r\n' +
+  return 'Stackato session sheet\r\n\r\n' +
     'Tempo: ' + (S.meta.bpm || '?') + ' bpm\r\nKey: ' + (S.meta.key || '?') + '\r\nTime: ' + S.meta.time +
-    '\r\nLength of the original track: ' + fmt(target()) + '\r\n\r\nEvery file starts at the time listed below. Layers on the original track start at its first beat, layers on a new part start with that part.\r\n\r\n' +
+    '\r\nLength of the original track: ' + fmt(target()) + '\r\n\r\nEvery file starts at the time listed below. Takes on the original track start at its first beat, takes on a new part start with that part.\r\n\r\n' +
     list.map(function (t, i) {
       var e = envOf(t);
       return fileName(t, i) + '   (' + labelOf(t) + ', ' + (t.by || 'you') + ', starts at ' + clockMs(startOf(t)) +
@@ -647,8 +791,8 @@ function downloadAll() {
   Promise.all(list.map(bytes)).then(function (arr) {
     var files = arr.map(function (u, i) { return { name:fileName(list[i], i), data:u }; });
     files.push({ name:'session sheet.txt', data:new TextEncoder().encode(sheet(list)) });
-    var title = (S.override ? S.override.name : (S.view === 'build' ? 'my version' : 'project'));
-    hand('Riffraff - ' + clean(title) + ' stems.zip', zip(files));
+    var title = (S.override ? S.override.name : (S.view === 'build' ? 'my version' : 'the stack'));
+    hand('Stackato - ' + clean(title) + ' stems.zip', zip(files));
   }).catch(oops);
 }
 
@@ -704,14 +848,14 @@ function downloadClick() {
   var b = beatInfo(), n = S.countIn, sec = target();
   var bpm = S.meta.bpm || 120, sig = S.meta.time === 'odd' ? '4/4' : S.meta.time;
   var name = 'click ' + bpm + ' bpm ' + sig.replace('/', '-') + (n ? ' with ' + n + ' bar count-in' : '');
-  var readme = 'Riffraff click track\r\n\r\n' + bpm + ' bpm, ' + sig + ', ' + fmt(sec) + ' of song' +
+  var readme = 'Stackato click track\r\n\r\n' + bpm + ' bpm, ' + sig + ', ' + fmt(sec) + ' of song' +
     (n ? ', plus ' + n + ' bar' + (n > 1 ? 's' : '') + ' of count-in (' + (n * b.bar).toFixed(2) + ' s)' : '') + '.\r\n\r\n' +
     (n ? 'Bar 1 of the song starts right after the count-in. When you upload, either cut the count-in off your take, ' +
-         'or tick "my file starts with the count-in" and Riffraff cuts it for you.\r\n'
+         'or tick "my file starts with the count-in" and Stackato cuts it for you.\r\n'
        : 'Bar 1 of the song is the very start of the file.\r\n') +
     (S.meta.bpm ? '' : '\r\nNo tempo was detected for this session, so this click runs at 120 bpm. Ask the creator to set the tempo, then download again.\r\n');
   encodeWav(clickBuffer(n, sec)).arrayBuffer().then(function (ab) {
-    hand('Riffraff ' + name + '.zip', zip([
+    hand('Stackato ' + name + '.zip', zip([
       { name: name + '.wav', data: new Uint8Array(ab) },
       { name: 'read me.txt', data: new TextEncoder().encode(readme) }
     ]));
@@ -732,12 +876,14 @@ function recCleanup() {
   if (REC.stream) REC.stream.getTracks().forEach(function (tr) { tr.stop(); });
   REC.stream = null;
 }
-function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; }
+function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.warn = ''; REC.info = ''; REC.partial = 0; REC.peaks = null; }
 function recBacking() {
-  return hearable().filter(function (t) { return REC.hear[t.id] !== false; });
+  return hearable().filter(function (t) { return REC.hear[t.id] !== false && (REC.where !== 'daw' || audible(t)); });
 }
+/* what can play under a recording: the project, or for your own version the takes you picked */
 function hearable() {
-  return [S.seed].concat(S.members.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
+  var layers = M.mode === 'own' ? byIds(S.build.picks) : S.members;
+  return [S.seed].concat(layers.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
 }
 /* play backing so that the chosen section starts at audio time T */
 function playBacking(list, T, into) {
@@ -751,31 +897,99 @@ function playBacking(list, T, into) {
     into.push(s); REC.nodes.push(g);
   });
 }
+/* The microphone is captured by an AudioWorklet (off the page's main thread, so redrawing
+   the page can't make it drop audio). Browsers without it fall back to ScriptProcessorNode.
+   The worklet hands over blocks of 2048 samples with the context time of their first sample. */
+var REC_WORKLET = "class StackatoRec extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0;this.t=0}" +
+  "process(inputs){var ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(var i=0;i<ch.length;i++){if(this.n===0)this.t=currentTime+i/sampleRate;" +
+  "this.b[this.n++]=ch[i];if(this.n===this.b.length){this.port.postMessage({t:this.t,d:this.b},[this.b.buffer]);this.b=new Float32Array(2048);this.n=0}}return true}}" +
+  "registerProcessor('stackato-rec',StackatoRec);";
+function recWorklet(a) {
+  if (!a.audioWorklet || typeof AudioWorkletNode === 'undefined') return Promise.reject(new Error('no worklet'));
+  if (!a.__stackatoRec) {
+    var url = URL.createObjectURL(new Blob([REC_WORKLET], { type:'application/javascript' }));
+    a.__stackatoRec = a.audioWorklet.addModule(url);
+  }
+  return a.__stackatoRec;
+}
+/* ---------- which input to record from ---------- */
+var MIC_KEY = 'stackato:mic';
+function savedMic() { try { return localStorage.getItem(MIC_KEY) || ''; } catch (e) { return ''; } }
+function rememberMic(id) { try { if (id) localStorage.setItem(MIC_KEY, id); else localStorage.removeItem(MIC_KEY); } catch (e) {} }
+S.mics = [];
+function micOptions() {
+  var cur = savedMic();
+  return '<option value="">Default input</option>' + S.mics.map(function (m, i) {
+    return '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' + esc(m.label || ('Input ' + (i + 1))) + '</option>';
+  }).join('');
+}
+function micPicker() { return '<label class="mini mic"><span>input</span><select class="mic-pick">' + micOptions() + '</select></label>'; }
+/* labels only show once the browser has been allowed to use a microphone */
+function refreshMics() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  navigator.mediaDevices.enumerateDevices().then(function (list) {
+    S.mics = list.filter(function (d) { return d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'; })
+      .map(function (d) { return { id:d.deviceId, label:d.label }; });
+    [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.innerHTML = micOptions(); });
+  }).catch(function () {});
+}
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', refreshMics);
+function openMic() {
+  var base = { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
+  var id = savedMic();
+  var want = id ? Object.assign({ deviceId:{ exact:id } }, base) : base;
+  return navigator.mediaDevices.getUserMedia({ audio:want }).catch(function (err) {
+    /* the chosen input is gone: forget it and use the default */
+    if (id && err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) { rememberMic(''); return navigator.mediaDevices.getUserMedia({ audio:base }); }
+    throw err;
+  });
+}
 function recStart() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     REC.err = 'This browser does not give pages access to a microphone.'; renderRec(); return;
   }
   stopAll();
-  REC.err = ''; REC.state = 'asking'; renderRec();
-  navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } })
-  .then(function (stream) {
-    var a = ac(); a.resume();
+  REC.err = ''; REC.warn = ''; REC.info = ''; REC.state = 'asking'; renderRec();
+  var a = ac(); a.resume();
+  openMic().then(function (stream) {
     REC.stream = stream;
-    var src = a.createMediaStreamSource(stream);
-    var proc = a.createScriptProcessor(4096, 1, 1);
+    refreshMics();
+    return recWorklet(a).then(function () { return { stream:stream, worklet:true }; }, function () { return { stream:stream, worklet:false }; });
+  }).then(function (got) {
+    if (REC.state !== 'asking') { got.stream.getTracks().forEach(function (tr) { tr.stop(); }); return; }
+    var src = a.createMediaStreamSource(got.stream);
     var sink = a.createGain(); sink.gain.value = 0;
-    src.connect(proc); proc.connect(sink); sink.connect(a.destination);
-    REC.nodes = [src, proc, sink];
     var chunks = [], bar = barSeconds(), extend = M.mode === 'extend';
     var countIn = S.countIn, t0 = a.currentTime + 0.4, songStart = t0 + countIn * bar;
     var fixed = extend ? 0 : secLen(M.sec);
-    REC.songStart = songStart; REC.fixed = fixed; REC.level = 0;
-    proc.onaudioprocess = function (e) {
-      var d = e.inputBuffer.getChannelData(0), pk = 0;
+    REC.songStart = songStart; REC.t0 = t0; REC.countIn = countIn; REC.fixed = fixed; REC.level = 0; REC.peak = 0;
+    /* the input's own delay, where the browser reports it */
+    var ts = got.stream.getAudioTracks()[0], st = ts && ts.getSettings ? ts.getSettings() : {};
+    REC.inLat = typeof st.latency === 'number' && st.latency > 0 && st.latency < 0.5 ? st.latency : 0;
+    function onChunk(d, t, sr) {
+      var pk = 0;
       for (var i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > pk) pk = v; }
       REC.level = Math.max(pk, REC.level * 0.85);
-      chunks.push({ t: e.playbackTime - d.length / e.inputBuffer.sampleRate, d: new Float32Array(d) });
-    };
+      if (t >= songStart && pk > REC.peak) REC.peak = pk;
+      /* eight sub-peaks per chunk, so the take can be drawn finely while it comes in */
+      var pks = [], seg = Math.ceil(d.length / 8);
+      for (var q = 0; q < 8; q++) { var m = 0; for (var k = q * seg; k < Math.min(d.length, (q + 1) * seg); k++) { var u = Math.abs(d[k]); if (u > m) m = u; } pks.push(m); }
+      chunks.push({ t:t, d:d, pks:pks, dur:d.length / sr });
+    }
+    if (got.worklet) {
+      var node = new AudioWorkletNode(a, 'stackato-rec', { numberOfInputs:1, numberOfOutputs:1, channelCount:1, channelCountMode:'explicit' });
+      node.port.onmessage = function (e) { onChunk(e.data.d, e.data.t, a.sampleRate); };
+      src.connect(node); node.connect(sink); sink.connect(a.destination);
+      REC.nodes = [src, node, sink];
+    } else {
+      var proc = a.createScriptProcessor(4096, 1, 1);
+      proc.onaudioprocess = function (e) {
+        var d = e.inputBuffer.getChannelData(0);
+        onChunk(new Float32Array(d), e.playbackTime - d.length / e.inputBuffer.sampleRate, e.inputBuffer.sampleRate);
+      };
+      src.connect(proc); proc.connect(sink); sink.connect(a.destination);
+      REC.nodes = [src, proc, sink];
+    }
     /* what you hear: the click and, for a layer, the chosen tracks from bar 1 */
     if (REC.click) {
       var cs = a.createBufferSource();
@@ -785,10 +999,13 @@ function recStart() {
     }
     if (!extend) playBacking(recBacking(), songStart, REC.player);
     REC.chunks = chunks; REC.state = 'recording'; REC.stopAt = fixed ? songStart + fixed : 0;
+    REC.lat = (a.outputLatency || 0) + (a.baseLatency || 0);
+    if (REC.where === 'daw' || REC.where === 'seed') startLoop();
     REC.tick = setInterval(renderRecStatus, 100);
     if (fixed) REC.timer = setTimeout(recFinish, (songStart + fixed - a.currentTime + 0.25) * 1000);
     renderRec();
   }).catch(function (err) {
+    recCleanup();
     REC.state = 'idle';
     REC.err = (err && err.name === 'NotAllowedError')
       ? 'The microphone was blocked. Allow it in your browser, or upload a file instead.'
@@ -796,31 +1013,217 @@ function recStart() {
     renderRec();
   });
 }
+/* Stopping a fixed-length layer early keeps what was played: the take still runs the full
+   length of its section, and everything after the stop is silence. */
 function recFinish() {
   if (REC.state !== 'recording') return;
   var a = ac(), sr = a.sampleRate;
-  var lat = (a.outputLatency || 0) + (a.baseLatency || 0);
-  var from = REC.songStart + lat;
-  var len = REC.fixed || Math.max(0, a.currentTime - REC.songStart);
+  var lat = (a.outputLatency || 0) + (a.baseLatency || 0) + (REC.inLat || 0);
+  var pre = REC.songStart - REC.t0, preN = Math.round(pre * sr);
+  var from = REC.t0 + lat;
+  var played = Math.max(0, a.currentTime - REC.songStart);
+  var len = REC.fixed || played;
   recCleanup();
-  if (len < 0.5) { REC.state = 'idle'; REC.err = 'That was too short to keep.'; renderRec(); return; }
-  var out = new Float32Array(Math.round(len * sr));
+  if (played < 0.5) {
+    REC.state = 'idle';
+    REC.err = REC.fixed && played === 0 ? 'Nothing was recorded yet, the count-in was still running.' : 'That was too short to keep.';
+    renderRec(); return;
+  }
+  REC.partial = REC.fixed && played < REC.fixed - 0.25 ? played : 0;
+  /* Blocks are laid back to back, sample-exact: only the first block's timestamp places the
+     take (timestamps jitter a little, and placing every block by its own left tiny gaps and
+     overlaps you could hear). If a block really went missing, the next one resyncs to its time. */
+  /* everything from the first count-in click on, plus some room to line the take up later */
+  var room = Math.round(0.4 * sr);
+  var all = new Float32Array(preN + Math.round(len * sr) + room), cursor = null;
   REC.chunks.forEach(function (c) {
     var at = Math.round((c.t - from) * sr);
-    for (var i = 0; i < c.d.length; i++) { var j = at + i; if (j >= 0 && j < out.length) out[j] = c.d[i]; }
+    if (cursor === null || Math.abs(at - cursor) > c.d.length) cursor = at;
+    for (var i = 0; i < c.d.length; i++) { var j = cursor + i; if (j >= 0 && j < all.length) all[j] = c.d[i]; }
+    cursor += c.d.length;
   });
+  /* If the click got into the recording (speakers, or an interface that sends the computer's
+     sound back in), it shows exactly how late the recording runs: line the take up by it and
+     take the click back out. */
+  var shift = 0, bleed = REC.click ? findClick(all, sr, REC.countIn, len) : null;
+  if (bleed) {
+    shift = bleed.lag;
+    var ref = clickSamples(sr, REC.countIn, len + 0.4);
+    for (var q = 0; q < all.length - shift && q < ref.length; q++) if (q + shift >= 0) all[q + shift] -= bleed.gain * ref[q];
+  }
+  var out = all.slice(Math.max(0, preN + shift), Math.max(0, preN + shift) + Math.round(len * sr));
+  /* A take of free length (the original track, a new part) ends on the bar where the playing
+     stops, not where you pressed stop: the silence after it would become part of the song. */
+  if (!REC.fixed) {
+    var pk = 0, i2;
+    for (i2 = 0; i2 < out.length; i2++) { var av = Math.abs(out[i2]); if (av > pk) pk = av; }
+    var thr = Math.max(0.003, pk * 0.01), last = -1;   // 40 dB under the loudest moment
+    for (i2 = out.length - 1; i2 >= 0; i2--) if (Math.abs(out[i2]) > thr) { last = i2; break; }
+    var barS = barSeconds(), bars = Math.max(1, Math.ceil((last / sr - 0.03) / barS));
+    var keep = Math.round(bars * barS * sr);
+    if (last >= 0 && keep < out.length - Math.round(0.05 * sr)) {
+      var cutSec = (out.length - keep) / sr;
+      out = out.slice(0, keep);
+      var fade = Math.min(keep, Math.round(0.01 * sr));
+      for (i2 = 0; i2 < fade; i2++) out[keep - fade + i2] *= 1 - (i2 + 1) / fade;
+      REC.info = 'Cut to ' + bars + ' bar' + (bars > 1 ? 's' : '') + ' (' + clockMs(keep / sr) + '): the ' + cutSec.toFixed(1) + ' s of silence before you pressed stop is left out.';
+    }
+  }
+  if (bleed) REC.warn = 'The click was in your recording' + (bleed.clean ? '' : ' (some of it may still be audible)') + ', so your input also picks up the computer’s sound. ' +
+    'We took it out and lined the take up with the beat. To keep it out next time, wear headphones and turn off the computer’s sound on the input you record from (Quad Cortex: don’t send USB playback to USB 1/2).';
+  /* a very quiet take usually means the wrong input or channel (a DI channel, for one) */
+  if (REC.peak > 0 && REC.peak < 0.06)
+    REC.warn = 'This came in very quiet (peak ' + Math.round(20 * Math.log10(REC.peak)) + ' dB). On an interface with many channels, like a Quad Cortex, ' +
+      'the browser records the first channel, which is often the dry DI. Send your processed sound there (Quad Cortex: I/O settings, DRY/WET for USB 1/2) or pick another input.';
   var buf = a.createBuffer(1, out.length, sr);
   buf.copyToChannel(out, 0);
   REC.buf = buf;
-  REC.file = new File([encodeWav(buf)], 'recorded take.wav', { type:'audio/wav' });
+  REC.file = new File([encodeWav(buf)], REC.where === 'seed' ? 'recorded track.wav' : 'recorded take.wav', { type:'audio/wav' });
+  /* a first track recorded on the session page waits to start the session, like a chosen file */
+  if (REC.where === 'seed') S.seedRecMeta = { bpm:S.meta.bpm, time:S.meta.time };
   REC.chunks = null;
   REC.state = 'done';
   renderRec();
+}
+/* Looks for the click in a recording. The count-in bars are the place to look: nobody plays
+   there yet, so anything shaped like a click is the click. Returns how many samples late it is
+   and how loud, or null when the click isn't in there. */
+function findClick(all, sr, countIn, len) {
+  var b = beatInfo(), ref = clickSamples(sr, countIn, len), T = Math.round(0.02 * sr);
+  var beats = [], k;
+  var nCount = countIn * b.beats;
+  for (k = 0; k < Math.min(nCount, 8); k++) beats.push(Math.round(k * b.beat * sr));
+  var quiet = beats.length >= 3;
+  if (!quiet) for (k = nCount; beats.length < 8 && k * b.beat < countIn * b.bar + len - 0.5; k++) beats.push(Math.round(k * b.beat * sr));
+  if (beats.length < 3) return null;
+  var lo = -Math.round(0.03 * sr), hi = Math.round(0.3 * sr);
+  /* running energy of the recording, for normalised correlation */
+  var e2 = new Float64Array(all.length + 1);
+  for (var i = 0; i < all.length; i++) e2[i + 1] = e2[i] + all[i] * all[i];
+  var lags = [], gains = [];
+  /* the window starts a little before each click: the silence there is what pins the onset
+     (a click is a short sine, so without it every period of the sine would fit) */
+  var P = Math.round(0.008 * sr);
+  beats.forEach(function (at0) {
+    var at = Math.max(0, at0 - P), c = ref.subarray(at, at + T + P), cc = 0, W = c.length;
+    for (var j = 0; j < W; j++) cc += c[j] * c[j];
+    if (!cc) return;
+    var best = 0, bestLag = 0, bestDot = 0;
+    for (var L = lo; L <= hi; L++) {
+      var p = at + L;
+      if (p < 0 || p + W > all.length) continue;
+      var xx = e2[p + W] - e2[p];
+      if (xx < 1e-9) continue;
+      var dot = 0;
+      for (var m = 0; m < W; m++) dot += all[p + m] * c[m];
+      var r = dot / Math.sqrt(xx * cc);
+      if (r > best) { best = r; bestLag = L; bestDot = dot; }
+    }
+    if (best > (quiet ? 0.6 : 0.75)) { lags.push(bestLag); gains.push(bestDot / cc); }
+  });
+  if (lags.length < Math.ceil(beats.length * 0.75)) return null;
+  var sorted = lags.slice().sort(function (x, y) { return x - y; }), lag = sorted[sorted.length >> 1];
+  if (lags.filter(function (l) { return Math.abs(l - lag) <= Math.round(0.002 * sr); }).length < Math.ceil(beats.length * 0.75)) return null;
+  var g = gains.slice().sort(function (x, y) { return x - y; })[gains.length >> 1];
+  /* how much is left on the count-in beats once it's taken out: next to nothing for a click
+     that came back digitally, more for one picked up by a microphone */
+  var before = 0, after = 0;
+  beats.slice(0, quiet ? beats.length : 0).forEach(function (at) {
+    for (var j = 0; j < T * 2; j++) {
+      var p = at + lag + j; if (p < 0 || p >= all.length) continue;
+      var x = all[p], y = x - g * (ref[at + j] || 0);
+      before += x * x; after += y * y;
+    }
+  });
+  return { lag:lag, gain:g, clean: quiet ? after < before * 0.05 : false };
 }
 function recCancel() {
   recCleanup();
   REC.state = 'idle'; REC.chunks = null;
   renderRec();
+}
+/* ---------- recording straight onto the grey track in the DAW, like a real DAW:
+   the playhead runs over the other tracks and the take is drawn as it comes in ---------- */
+function dawRecMode() { return S.view === 'build' && !S.override ? 'own' : 'layer'; }
+function dawRecStart() {
+  if (!hasSeed()) return;
+  var own = dawRecMode() === 'own';
+  if (!own && !isOpen()) { flash('This song is released, so the stack is final.'); return; }
+  if (el('scrim').classList.contains('on')) return;
+  M.mode = own ? 'own' : 'layer'; M.sec = 'core';
+  recReset(); REC.where = 'daw'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
+  recStart();
+}
+/* the finished take goes into the send window, already loaded: add a name and send */
+function dawRecSend() {
+  if (!REC.buf) return;
+  var own = dawRecMode() === 'own';
+  REC.where = 'modal'; REC.fromDaw = true;
+  openModal(S.recRole || ROLES[0].id, null, own, true);
+}
+/* from the send-a-take window to the grey track: same instrument, right view, ready to record */
+function recordInDaw() {
+  var own = M.mode === 'own', rid = el('take-role').value;
+  closeModal();
+  S.recRole = rid;
+  if (REC.state === 'recording' || REC.state === 'asking') recCancel();
+  stopAll();
+  S.override = null; S.trial = null; S.view = own ? 'build' : 'lineup';
+  refreshGains(); render();
+  var row = el('addrow');
+  if (row) {
+    row.scrollIntoView({ behavior:'smooth', block:'center' });
+    row.classList.add('ready');
+    setTimeout(function () { var r2 = el('addrow'); if (r2) r2.classList.remove('ready'); }, 2600);
+  }
+  flash('Record your ' + role(rid).label.toLowerCase() + ' right here on the grey track: press "Record here". Wear headphones.');
+}
+function dawRecDiscard() { recReset(); REC.where = null; REC.fromDaw = false; renderDaw(); }
+function renderDawRec() {
+  var row = el('addrow');
+  if (row) {
+    row.className = 'track addrow' + (REC.where === 'daw' && REC.state !== 'idle' ? ' rec-on' : '');
+    row.innerHTML = addRowInner(S.view === 'build' && !S.override);
+  }
+  else renderDaw();
+  drawRecLane();
+}
+/* x of song time sec on the DAW lanes (0..1) */
+function laneX(sec) { var d = duration() || target() || 1; return sec / d; }
+function drawRecLane() {
+  var c = el('rec-canvas');
+  if (!c) return;
+  var dpr = window.devicePixelRatio || 1, w = c.clientWidth || 600, h = c.clientHeight || 72;
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  var g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  var s0 = startOf(S.seed), L = S.seed.len || 1, mid = h / 2;
+  var r = role(S.recRole || ROLES[0].id), color = cvar(r.color);
+  /* the stretch you are recording over */
+  g.fillStyle = color; g.globalAlpha = .08;
+  g.fillRect(laneX(s0) * w, 2, laneX(L) * w, h - 4);
+  g.globalAlpha = .9;
+  if (REC.state === 'recording' && REC.chunks) {
+    REC.chunks.forEach(function (ch) {
+      var sub = ch.dur / ch.pks.length;
+      ch.pks.forEach(function (pk, q) {
+        var at = ch.t - REC.songStart - REC.lat + q * sub;
+        if (at + sub < 0 || at > L) return;
+        var x0 = laneX(s0 + Math.max(0, at)) * w, x1 = laneX(s0 + Math.min(L, at + sub)) * w;
+        var bar = Math.max(1, Math.min(1, pk) * (h - 6));
+        g.fillRect(x0, mid - bar / 2, Math.max(1, x1 - x0 + .5), bar);
+      });
+    });
+  } else if (REC.state === 'done' && REC.buf) {
+    var pk = REC.peaks || (REC.peaks = peaksOf(REC.buf, 1200)), n = pk.length;
+    var x0 = laneX(s0) * w, cw = Math.max(1, laneX(REC.buf.duration) * w);
+    for (var x = 0; x < cw; x++) {
+      var bar2 = Math.max(1, (pk[Math.floor(x / cw * n)] || 0) * (h - 6));
+      g.fillRect(x0 + x, mid - bar2 / 2, 1, bar2);
+    }
+  }
+  g.globalAlpha = 1;
 }
 function recListen(withBacking) {
   recStopPlayers();
@@ -854,6 +1257,8 @@ function countInOptions() {
   return [0,1,2,4].map(function (n) { return '<option value="' + n + '"' + (n === S.countIn ? ' selected' : '') + '>' + n + ' bar' + (n === 1 ? '' : 's') + '</option>'; }).join('');
 }
 function renderRec() {
+  if (REC.where === 'daw') { renderDawRec(); return; }
+  if (REC.where === 'seed') { renderSeedPop(); return; }
   var box = el('rec-box');
   if (!box) return;
   var extend = M.mode === 'extend';
@@ -865,21 +1270,24 @@ function renderRec() {
       (REC.state === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
       '<div class="rec-meterwrap"><i id="rec-meter"></i></div>' +
       '<div class="rec-acts">' + (REC.fixed
-        ? '<button class="btn btn-sm" type="button" data-rec="cancel">Stop and throw away</button>'
+        ? '<button class="btn btn-ember" type="button" data-rec="finish">Stop and keep it</button>' +
+          '<button class="btn btn-sm" type="button" data-rec="cancel">Stop and throw away</button>'
         : '<button class="btn btn-ember" type="button" data-rec="finish">Stop recording</button>' +
           '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button>') +
-      '</div>' + (REC.fixed ? '<p class="tiny muted">It stops by itself at the end of the track.</p>' : '') + '</div>';
+      '</div>' + (REC.fixed ? '<p class="tiny muted">It stops by itself at the end of the track. Stop earlier and you keep what you played; the rest of the take is silence.</p>' : '') + '</div>';
     renderRecStatus();
     return;
   }
   if (REC.state === 'done') {
-    box.innerHTML = '<div class="rec-done"><b>Recorded ' + clockMs(REC.buf.duration) + '</b>' +
-      '<span class="tiny muted">Cut to start exactly at bar 1' + (REC.fixed ? ' and end with the track' : '') + '.</span>' +
+    box.innerHTML = '<div class="rec-done"><b>Recorded ' + (REC.partial ? clockMs(REC.partial) + ' of ' + clockMs(REC.fixed) : clockMs(REC.buf.duration)) + '</b>' +
+      '<span class="tiny muted">' + (REC.partial
+        ? 'You stopped early. The rest of the take is silence, so it still lines up with the track.'
+        : 'Cut to start exactly at bar 1' + (REC.fixed ? ' and end with the track' : '') + '.') + '</span>' +
       '<div class="rec-acts">' +
         '<button class="btn btn-sm" type="button" data-rec="listen">Hear your take</button>' +
         (extend ? '' : '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the backing</button>') +
         '<button class="btn btn-sm" type="button" data-rec="again">Record again</button>' +
-      '</div></div>' + err;
+      '</div></div>' + (REC.info && REC.state === 'done' ? '<p class="rec-info">' + esc(REC.info) + '</p>' : '') + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
     return;
   }
   var list = extend ? '' : '<div class="rec-hear"><span class="rec-lbl">What you hear while recording</span>' +
@@ -892,6 +1300,7 @@ function renderRec() {
     '<div class="rec-row">' +
       '<label class="rec-opt"><input type="checkbox" data-hear="click"' + (REC.click ? ' checked' : '') + '><span>Click</span></label>' +
       '<label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
+      micPicker() +
     '</div>' +
     '<p class="tiny muted">Wear headphones, otherwise the backing ends up in your take. ' +
       (extend ? 'Stop whenever your part is done.' : 'Recording starts on the first beat of ' + esc((section(M.sec) || section('core')).label) +
@@ -903,10 +1312,10 @@ function renderRec() {
 function letIn(t) {
   if (!t || !isHost()) return;
   var r = role(t.roleId), sec = secOf(t), here = inSong(t.roleId, sec);
-  if (seedHolds(t.roleId, sec)) { flash('The original track plays ' + r.label.toLowerCase() + ', so there is no spot to let a layer into.'); return; }
+  if (seedHolds(t.roleId, sec)) { flash('The original track plays ' + r.label.toLowerCase() + ', so there is no room for another take on that layer.'); return; }
   var msg = here.length >= cap(t.roleId, sec)
-    ? t.by + ' takes over on ' + r.label.toLowerCase() + '. ' + here[0].by + ' is back in the waiting list.'
-    : t.by + ' is in on ' + r.label.toLowerCase() + '.';
+    ? t.by + ' takes over on ' + r.label.toLowerCase() + '. ' + here[0].by + '’s take is back in the review list.'
+    : t.by + '’s take is in the stack on ' + r.label.toLowerCase() + '.';
   if (S.trial === t.id) S.trial = null;
   S.override = null;
   stopAll();
@@ -915,7 +1324,7 @@ function letIn(t) {
 function veto(t) {
   if (!t || !isHost()) return;
   if (S.trial === t.id) S.trial = null;
-  db.veto(t.dbId).then(function () { flash(t.by + ' was vetoed.'); return refresh(); }).catch(oops);
+  db.veto(t.dbId).then(function () { flash(t.by + '’s take was vetoed. It stays in the unused takes.'); return refresh(); }).catch(oops);
 }
 function keepPart(t) {
   if (!t || !isHost()) return;
@@ -936,19 +1345,27 @@ function dropPart(t) {
   stopAll();
   db.dropPart(t.dbId).then(function () { flash('That part is out of the song again.'); return refresh(); }).catch(oops);
 }
+/* Deleting takes two clicks. The first click is remembered here, not on the button, so a
+   re-render in between (audio arriving, a realtime refresh) doesn't forget it. */
+var ARMED = { id:null, until:0, timer:0 };
+function armedFor(id) { return ARMED.id === id && Date.now() < ARMED.until; }
 function delBtn(id, small) {
   if (!isHost() || !isOpen()) return '';
-  return '<button class="' + (small ? 'tbtn' : 'btn btn-sm icobtn') + ' del" type="button" data-del="' + id + '" title="Delete this take" aria-label="Delete this take">' +
-    '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg></button>';
+  var armed = armedFor(id);
+  return '<button class="' + (small ? 'tbtn' : 'btn btn-sm icobtn') + ' del' + (armed ? ' armed' : '') + '" type="button" data-del="' + id + '" ' +
+    'title="' + (armed ? 'Click again to delete it for good' : 'Delete this take') + '" aria-label="' + (armed ? 'Click again to delete this take for good' : 'Delete this take') + '">' +
+    '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>' +
+    (armed ? '<span>Delete?</span>' : '') + '</button>';
 }
 function deleteTake(id) {
   var t = findTake(id);
-  if (!t || t.id === 'seed' || !isHost()) return;
+  if (!canDelete(t)) return;
   var layers = t.roleId === 'part' ? S.members.concat(S.applicants).filter(function (m) { return m.sec === id; }).length : 0;
   stopAll();
+  S.build.picks = S.build.picks.filter(function (p) { return p !== id; });
   db.deleteTake(t.dbId).then(function () {
     flash('Deleted ' + (t.by || 'the take') + '\'s ' + role(t.roleId).label.toLowerCase() +
-      (layers ? ', and the ' + layers + ' layer' + (layers > 1 ? 's' : '') + ' on it' : '') + '.');
+      (layers ? ', and the ' + layers + ' take' + (layers > 1 ? 's' : '') + ' on it' : '') + '.');
     return refresh();
   }).catch(oops);
 }
@@ -967,25 +1384,26 @@ var TIMES = ['4/4','3/4','6/8','5/4','7/8','12/8','odd'];
 var I_DL = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 1v9M4.5 6.5 8 10l3.5-3.5M2 13h12"/></svg>';
 var I_PLAY  = '<svg width="12" height="12" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 1l6 4-6 4z"/></svg>';
 var I_PAUSE = '<svg width="12" height="12" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 1h2.6v8H2zM5.4 1H8v8H5.4z"/></svg>';
+var I_SEND = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>';
 var I_UP = '<svg class="db-ico" width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>';
 
 var STEPS = {
   creator: {
-    lead: 'One track, one decision-maker. The room stacks layers on top, and anyone can build their own version from every take.',
+    lead: 'One track, one decision-maker. Musicians add their takes on top, and anyone can build their own version from every take.',
     steps: [
-      ['The track sets the rules', 'Tempo and key are read from your file, and its length is the length of every layer.'],
-      ['Anyone adds a layer', 'Play along in your DAW with the click, or record right here. One instrument per layer.'],
-      ['You decide who joins', 'You dropped the track, so you let layers in or veto them. The people already in the project vote along to steer your call.'],
-      ['You decide when it’s finished', 'Close the session when it feels right. It releases unmixed, and anyone can build their own version from every take.']
+      ['Upload an audio track', 'Strangers will stack their own layers on top. Tempo and key are read from your file, and its length is the length of every take.'],
+      ['Anyone adds a take', 'Play along in your DAW with the click, or record right here. One instrument per take.'],
+      ['You build the stack', 'You dropped the track, so you choose which takes go in the stack. It’s your call alone.'],
+      ['You decide when it’s finished', 'Release the song when it feels right. The stack is the song, a mix is optional, and anyone can build their own version from every take.']
     ]
   },
   musician: {
-    lead: 'Someone dropped a track and wants strangers to finish it. Add a layer, and the creator decides what makes the song.',
+    lead: 'Someone dropped a track and wants strangers to finish it. Add a take, and the creator decides what goes in the stack.',
     steps: [
-      ['Listen to the track', 'Tempo, key and length come from the creator’s track. Every layer has to fit them.'],
-      ['Add your layer', 'Grab the click and the other takes, play along in your DAW, or record right here. One instrument per layer.'],
-      ['The creator decides', 'Your take waits until the creator lets it in. Once you are in the project, your vote steers what comes next.'],
-      ['Build your own version', 'Not picked? Use any take, yours included, to make your own version of the song.']
+      ['Listen to the track', 'Tempo, key and length come from the creator’s track. Every take has to fit them.'],
+      ['Add your take', 'Grab the click and the other takes, play along in your DAW, or record right here. One instrument per take.'],
+      ['The creator decides', 'Your take waits until the creator puts it in the stack. Not picked? You can still use it in your own version.'],
+      ['Or make your own version', 'Use any take, record your own takes on top, and save your version. Send a take to the creator whenever you like.']
     ]
   }
 };
@@ -998,6 +1416,12 @@ function renderHow() {
   el('howsteps').innerHTML = steps;
   el('howtop').innerHTML = '<div class="how-lead"><h2>Make a <span class="hi">song</span> with <span class="hi">strangers</span></h2><p>' + s.lead + '</p></div>' + steps;
   document.body.classList.toggle('has-track', hasSeed());
+  /* the four steps up top only on your first visit to a session; after that they fold away */
+  var seen = false;
+  try { seen = localStorage.getItem('stackato:seen-how') === '1'; } catch (e) {}
+  document.body.classList.toggle('seen-how', seen);
+  if (seen && hasSeed() && !S.howFolded) { S.howFolded = true; el('howbox').open = false; }
+  if (hasSeed() && S.session && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
 }
 function renderInstruments() {
   var box = el('instruments');
@@ -1007,19 +1431,206 @@ function renderInstruments() {
     var n = inSongNow.filter(function (m) { return m.roleId === r.id; }).length;
     return n ? '<span class="ichip" style="--c:' + col(r) + '">' + ico(r.icon, col(r)) + r.label + (n > 1 ? ' <b>&times;' + n + '</b>' : '') + '</span>' : '';
   }).join('');
-  box.innerHTML = '<span class="i-lbl">Current instruments</span>' +
+  box.innerHTML = '<span class="i-lbl">Layers in the stack</span>' +
     '<span class="ichip">' + ico('seed', 'var(--ember)') + 'Original track' + (ri ? ' <b>' + ri.label.toLowerCase() + '</b>' : '') + '</span>' +
     (partTakes().length ? '<span class="ichip">' + ico('part', 'var(--cyan)') + 'New parts <b>&times;' + partTakes().length + '</b></span>' : '') +
     (chips || '<span class="tiny muted">Nothing on top yet.</span>');
 }
+/* ---------- recording the first track right on the session page ----------
+   The same recorder musicians use: a count-in and a click at the tempo you pick, then it
+   records until you stop. The result waits on the drop panel like a chosen file, so you
+   still add your name and say what it is before the session starts. */
+var SEED_TIMES = ['4/4','3/4','6/8','5/4','7/8','12/8'];
+function openSeedRec() {
+  if (!canDropSeed() || el('scrim').classList.contains('on')) return;
+  lastFocus = document.activeElement;
+  var panelRole = (el('seed-role') && el('seed-role').value) || '';
+  el('sr-by').value = ((el('seed-by') && el('seed-by').value) || savedName() || '').trim();
+  el('sr-role').innerHTML = '<option value=""' + (panelRole ? '' : ' selected') + ' disabled>Pick one</option>' +
+    '<option value="none"' + (panelRole === 'none' ? ' selected' : '') + '>Not one instrument</option>' +
+    ROLES.map(function (r) { return '<option value="' + r.id + '"' + (r.id === panelRole ? ' selected' : '') + '>' + r.label + '</option>'; }).join('');
+  el('sr-bpm').value = S.seedBpm || 100;
+  el('sr-time').innerHTML = SEED_TIMES.map(function (t) { return '<option' + (t === (S.seedTime || '4/4') ? ' selected' : '') + '>' + t + '</option>'; }).join('');
+  el('sr-countin').innerHTML = countInOptions();
+  el('sr-click').checked = REC.click !== false;
+  el('sr-mic').innerHTML = micOptions();
+  refreshMics();
+  el('sr-err').classList.remove('on');
+  recReset(); REC.where = 'seed'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
+  renderSeedPop();
+  el('sr-scrim').classList.add('on');
+  (el('sr-by').value ? el('sr-role') : el('sr-by')).focus();
+}
+function closeSeedRec() {
+  if (REC.state === 'recording' || REC.state === 'asking') recCancel();
+  recStopPlayers();
+  recReset(); REC.where = null; S.seedRecMeta = null;
+  el('sr-scrim').classList.remove('on');
+  if (lastFocus) lastFocus.focus();
+}
+function seedRecStart() {
+  var bpm = Math.max(40, Math.min(240, parseInt(el('sr-bpm').value, 10) || 100));
+  var sig = el('sr-time').value || '4/4';
+  S.seedBpm = bpm; S.seedTime = sig;
+  S.meta.bpm = bpm; S.meta.time = sig;
+  M.mode = 'extend'; M.sec = 'core';          /* open length, nothing underneath */
+  el('sr-err').classList.remove('on');
+  recReset(); REC.where = 'seed'; REC.hear = {}; REC.click = el('sr-click').checked;
+  recStart();
+}
+/* start the session with the recording, once name and instrument are in */
+function seedRecUse() {
+  if (!REC.buf || !REC.file) return;
+  var name = el('sr-by').value.trim(), rl = el('sr-role').value;
+  var miss = !name ? 'Add your name first, it goes in the credits.' : !rl ? 'Say what the track is: pick an instrument, or "Not one instrument".' : '';
+  if (miss) { el('sr-err').textContent = miss; el('sr-err').classList.add('on'); el(!name ? 'sr-by' : 'sr-role').focus(); return; }
+  /* the drop panel holds the name and instrument the upload reads */
+  if (el('seed-by')) el('seed-by').value = name;
+  if (el('seed-role')) el('seed-role').value = rl;
+  var file = REC.file, meta = S.seedRecMeta;
+  el('sr-scrim').classList.remove('on');
+  recStopPlayers();
+  S.seedRecMeta = meta;
+  loadSeed(file, true);
+}
+function renderSeedPop() {
+  var box = el('sr-rec');
+  if (!box) return;
+  var st = REC.where === 'seed' ? REC.state : 'idle';
+  var err = REC.err ? '<p class="rec-err">' + esc(REC.err) + '</p>' : '';
+  if (st === 'recording' || st === 'asking') {
+    box.className = 'seed-rec live';
+    box.innerHTML = '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
+      '<canvas id="seed-canvas"></canvas>' +
+      '<div class="rec-meterwrap"><i id="rec-meter"></i></div>' +
+      '<div class="rec-acts"><button class="btn btn-ember" type="button" data-rec="finish">Stop recording</button>' +
+      '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div>';
+  } else if (st === 'done') {
+    box.className = 'seed-rec done';
+    box.innerHTML = '<b>Recorded ' + clockMs(REC.buf.duration) + ' at ' + S.seedBpm + ' bpm, ' + esc(S.seedTime) + '</b>' +
+      '<canvas id="seed-canvas"></canvas>' +
+      '<div class="rec-acts"><button class="btn btn-sm" type="button" data-rec="listen">' + I_PLAY + ' Hear it</button>' +
+      '<button class="btn btn-sm" type="button" data-seedrec="1">Record again</button></div>' +
+      (REC.info && REC.state === 'done' ? '<p class="rec-info">' + esc(REC.info) + '</p>' : '') + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
+  } else {
+    box.className = 'seed-rec';
+    box.innerHTML = '<button class="btn btn-ember rec-go" type="button" data-seedrec="1"><span class="rec-dot"></span> Start recording</button>' +
+      '<span class="tiny muted">Wear headphones, so the click stays out of your recording.</span>' + err;
+  }
+  el('sr-start').disabled = st !== 'done';
+  [].forEach.call(document.querySelectorAll('#sr-scrim .sr-set input, #sr-scrim .sr-set select'), function (f) { f.disabled = st === 'recording' || st === 'asking'; });
+  drawSeedRec();
+}
+/* the first track as it comes in, on a timeline that grows with it */
+function drawSeedRec() {
+  var c = el('seed-canvas');
+  if (!c) return;
+  var dpr = window.devicePixelRatio || 1, w = c.clientWidth || 500, h = c.clientHeight || 64;
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  var g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = cvar('--ember');
+  var mid = h / 2;
+  if (REC.state === 'recording' && REC.chunks) {
+    var a = ac(), now = Math.max(0, a.currentTime - REC.songStart), total = Math.max(8 * barSeconds(), now + 1);
+    REC.chunks.forEach(function (ch) {
+      var sub = ch.dur / ch.pks.length;
+      ch.pks.forEach(function (pk, q) {
+        var at = ch.t - REC.songStart - REC.lat + q * sub;
+        if (at + sub < 0) return;
+        var x0 = Math.max(0, at) / total * w, bar = Math.max(1, Math.min(1, pk) * (h - 6));
+        g.fillRect(x0, mid - bar / 2, Math.max(1, sub / total * w + .5), bar);
+      });
+    });
+    g.fillStyle = cvar('--red'); g.fillRect(now / total * w, 0, 2, h);
+  } else if (REC.state === 'done' && REC.buf) {
+    var pk2 = REC.peaks || (REC.peaks = peaksOf(REC.buf, 1200)), n = pk2.length;
+    for (var x = 0; x < w; x++) {
+      var b2 = Math.max(1, (pk2[Math.floor(x / w * n)] || 0) * (h - 6));
+      g.fillRect(x, mid - b2 / 2, 1, b2);
+    }
+  }
+}
 function canDropSeed() { return asCreator() && isOpen() && !S.seedBusy; }
+/* the project's name: what the creator called it, or "<name>'s track" until they do */
+function projName() {
+  if (S.title && S.title !== 'Untitled') return S.title;
+  return S.seed.by ? S.seed.by + '’s track' : 'Untitled';
+}
+/* the creator names (and renames) the project here; everyone else sees the name */
+function renderProjTitle() {
+  var box = el('projtitle');
+  if (!box) return;
+  box.style.display = hasSeed() && S.session ? '' : 'none';
+  if (!hasSeed() || !S.session) { box.innerHTML = ''; return; }
+  if (isHost()) {
+    if (!el('proj-title')) {
+      box.innerHTML = '<label class="pt-lbl" for="proj-title">Song name</label>' +
+        '<input class="projname" id="proj-title" maxlength="120" autocomplete="off" placeholder="Name your song" aria-describedby="proj-hint">' +
+        '<span class="tiny muted" id="proj-hint">Click to rename. Everyone sees the new name right away.</span>';
+    }
+    var f = el('proj-title');
+    if (document.activeElement !== f) f.value = S.title && S.title !== 'Untitled' ? S.title : '';
+    f.placeholder = 'Name your song, e.g. ' + projName();
+  } else {
+    box.innerHTML = '<div class="pt-lbl">Song</div><h2 class="projname">' + esc(projName()) + '</h2>';
+  }
+}
+/* the big invitation to make your own version: most people start by playing with the takes */
+function renderOwnCta() {
+  var box = el('owncta');
+  if (!box) return;
+  box.style.display = hasSeed() && S.session ? '' : 'none';
+  if (!hasSeed() || !S.session) { box.innerHTML = ''; return; }
+  var building = S.view === 'build' && !S.override, n = pool().length;
+  box.innerHTML = '<div class="oc-copy"><div class="kicker">Make it yours</div>' +
+      '<h2>Make your own version</h2>' +
+      '<p>Use every take in this song' + (n ? ' (' + n + ' so far)' : '') + ', the ones that made it and the ones that didn’t. ' +
+      'Record or upload your own takes on top, as many as you like, and save your version. Nobody has to approve it.</p></div>' +
+    '<div class="oc-acts">' +
+      '<button class="btn btn-ember btn-lg" type="button" data-ownstart="1">' + (building ? 'Go to your version' : 'Start your own version') + '</button>' +
+    '</div>' + ocTakes();
+}
+/* every take you can build with, inside the "make your own version" block: the ones the
+   song uses and the ones it doesn't (vetoed, or taken out by the creator) */
+function ocTake(t, extra) {
+  var r = role(t.roleId), core = secOf(t) === 'core', key = core ? 'pair:' + t.id : t.id, on = only === key;
+  return '<li class="oc-take">' +
+    '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (core ? 'data-pair' : 'data-prev') + '="' + t.id + '" aria-label="Hear the take by ' + esc(t.by) +
+      (core ? ' with the original track' : '') + '"' + (t.buf && S.seed.buf ? '' : ' disabled') + '>' + (on ? I_PAUSE : I_PLAY) + '</button>' +
+    ico(r.icon, col(r)) +
+    '<div class="oc-who"><b>' + esc(t.by) + '</b><span>' + esc(r.label) + (extra ? ', ' + extra : '') + ' ' + secTag(t) + verTag(t.id) + '</span></div>' +
+    menuBtn('o:' + t.id,
+      (core ? mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') : '') +
+      mi('data-dl="' + t.id + '"', 'Download') + (extra ? miDel(t.id) : '')) + '</li>';
+}
+/* the takes stay folded away until you open one of the two lists */
+function ocTakes() {
+  var used = S.members.filter(onKeptSection), unused = S.archive.slice().reverse();
+  S.ocOpen = S.ocOpen || {};
+  function col(key, title, sub, items, empty, id) {
+    var open = !!S.ocOpen[key];
+    return '<div class="oc-col' + (open ? ' open' : '') + '"' + (id ? ' id="' + id + '"' : '') + '>' +
+      '<button class="oc-h" type="button" data-ocopen="' + key + '" aria-expanded="' + open + '">' +
+        '<b>' + title + '</b><span class="count">' + items.length + '</span><span class="oc-chev" aria-hidden="true">&#9662;</span></button>' +
+      '<p class="oc-sub">' + sub + '</p>' +
+      (open ? (items.length ? '<ul>' + items.join('') + '</ul>' : '<p class="oc-empty">' + empty + '</p>') : '') + '</div>';
+  }
+  return '<div class="oc-takes">' +
+    col('used', 'Used takes', 'In the song right now. Play shows how each one sounds with the original track.',
+      used.map(function (t) { return ocTake(t, ''); }), 'No takes in the song yet.') +
+    col('unused', 'Unused takes', 'Nothing gets wasted. Use them in your own version.',
+      unused.map(function (a) { return ocTake(a.take, a.why); }), 'Every take made it into the song so far.', 'archive-head') +
+    '</div>';
+}
 function renderSeed() {
   var s = S.seed, host = isHost(), loading = loadingCount(), ri = seedInstr();
-  el('session-name').textContent = S.session ? S.title : 'New session';
+  el('session-name').textContent = S.session ? projName() : 'New session';
   el('session-sub').textContent = (hasSeed() ? 'track loaded, ' + fmt(s.len) : 'no track yet') +
-    (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', closed' : '');
+    (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', released' : '');
   el('seedpanel').className = 'seed' + (hasSeed() ? '' : ' empty');
-  el('metabar').style.display = hasSeed() ? '' : 'none';
+  el('metabar').style.display = hasSeed() && host && isOpen() && S.metaOpen ? '' : 'none';
   el('metabar').classList.toggle('readonly', !host);
 
   if (hasSeed()) {
@@ -1028,22 +1639,30 @@ function renderSeed() {
         (only === 'seed' ? I_PAUSE : I_PLAY) + '</button>' +
       '<div><div class="kicker">The original track' + (ri ? ', ' + ri.label.toLowerCase() : '') + '</div>' +
       '<div class="who">' + (host ? 'Your track' : esc(s.by) + '’s track') + ', ' + fmt(s.len) + (s.buf ? '' : ' <span class="tiny muted">loading</span>') + '</div>' +
-      '<div class="viz live" id="seed-viz" aria-hidden="true">' + vizMarkup(44) + '</div></div>' +
+      seedWave() + '</div>' +
       '<div class="seed-side"><div class="facts" id="facts"></div>' +
-      (host && isOpen() ? '<button class="btn btn-sm" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
-        (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '') + '</div>';
+      (host && isOpen() ? '<button class="btn btn-sm' + (S.metaOpen ? ' on' : '') + '" type="button" data-metaedit="1" aria-expanded="' + !!S.metaOpen + '">' +
+        (S.metaOpen ? 'Done' : 'Edit') + '</button>' : '') + '</div>';
   } else if (asCreator()) {
     el('seedpanel').innerHTML = '<div class="dropbig">' + I_UP +
       '<h2>Drop an audio track</h2>' +
-      '<p>A riff, a groove or a vocal. Drag it in, and other musicians stack layers on top until it sounds right to you. ' +
+      '<p>A riff, a groove or a vocal. Drag it in, and other musicians add their takes on top until the stack sounds right to you. ' +
       'You get a link to share.</p>' +
       '<div class="db-fields">' +
         '<label class="field seed-name"><span>Your name</span><input type="text" id="seed-by" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
-        '<label class="field seed-name"><span>What is it</span><select id="seed-role">' + seedRoleOptions(S.meta.seedRole, 'Not one instrument') + '</select></label>' +
+        '<label class="field seed-name"><span>What is it</span><select id="seed-role">' +
+          '<option value="" selected disabled>Pick one</option><option value="none">Not one instrument</option>' +
+          ROLES.map(function (r) { return '<option value="' + r.id + '">' + r.label + '</option>'; }).join('') + '</select></label>' +
       '</div>' +
-      '<button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
-        (S.seedBusy ? 'Uploading...' : 'Choose a file') + '</button>' +
-      '<span class="tiny muted">wav, mp3 or m4a</span>' +
+      (S.pendingSeed && !S.seedBusy
+        ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready. Fill in your name and what it is, then start.</span>' +
+          (S.seedErr ? '<p class="db-err" role="alert">' + esc(S.seedErr) + '</p>' : '') +
+          '<button class="btn btn-ember" type="button" data-seedgo="1">Start the session with this track</button>' +
+          '<button class="btn btn-sm" type="button" data-attach="seed">Choose another file</button></div>'
+        : '<div class="db-acts"><button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
+            (S.seedBusy ? 'Uploading...' : 'Choose a file') + '</button>' +
+            (S.seedBusy ? '' : '<button class="btn db-rec" type="button" data-seedpop="1"><span class="rec-dot"></span> Record right here</button>') + '</div>' +
+          '<span class="tiny muted">wav, mp3 or m4a, or record it with a click</span>') +
     '</div>';
   } else {
     el('seedpanel').innerHTML = '<div class="dropbig wait">' + I_UP +
@@ -1079,7 +1698,9 @@ function renderSeed() {
         TIMES.map(function (t) { return '<option' + (t === S.meta.time ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
       '</select></label>' +
       '<label class="mini"><span>track is</span><select id="meta-seedrole"' + (host && isOpen() ? '' : ' disabled') + '>' + seedRoleOptions(S.meta.seedRole, 'not one instrument') + '</select></label>' +
-      '<span class="tiny muted">' + note + '</span>'
+      '<span class="tiny muted">' + note + '</span>' +
+      (host && isOpen() ? '<button class="btn btn-sm meta-replace" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
+        (S.seedBusy ? 'Uploading...' : 'Replace the track') + '</button>' : '')
     : '<span class="tiny muted">' + note + '</span>';
 }
 
@@ -1089,27 +1710,45 @@ function barSeconds() {
   var p = t.split('/'), beats = +p[0] || 4, unit = +p[1] || 4;
   return beats * (60 / bpm) * (4 / unit);
 }
+/* the two ways to look at the song, as a big switch on top of the DAW */
 function dawTabs() {
-  var building = S.view === 'build' && !S.override;
-  return '<div class="dawtabs" role="tablist" aria-label="What plays">' +
-    '<button type="button" role="tab" data-view="lineup" aria-selected="' + (!building && !S.override) + '">Main project</button>' +
-    '<button type="button" role="tab" data-view="build" aria-selected="' + building + '">Build your own<span class="long"> version</span></button>' +
+  var building = S.view === 'build' && !S.override, main = !building && !S.override;
+  return '<div class="dawtabs modes" role="tablist" aria-label="What plays">' +
+    '<button type="button" role="tab" data-view="lineup" aria-selected="' + main + '">' +
+      '<span class="m-ico">' + I_PLAY + '</span><span class="m-txt"><b>The song so far</b><small>the takes the creator chose</small></span></button>' +
+    '<button type="button" role="tab" class="mode-own" data-view="build" aria-selected="' + building + '">' +
+      '<span class="m-ico">+</span><span class="m-txt"><b>Your version</b><small>any take, plus your own takes</small></span></button>' +
     '</div>';
 }
+/* the filter knobs show when you ask for them, or when a filter is already doing something */
+function fxOpen(t) {
+  return !!(S.fxOpen && S.fxOpen[t.id]) || cutOf(t, 'hp') > F_MIN || cutOf(t, 'lp') < F_MAX;
+}
 function renderDaw() {
-  var list = tracks(), d = duration();
+  var list = tracks(), d = duration(), own = S.view === 'build' && !S.override;
+  el('daw').classList.toggle('own', own);
+  if (el('mix-title')) {
+    el('mix-title').textContent = own ? 'Your version' : 'Layers in the song';
+    el('mix-kicker').textContent = own ? 'Same recordings, your choices' : 'Current stacks';
+  }
+  /* the stack's instrument chips belong to the stack, not to your version */
+  el('instruments').style.display = 'none';  /* the chips repeated the tracks right below them */
+  if (own && el('lineup-sub')) el('lineup-sub').textContent = 'Saved versions show up under "Other versions", for everyone to hear.';
   var banner = '';
   if (S.override) {
     banner = '<div class="listening"><span>Listening to <b>' + esc(S.override.name) + '</b> by ' + esc(S.override.by) + '</span>' +
       '<button class="btn btn-sm" type="button" data-fork="' + S.override.id + '">Build on this one</button>' +
-      '<button class="btn btn-sm" type="button" data-view="lineup">Back to the main project</button></div>';
+      '<button class="btn btn-sm" type="button" data-view="lineup">Back to the stack</button></div>';
   } else if (S.view === 'build') {
+    var mineOwn = S.own.filter(mine).length;
     banner = '<div class="listening build"><span><b>Your version.</b> The original track is always in. Pick any take below, ' +
-      'including ones that were vetoed or are still waiting.</span></div>';
+      'including unused takes and ones still waiting for review, or record your own.' +
+      (mineOwn && isOpen() ? ' Like one of your own takes? Send it to the creator from the list below.' : '') + '</span>' +
+      '<button class="btn btn-sm btn-ember" type="button" data-own="">+ Record or upload your own</button></div>';
   }
   if (!list.length) {
     el('daw').innerHTML = dawTabs() + banner + '<div class="empty-state"><b>' + (hasSeed() ? 'Loading audio' : 'No audio yet') + '</b>' +
-      '<p class="tiny muted">' + (hasSeed() ? 'The takes are coming down from storage.' : 'Drop an audio track, then let layers in. They stack up here like tracks in a DAW.') + '</p></div>';
+      '<p class="tiny muted">' + (hasSeed() ? 'The takes are coming down from storage.' : 'Drop an audio track, then add takes to the stack. They stack up here like tracks in a DAW.') + '</p></div>';
     renderPicker();
     renderPitches();
     return;
@@ -1130,7 +1769,7 @@ function renderDaw() {
     var status = '';
     if (isPart) status = isPitch ? 'pitch, ' + t.pos : t.pos;
     else if (!lineupView) {
-      if (t.id !== 'seed' && S.members.indexOf(t) < 0) status = S.applicants.indexOf(t) > -1 ? 'waiting' : 'vetoed';
+      if (t.id !== 'seed' && S.members.indexOf(t) < 0) status = isOwn(t) ? 'own' : standing(t);
     }
     return '<div class="track' + (c.mute ? ' muted-t' : '') + (c.solo ? ' solo-t' : '') + (isTrial || isPitch ? ' trial' : '') + (isPart ? ' part' : '') + '">' +
       '<div class="t-head">' +
@@ -1138,25 +1777,27 @@ function renderDaw() {
           '<div><b>' + esc(t.by || 'you') + (isTrial ? ' <span class="trybadge">trying out</span>' : '') +
           (status ? ' <span class="stag">' + status + '</span>' : '') + '</b>' +
           '<span class="tiny muted">' + esc(labelOf(t)) + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
-          (building && t.id !== 'seed' && !isPart ? '<button class="tbtn rm" type="button" data-pick="' + t.id + '" title="Take it out of your version" aria-label="Remove ' + esc(t.by) + ' from your version">&times;</button>' : '') +
-          (boss && isPart && !isPitch ? '<button class="tbtn rm" type="button" data-droppart="' + t.id + '" title="Take this part out of the song" aria-label="Take the part by ' + esc(t.by) + ' out of the song">&times;</button>' : '') +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
           '<button class="btn btn-sm" type="button" data-untrialpitch="1">Take it out</button></div>' : '') +
-        (isTrial ? voteBlock(t) + '<div class="t-try">' +
-          (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Let it in</button>' : '') +
+        (isTrial ? '<div class="t-try">' +
+          (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>' : '') +
           '<button class="btn btn-sm" type="button" data-untrial="1">Take it out</button></div>' : '') +
         '<div class="t-ctrl">' +
-          '<button class="tbtn play-t' + (only === t.id ? ' on' : '') + '" type="button" data-prev="' + t.id + '" title="Play just this track" aria-label="Play only the take by ' + esc(t.by) + '">' +
-            (only === t.id ? I_PAUSE : I_PLAY) + '</button>' +
           '<button class="tbtn' + (c.mute ? ' on' : '') + '" type="button" data-mute="' + t.id + '" aria-pressed="' + !!c.mute + '" title="Mute">M</button>' +
           '<button class="tbtn' + (c.solo ? ' on solo' : '') + '" type="button" data-solo="' + t.id + '" aria-pressed="' + !!c.solo + '" title="Solo">S</button>' +
           '<input type="range" min="0" max="1" step="0.02" value="' + v + '" data-vol="' + t.id + '" aria-label="Volume for ' + esc(t.by) + '">' +
-          '<button class="tbtn" type="button" data-dl="' + t.id + '" title="Download this take">' + I_DL + '</button>' +
-          (lineupView && t.id !== 'seed' ? delBtn(t.id, true) : '') +
+          '<button class="tbtn eq' + (fxOpen(t) ? ' on' : '') + '" type="button" data-fx="' + t.id + '" aria-pressed="' + fxOpen(t) + '" title="Low cut and high cut">EQ</button>' +
+          menuBtn('t:' + t.id,
+            mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
+            mi('data-dl="' + t.id + '"', 'Download') +
+            (building && t.id !== 'seed' && !isPart ? mi('data-pick="' + t.id + '"', 'Remove from your version') : '') +
+            (boss && isPart && !isPitch ? mi('data-droppart="' + t.id + '"', 'Take this part out of the song') : '') +
+            (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? mi('data-takeout="' + t.id + '"', 'Take out of the song') : '') +
+            (t.id !== 'seed' && (lineupView ? boss : isOwn(t)) ? miDel(t.id) : '')) +
         '</div>' +
-        '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' +
+        (fxOpen(t) ? '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' : '') +
         (boss && isPart ? '<label class="xf"><span>crossfade</span>' +
           '<input type="range" min="0" max="' + xfMax(t).toFixed(1) + '" step="0.1" value="' + xf(t) + '" data-xfade="' + t.id + '" aria-label="Crossfade for the part by ' + esc(t.by) + '">' +
           '<em>' + xf(t).toFixed(1) + ' s</em></label>' : '') +
@@ -1173,23 +1814,156 @@ function renderDaw() {
   el('daw').innerHTML = dawTabs() + banner +
     '<div class="daw-bar">' +
       '<button class="btn btn-ember" type="button" id="transport">' + (running ? I_PAUSE + ' Stop' : I_PLAY + ' Play') + '</button>' +
+      (building ? '<button class="btn btn-ink" type="button" id="ver-save-top"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save your version</button>' +
+        (S.buildDirty && S.build.picks.length ? '<span class="unsaved">not saved yet</span>' : '') : '') +
       '<button class="btn btn-sm" type="button" id="rewind" title="Back to the start">&#9198;</button>' +
       '<span class="readout" id="readout">' + clockMs(position()) + ' / ' + clockMs(d) + '</span>' +
-      '<span class="tiny muted">' + list.length + ' track(s), ' + barCount + ' bars at ' + (S.meta.bpm || '?') + ' bpm ' + S.meta.time + '</span>' +
-      '<span class="clickctl"><label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
-      '<button class="btn btn-sm" type="button" id="dl-click" title="A click at the session tempo, with the count-in in front">' + I_DL + ' Click track</button></span>' +
-      '<button class="btn btn-sm" type="button" id="dl-all">' + I_DL + ' Download these takes</button>' +
+      (building ? '' : '<span class="tiny muted">' + list.length + ' track(s), ' + barCount + ' bars at ' + (S.meta.bpm || '?') + ' bpm ' + S.meta.time + '</span>') +
+      '<span class="clickctl">' + menuBtn('tools',
+        '<label class="mi-field"><span>Count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
+        '<button class="mi" type="button" id="dl-click">' + I_DL + ' Click track <small>at the session tempo, with the count-in</small></button>' +
+        '<button class="mi" type="button" id="dl-all">' + I_DL + ' Download these takes <small>every track, plus a session sheet</small></button>',
+        'Play along &#9662;', 'btn btn-sm') + '</span>' +
     '</div>' +
     '<div class="ruler"><span class="r-head"></span><span class="r-lane">' + ticks + '</span></div>' +
-    '<div class="tracks">' + rows + '</div>' +
+    cmRow() +
+    '<div class="tracks">' + rows + addRow(building) + '</div>' +
     '<div class="playhead" id="playhead"></div>';
 
   list.forEach(function (t) { drawWave(t); });
+  drawRecLane();
   placeFadeHandles();
   placeExtendButtons();
   renderPicker();
   renderPitches();
   tick();
+}
+/* ---------- comments on the timeline, SoundCloud style ----------
+   A strip under the ruler with a dot per comment. Click the strip to comment on that moment
+   (or "+ Comment here" for where the playhead is); hover or click a dot to read it. While the
+   song plays, comments open up as the playhead passes them. at_sec counts from the start of
+   the original track, so comments stay on the same music when parts are added before it. */
+var I_CM = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/></svg>';
+/* who wrote it, in the song's terms */
+function whoLabel(uid) {
+  if (S.session && uid === S.session.host_id) return 'creator';
+  var list = Object.keys(TAKES).map(function (k) { return TAKES[k]; })
+    .filter(function (t) { return t.authorId === uid && live(t) && t.roleId !== 'seed' && t.roleId !== 'mix'; });
+  function lbl(t) { return t.roleId === 'part' ? 'a new part' : role(t.roleId).label.toLowerCase(); }
+  var inT = list.filter(function (t) { return t.status === 'in'; })[0];
+  if (inT) return 'plays ' + lbl(inT);
+  var w = list.filter(function (t) { return t.status !== 'own'; })[0];
+  if (w) return 'sent ' + lbl(w);
+  if (list.length || S.versions.some(function (v) { return v.authorId === uid; })) return 'made a version';
+  return '';
+}
+function cmX(songSec) { var d = duration() || 1; return Math.max(0, Math.min(1, songSec / d)) * 100; }
+/* a dot never hangs over the edge of the strip */
+function cmLeft(x) { return 'left:clamp(12px,' + x.toFixed(2) + '%,calc(100% - 12px))'; }
+function cmPos(x) { return 'left:' + x.toFixed(2) + '%;transform:translateX(-' + x.toFixed(2) + '%)'; }
+function cmRow() {
+  if (!hasSeed() || !S.session || !S.cmAvailable || !duration()) return '';
+  var s0 = startOf(S.seed), open = isOpen(), host = isHost();
+  var marks = S.comments.map(function (c) {
+    var t = s0 + c.at, x = cmX(t), who = whoLabel(c.authorId), on = S.cmOpen === c.id;
+    return '<button type="button" class="cm-mark' + (on ? ' open' : '') + (who === 'creator' ? ' host' : '') + '" style="' + cmLeft(x) + '" ' +
+        'data-cm="' + c.id + '" data-at="' + t.toFixed(3) + '" aria-label="Comment by ' + esc(c.by) + ' at ' + clockMs(c.at) + '">' + esc((c.by || '?').charAt(0).toUpperCase()) + '</button>' +
+      '<div class="cm-pop' + (on ? ' open' : '') + '" style="' + cmPos(x) + '">' +
+        '<div class="cm-meta"><b>' + esc(c.by) + '</b>' + (who ? '<span class="cm-who">' + esc(who) + '</span>' : '') + '<span class="cm-at">at ' + clockMs(Math.max(0, c.at)) + '</span></div>' +
+        '<p>' + esc(c.body) + '</p>' +
+        (on ? '<div class="cm-acts"><button class="btn btn-sm" type="button" data-cmplay="' + t.toFixed(3) + '">' + I_PLAY + ' Play from here</button>' +
+          (host ? '<button class="btn btn-sm" type="button" data-cmhide="' + c.id + '">Hide</button>' : '') + '</div>' : '') +
+      '</div>';
+  }).join('');
+  var draft = '';
+  if (S.cmDraft && open) {
+    var dx = cmX(s0 + S.cmDraft.at);
+    draft = '<span class="cm-mark ghost" style="' + cmLeft(dx) + '" aria-hidden="true">+</span>' +
+      '<div class="cm-pop cm-new open" style="' + cmPos(dx) + '">' +
+        '<div class="cm-meta"><b>Comment at ' + clockMs(Math.max(0, S.cmDraft.at)) + '</b></div>' +
+        '<textarea id="cm-body" maxlength="500" rows="2" placeholder="Say something about this moment"></textarea>' +
+        (savedName() ? '' : '<input type="text" id="cm-name" maxlength="60" placeholder="Your name">') +
+        (S.cmErr ? '<p class="cm-err">' + esc(S.cmErr) + '</p>' : '') +
+        '<div class="cm-acts"><button class="btn btn-sm btn-ember" type="button" data-cmpost="1">Post</button>' +
+        '<button class="btn btn-sm" type="button" data-cmcancel="1">Cancel</button></div>' +
+      '</div>';
+  }
+  var n = S.comments.length;
+  return '<div class="track cmrow">' +
+    '<div class="t-head"><div class="t-name"><span class="cm-ico">' + I_CM + '</span><div><b>Comments' + (n ? ' (' + n + ')' : '') + '</b>' +
+      '<span class="tiny muted">' + (open ? 'click the strip to add one' : 'closed since the release') + '</span></div></div>' +
+      '</div>' +
+    '<div class="c-lane' + (open ? ' can' : '') + '" id="c-lane">' +
+      (n || S.cmDraft ? '' : '<span class="cm-empty">' + (open ? 'No comments yet. Click anywhere on this strip to comment on that moment.' : 'No comments.') + '</span>') +
+      marks + draft + '</div></div>';
+}
+function openComposer(songSec) {
+  if (!isOpen() || !S.session) return;
+  if (!me) { flash('Still connecting, try again in a second.'); return; }
+  S.cmDraft = { at: songSec - startOf(S.seed) }; S.cmOpen = null; S.cmErr = '';
+  render();
+  var b = el('cm-body'); if (b) b.focus();
+}
+function postComment() {
+  var body = ((el('cm-body') && el('cm-body').value) || '').trim();
+  var name = ((el('cm-name') && el('cm-name').value) || savedName() || '').trim();
+  if (!body) { S.cmErr = 'Write something first.'; render(); if (el('cm-body')) el('cm-body').focus(); return; }
+  if (!name) { S.cmErr = 'Add your name, so people know who said it.'; render(); if (el('cm-name')) el('cm-name').focus(); return; }
+  rememberName(name);
+  var at = S.cmDraft.at;
+  db.addComment({ session_id:S.session.id, author_id:me.id, author_name:name.slice(0, 60), body:body.slice(0, 500), at_sec:at })
+    .then(function () {
+      S.cmDraft = null; S.cmErr = '';
+      if (el('cm-body')) el('cm-body').value = '';
+      flash('Comment posted at ' + clockMs(Math.max(0, at)) + '.');
+      return refresh();
+    }).catch(function (err) { var nu = needsUpdate(err, '20261004140000_timeline_comments.sql'); S.cmErr = (nu || err).message || 'Could not post that. Try again.'; render(); });
+}
+
+/* an empty grey track under the others: record straight onto it (the playhead runs over the
+   other tracks while you play), or upload a file. In the stack the take goes to the
+   creator; in your own version it goes straight in. Not shown while listening to someone
+   else's version. */
+function addRow(building) {
+  if (S.override || (!building && !isOpen())) return '';
+  return '<div class="track addrow' + (REC.where === 'daw' && REC.state !== 'idle' ? ' rec-on' : '') + '" id="addrow">' + addRowInner(building) + '</div>';
+}
+function addRowInner(building) {
+  var dawRec = REC.where === 'daw', st = dawRec ? REC.state : 'idle';
+  var rid = S.recRole || ROLES[0].id, r = role(rid);
+  var err = dawRec && REC.err ? '<span class="rec-err">' + esc(REC.err) + '</span>' : '';
+  var head, lane;
+  if (st === 'recording' || st === 'asking') {
+    head = '<div class="t-name">' + ico(r.icon, col(r)) + '<div><b>Recording</b><span class="tiny muted">' + esc(r.label) + '</span></div></div>' +
+      '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
+      '<div class="rec-meterwrap"><i id="rec-meter"></i></div>';
+    lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
+      '<button class="btn btn-sm btn-ember" type="button" data-rec="finish">Stop and keep it</button>' +
+      '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div>';
+  } else if (st === 'done') {
+    head = '<div class="t-name">' + ico(r.icon, col(r)) + '<div><b>Your take</b><span class="tiny muted">' + esc(r.label) + ', ' +
+      (REC.partial ? clockMs(REC.partial) + ' played, rest silent' : clockMs(REC.buf.duration)) + '</span></div></div>';
+    lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
+      '<button class="btn btn-sm btn-ember" type="button" data-dawsend="1">' + (building ? 'Add it to my version' : 'Add my take →') + '</button>' +
+      '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the rest</button>' +
+      '<button class="btn btn-sm" type="button" data-dawrec="1">Record again</button>' +
+      '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>' +
+      (REC.warn ? '<p class="rec-warn lane-warn">' + esc(REC.warn) + '</p>' : '');
+  } else {
+    head = '<div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
+      '<div><b>Your take</b><span class="tiny muted">' + (building ? 'only in your version' : 'for the stack') + '</span></div></div>' +
+      '<select class="rec-role" id="daw-rec-role" aria-label="Which layer your take is for">' +
+        ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rid ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') +
+      '</select>';
+    lane = '<div class="a-lane"><span>' + (building
+        ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
+        : 'Play along and record your take right here, or upload a file. The creator decides if it goes in the stack.') +
+      ' <em>Wear headphones.</em></span>' +
+      '<button class="btn btn-ember" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
+      '<button class="btn" type="button" ' + (building ? 'data-own=""' : 'data-apply=""') + '>Upload a file</button>' +
+      micPicker() + err + '</div>';
+  }
+  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
@@ -1279,17 +2053,21 @@ function renderPicker() {
     var takes = all.filter(function (t) { return t.roleId === r.id; });
     var items = takes.length ? takes.map(function (t) {
       var picked = S.build.picks.indexOf(t.id) > -1;
-      var status = S.members.indexOf(t) > -1 ? 'in the project' : (S.applicants.indexOf(t) > -1 ? 'waiting' : 'vetoed');
-      var on = only === t.id;
-      return '<li class="pk' + (picked ? ' picked' : '') + '">' +
+      var status = standing(t);
+      var on = only === t.id, sendable = isOwn(t) && mine(t) && isOpen();
+      return '<li class="pk' + (picked ? ' picked' : '') + (isOwn(t) ? ' own' : '') + '">' +
         '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear ' + esc(t.by) + ' on its own">' +
           (on ? I_PAUSE : I_PLAY) + '</button>' +
         '<div class="pk-who"><b>' + esc(t.by) + '</b><span>' + status + (secOf(t) !== 'core' ? ', ' + secTag(t) : '') + '</span></div>' +
         '<button class="btn btn-sm pk-btn' + (picked ? ' on' : '') + '" type="button" data-pick="' + t.id + '" aria-pressed="' + picked + '">' +
-          (picked ? 'In' : 'Add') + '</button></li>';
+          (picked ? 'In' : 'Add') + '</button>' +
+        (sendable ? '<button class="pk-send" type="button" data-sendown="' + t.id + '" title="The creator hears it and decides if it goes in the stack">Send to the creator</button>' : '') +
+        (isOwn(t) && mine(t) ? menuBtn('p:' + t.id, miDel(t.id)) : '') +
+        '</li>';
     }).join('') : '<li class="empty">No takes yet.</li>';
     return '<div class="pk-col' + (takes.length ? '' : ' none') + '" style="color:' + col(r) + '"><div class="pk-head">' + ico(r.icon, col(r)) + '<b>' + r.label + '</b></div>' +
-      '<ul>' + items + '</ul></div>';
+      '<ul>' + items + '</ul>' +
+      '<button class="pk-rec" type="button" data-own="' + r.id + '">+ Record or upload ' + esc(r.label.toLowerCase()) + '</button></div>';
   }).join('');
 
   box.innerHTML =
@@ -1319,9 +2097,9 @@ function versionCard(v) {
 function officialCard() {
   var on = !S.override && S.view !== 'build' && running;
   return '<article class="vcard official">' +
-    '<div class="vc-top"><button class="play' + (on ? ' on' : '') + '" type="button" data-playofficial="1" aria-label="Play the official project">' +
+    '<div class="vc-top"><button class="play' + (on ? ' on' : '') + '" type="button" data-playofficial="1" aria-label="Play ' + esc(projName()) + '">' +
       (on ? I_PAUSE : I_PLAY) + '</button>' +
-    '<div><b>Main project</b><span class="tiny muted">official, chosen by the creator</span></div></div>' +
+    '<div><b>' + esc(projName()) + '</b><span class="tiny muted">official, chosen by the creator</span></div></div>' +
     '<div class="vc-chips">' + S.members.filter(onKeptSection).map(function (t) {
       var r = role(t.roleId);
       return '<span class="vchip">' + ico(r.icon, col(r)) + esc(t.by) + '</span>';
@@ -1332,9 +2110,9 @@ function renderVersionLists() {
   var html = officialCard() + sorted.map(versionCard).join('');
   ['fanmixes', 'rel-fanmixes'].forEach(function (id) { if (el(id)) el(id).innerHTML = html; });
   if (el('fan-sub')) el('fan-sub').textContent = S.versions.length
-    ? S.versions.length + ' version(s) from the room, sorted by hearts. The official project stays on top.'
-    : 'Nobody has built their own version yet. Switch to "Build your own version" above the tracks to make one.';
-  if (el('play-raw')) el('play-raw').textContent = (running && !S.override) ? 'Stop' : 'Play it raw';
+    ? S.versions.length + ' version(s) from the room, sorted by hearts. The stack stays on top.'
+    : 'Nobody has built their own version yet. Switch to "Your version" above the tracks to make one.';
+  if (el('play-raw')) el('play-raw').textContent = (running && !S.override) ? 'Stop' : 'Play the stack';
 }
 function playVersion(v) {
   if (S.override && S.override.id === v.id && running) { stopAll(); return; }
@@ -1380,69 +2158,54 @@ function anLine(t) {
   var off = S.meta.bpm && Math.abs(t.an.bpm - S.meta.bpm) > 2;
   return '<div class="an' + (off ? ' off' : '') + '">' + t.an.bpm + ' bpm, ' + t.an.key + (off ? ' — off the session tempo' : '') + '</div>';
 }
+/* how the "Add …" button names an instrument where the plural reads better */
+var ADD_AS = { guitar:'guitars', lead:'leads' };
 function applyCard(r) {
-  var list = waitingFor(r.id), host = isHost(), held = seedHolds(r.id);
-  var body = list.length ? list.map(function (t) {
-    var on = only === t.id && running;
+  var list = waitingFor(r.id), host = isHost(), held = seedHolds(r.id), open = isOpen();
+  var body = list.map(function (t) {
+    var on = S.trial === t.id;
     return '<li class="app">' +
       '<div class="app-top">' +
-        '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Preview the take by ' + esc(t.by) + '">' +
-          (on ? I_PAUSE : I_PLAY) + '</button>' +
+        '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-try="' + t.id + '" aria-label="' + (on ? 'Stop' : 'Hear the take by ' + esc(t.by) + ' in the mix') + '"' +
+          ' title="' + (on ? 'Stop' : 'Hear it in the mix') + '">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
         '<b>' + esc(t.by) + '</b><span class="len">' + fmt(t.len) + '</span>' +
-        '<button class="btn btn-sm icobtn" type="button" data-dl="' + t.id + '" aria-label="Download this take">' + I_DL + '</button>' +
-        delBtn(t.id) +
-      '</div>' + anLine(t) + (secTag(t) || inVersions(t.id) ? '<div class="vline">' + secTag(t) + verTag(t.id) + '</div>' : '') +
-      voteBlock(t) +
-      (S.trial === t.id
-        ? '<div class="trypair">' + mixToggle('this take') +
-          '<button class="btn btn-sm trybtn on" type="button" data-try="' + t.id + '">Take out of the mix</button></div>'
-        : '<button class="btn btn-sm trybtn" type="button" data-try="' + t.id + '">Hear it in the mix</button>') +
+        menuBtn('a:' + t.id, mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
+          mi('data-dl="' + t.id + '"', 'Download') + miDel(t.id)) +
+      '</div>' + (on ? '<div class="trying">Playing in the mix</div>' : '') + anLine(t) +
+      (secTag(t) || inVersions(t.id) ? '<div class="vline">' + secTag(t) + verTag(t.id) + '</div>' : '') +
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
-      (host && isOpen()
+      (host && open
         ? '<div class="app-foot"><span class="acts">' +
-          (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Let it in</button>') +
+          (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>') +
           '<button class="btn btn-sm btn-veto" type="button" data-no="' + t.id + '">Veto</button></span></div>'
         : '<div class="app-foot"><span class="tiny muted">Waiting for the creator</span></div>') +
       '</li>';
-  }).join('') : '<li class="empty">Nothing waiting here.</li>';
-
-  return '<article class="gate apply" style="color:' + col(r) + '">' +
+  }).join('');
+  var addTxt = 'Add ' + esc(ADD_AS[r.id] || r.label.toLowerCase());
+  return '<article class="gate apply' + (list.length ? '' : ' none') + '" style="color:' + col(r) + '">' +
     '<div class="g-top"><div class="g-name">' + ico(r.icon, col(r)) + '<h3>' + r.label + '</h3>' +
-    '<span class="count">' + list.length + '</span></div>' +
-    '<div class="tiny muted">' + (held ? 'The original track plays this part' : 'No limit, the creator decides') + '</div></div>' +
-    '<ul class="takes">' + body + '</ul>' +
-    '<div class="g-foot"><button class="btn btn-ember btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Send a take</button></div></article>';
+    (list.length ? '<span class="count">' + list.length + '</span>' : '') + '</div>' +
+    (held ? '<div class="tiny muted">The original track plays this part</div>' : '') + '</div>' +
+    (list.length ? '<ul class="takes">' + body + '</ul>' : '') +
+    (open ? '<button class="addlink" type="button" data-apply="' + r.id + '">' + (list.length ? '+ ' + addTxt : 'Nothing yet. <u>' + addTxt + '</u>') + '</button>'
+          : (list.length ? '' : '<p class="tiny muted g-empty">No takes.</p>')) + '</article>';
 }
 
 function renderBoards() {
+  /* every instrument keeps its card: it shows people straight away what they can add */
   el('applyboard').innerHTML = ROLES.map(applyCard).join('');
-  el('lineup-sub').textContent = S.members.length
-    ? S.members.length + ' layer(s) on top of the original track.'
-    : 'Nothing in the song yet. Everything starts in the waiting list below.';
-  el('apply-sub').textContent = !S.applicants.length
-    ? 'Empty. Use "Send a take" on any instrument to send one in.'
-    : isHost()
-      ? 'You dropped the track, so your yes or veto is final. Everyone in the project votes along to steer you. Whoever holds a spot does not vote on their own replacement.'
-      : 'The creator decides. If you have a layer in the project, your vote steers them.';
+  if (!(S.view === 'build' && !S.override)) el('lineup-sub').textContent = S.members.length
+    ? S.members.length + ' take(s) in the stack, on top of the original track.'
+    : 'Nothing in the stack yet. Every take starts in the review list below.';
+  el('apply-sub').textContent = isHost()
+    ? 'Hear each take in the mix, then add it to the song or veto it. Your call alone.'
+    : 'The creator hears every take in the mix and decides what goes in the song.';
 }
-function renderArchive() {
-  var show = S.archive.length > 0;
-  el('archive-head').style.display = show ? '' : 'none';
-  el('archive').style.display = show ? '' : 'none';
-  if (!show) return;
-  el('archive').innerHTML = '<ul class="rows">' + S.archive.slice().reverse().map(function (a) {
-    var r = role(a.take.roleId);
-    return '<li class="row">' + ico(r.icon, col(r)) +
-      '<div><b>' + esc(a.take.by) + '</b><div class="meta">' + r.label + ', ' + a.why + ' ' + secTag(a.take) + verTag(a.take.id) + '</div></div>' +
-      '<button class="btn btn-sm icobtn" type="button" data-dl="' + a.take.id + '" aria-label="Download">' + I_DL + '</button>' +
-      delBtn(a.take.id) +
-      '<button class="btn btn-sm" type="button" data-apply="' + r.id + '"' + (isOpen() ? '' : ' disabled') + '>Try again</button></li>';
-  }).join('') + '</ul>';
-}
+function renderArchive() { /* the unused takes are listed in the "make your own version" block (ocTakes) */ }
 function renderLock() {
-  el('lock-status').innerHTML = S.members.length + ' take(s) in the song, ' + S.applicants.length + ' waiting' +
+  el('lock-status').innerHTML = S.members.length + ' take(s) in the stack, ' + S.applicants.length + ' to review' +
     (hasSeed() ? '' : ', <strong>no track yet</strong>') +
-    (S.session && !isOpen() ? ', <strong>session closed</strong>' : '');
+    (S.session && !isOpen() ? ', <strong>song released</strong>' : '');
   var btn = el('lock-btn');
   btn.style.display = isHost() && isOpen() ? '' : 'none';
   btn.disabled = !(hasSeed() && S.members.length);
@@ -1515,7 +2278,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm'];
+var KEEP = ['ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name', 'seed-bpm', 'seed-time'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -1528,7 +2291,8 @@ function keepInputs(fn) {
   }
 }
 function render() {
-  keepInputs(function () { renderHow(); renderSeed(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
+  keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
+  if (S.menu) placeMenus();
 }
 function renderAll() {
   render();
@@ -1545,27 +2309,27 @@ function renderSoon() {
 var mixEl = null;
 function renderRelease() {
   var list = tracks(), host = isHost();
-  el('rel-kicker').textContent = S.session && !isOpen() ? 'Closed' : 'Still open, this is a preview';
+  el('rel-kicker').textContent = S.session && !isOpen() ? 'Released' : 'Not released yet, this is a preview';
   var tf = el('song-title');
   if (document.activeElement !== tf) tf.value = S.title;
   tf.readOnly = !host;
 
   el('raw-box').innerHTML =
     '<div class="rawrow">' +
-      '<button class="btn btn-ember" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : 'Play it raw') + '</button>' +
-      '<span class="tiny muted">' + list.length + ' track(s), unmixed, straight out of the session</span></div>' +
-    '<p class="tiny muted">Balance it with the faders in the mix if you want, that is what the room hears.</p>' +
+      '<button class="btn btn-ember" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : 'Play the stack') + '</button>' +
+      '<span class="tiny muted">' + list.length + ' track(s), unmixed, every chosen take as it was played</span></div>' +
+    '<p class="tiny muted">The creator can balance the stack with the faders. That is what everyone hears.</p>' +
     '<button class="btn btn-sm" type="button" id="dl-all2">' + I_DL + ' Download the stems</button>';
 
   el('mix-box').innerHTML = S.mix
-    ? '<div class="rawrow"><button class="btn btn-ember btn-sm" type="button" id="play-mix">' + I_PLAY + ' Play the mix</button>' +
+    ? '<div class="rawrow"><button class="btn btn-ember btn-sm" type="button" id="play-mix">' + I_PLAY + ' Play the Mix</button>' +
       '<div><b>' + esc(S.mix.by) + '</b><div class="tiny muted">' + esc(S.mix.fileName) + '</div></div></div>' +
-      '<p class="tiny muted">Sits next to the raw version, it does not replace it.</p>'
+      '<p class="tiny muted">Sits next to the Stack, it does not replace it.</p>'
     : isOpen()
-      ? '<p class="tiny muted">Anyone can add a mixed version once the creator closes the session.</p>'
-      : '<div class="dropzone" id="mixzone"><b>Upload a mixed version</b>' +
+      ? '<p class="tiny muted">Anyone can add a Mix once the creator releases the song.</p>'
+      : '<div class="dropzone" id="mixzone"><b>Upload a Mix</b>' +
         '<span class="tiny muted">optional, anyone can do it</span>' +
-        '<input type="file" id="mix-file" accept="audio/*" aria-label="Upload a mixed version"></div>' +
+        '<input type="file" id="mix-file" accept="audio/*" aria-label="Upload a Mix"></div>' +
         '<label class="field"><span class="tiny muted">Who mixed it</span>' +
         '<input type="text" id="mix-by" placeholder="your name" value="' + esc(savedName()) + '"></label>';
 
@@ -1584,11 +2348,6 @@ function renderRelease() {
       '<div><b>' + esc(S.mix.by) + '</b><small>mix</small></div></div>' : '');
 
   renderVersionLists();
-  el('rel-archive').innerHTML = S.archive.length ? S.archive.map(function (a) {
-    var r = role(a.take.roleId);
-    return '<div class="credit dim">' + ico(r.icon, col(r)) +
-      '<div><b>' + esc(a.take.by) + '</b><small>' + r.label.toLowerCase() + ', ' + a.why + '</small></div></div>';
-  }).join('') : '<p class="tiny muted">Nobody got turned away this session.</p>';
 
   [].forEach.call(document.querySelectorAll('[data-react]'), function (b) {
     var k = b.dataset.react;
@@ -1615,12 +2374,24 @@ function syncPhase() {
 }
 
 /* ---------- original track ---------- */
-function loadSeed(file) {
-  var nameEl = el('seed-by');
-  var name = ((nameEl && nameEl.value) || S.seed.by || savedName()).trim();
-  var roleEl = el('seed-role');
-  if (!name) { flash('Add your name first, it goes in the credits.'); if (nameEl) nameEl.focus(); return; }
+/* A new session never starts the moment a file is picked: the file waits on the drop panel
+   ("<file> is ready") until you've filled in your name and said what the track is, then you
+   start it. Replacing the track of a running session goes straight through. */
+function loadSeed(file, confirmed) {
+  var first = !hasSeed(), roleEl = el('seed-role');
+  if (first && !confirmed) {
+    S.pendingSeed = file; S.seedErr = '';
+    render();
+    flash('Got ' + file.name + '. Fill in your name and what the track is, then start the session.');
+    var nm = el('seed-by');
+    if (nm && !nm.value.trim()) nm.focus(); else if (roleEl && !roleEl.value) roleEl.focus();
+    return;
+  }
+  var name = first ? ((el('seed-by') && el('seed-by').value) || '').trim() : (S.seed.by || savedName() || 'the creator');
+  if (!name) return;
   if (!me) { flash('Still connecting, try again in a second.'); return; }
+  S.pendingSeed = null;
+  if (REC.where === 'seed') { recReset(); REC.where = null; }
   rememberName(name);
   var created = false;
   S.seedBusy = true; S.meta.busy = true; render();
@@ -1637,13 +2408,17 @@ function loadSeed(file) {
     });
   }).then(function (res) {
     var an = res.analysis, patch = { seed_take_id: res.row.id };
-    if (roleEl) patch.seed_role = roleEl.value || null;
+    if (roleEl) patch.seed_role = roleEl.value && roleEl.value !== 'none' ? roleEl.value : null;
     if (an && (an.tempo || an.key)) {
       patch.bpm = an.tempo ? an.tempo.bpm : null;
       patch.music_key = an.key ? an.key.key : null;
       patch.key_alt = an.key ? an.key.runnerUp : null;
       patch.meta_from = 'detected';
       patch.meta_sure = sureness(Math.min(an.tempo ? an.tempo.conf : 0, an.key ? an.key.conf : 0));
+    }
+    /* recorded here: you played to a click, so its tempo and time are known, not guessed */
+    if (S.seedRecMeta && first && file.name === 'recorded track.wav') {
+      patch.bpm = S.seedRecMeta.bpm; patch.time_sig = S.seedRecMeta.time; patch.meta_from = 'you'; patch.meta_sure = null;
     }
     return db.updateSession(S.session.id, patch).then(function () {
       stopAll();
@@ -1659,12 +2434,33 @@ function loadSeed(file) {
   });
 }
 
+/* start the session with the file waiting on the drop panel, once name and instrument are in */
+function startSeed() {
+  if (!S.pendingSeed) return;
+  var nm = el('seed-by'), rl = el('seed-role');
+  var miss = !(nm && nm.value.trim()) ? 'name' : !(rl && rl.value) ? 'role' : '';
+  if (miss) {
+    S.seedErr = miss === 'name' ? 'Add your name first, it goes in the credits.' : 'Say what the track is: pick an instrument, or "Not one instrument".';
+    render();
+    flash(S.seedErr);
+    var f = el(miss === 'name' ? 'seed-by' : 'seed-role'); if (f) f.focus();
+    return;
+  }
+  S.seedErr = '';
+  loadSeed(S.pendingSeed, true);
+}
+el('sr-cancel').addEventListener('click', closeSeedRec);
+el('sr-start').addEventListener('click', seedRecUse);
+el('sr-scrim').addEventListener('click', function (e) { if (e.target === this) closeSeedRec(); });
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('sr-scrim').classList.contains('on')) closeSeedRec(); });
 var pendingAttach = null;
 el('attach-file').addEventListener('change', function () {
   var file = this.files[0];
   this.value = '';
   if (!file || pendingAttach !== 'seed') return;
   pendingAttach = null;
+  if (REC.where === 'seed') { recReset(); REC.where = null; }
+  S.seedRecMeta = null;
   loadSeed(file);
 });
 /* drag a file onto the drop zone (or onto the track panel to replace it) */
@@ -1685,7 +2481,8 @@ el('seedpanel').addEventListener('drop', function (e) {
   if (f && canDropSeed()) loadSeed(f);
 });
 
-/* ---------- the add pop-up: a layer, or a new part to convince the creator ---------- */
+/* ---------- the add pop-up: a layer for the project, a new part to convince the creator,
+   or a take of your own that goes straight into your version ('own') ---------- */
 var lastFocus = null;
 var M = { mode:'layer', pos:'after', src:'file', sec:'core' };
 function fillRoles(sel) {
@@ -1699,11 +2496,13 @@ function roleHint() {
   if (M.mode === 'extend') return;
   var id = el('take-role').value, r = role(id), free = cap(id, M.sec) - inSong(id, M.sec).length;
   el('modal-ico').innerHTML = ico(r.icon, col(r));
-  el('role-hint').textContent = seedHolds(id, M.sec)
-    ? 'The original track plays this part, so it cannot join the project. People can still use it in their own versions.'
+  el('role-hint').textContent = M.mode === 'own'
+    ? 'It goes straight into your version, nobody has to approve it. Add as many as you like.'
+    : seedHolds(id, M.sec)
+    ? 'The original track plays this layer, so this take cannot go in the stack. People can still use it in their own versions.'
     : free > 0
-    ? 'There is room here. It lands in the waiting list for this instrument.'
-    : 'Taken right now. Get let in and you push that layer back to the waiting list.';
+    ? 'There is room here. It goes to the takes to review for this layer.'
+    : 'Taken right now. If the creator adds yours, the current take goes back to review.';
 }
 function fillSections() {
   var list = sections(), many = list.length > 1;
@@ -1717,11 +2516,13 @@ function fillSections() {
 }
 function secHint() {
   var s = section(M.sec) || section('core');
-  el('modal-sub').textContent = 'One instrument. Dry, from the first beat of ' + s.label + ', exactly ' + fmt(s.len) + ' long.';
+  el('modal-sub').textContent = M.mode === 'own'
+    ? 'Only in your own version. One layer, from the first beat of the original track, exactly ' + fmt(s.len) + ' long. You can send it to the creator later.'
+    : 'One layer. Dry, from the first beat of ' + s.label + ', exactly ' + fmt(s.len) + ' long.';
   el('file-name').textContent = el('take-file').files.length ? el('take-file').files[0].name : 'wav or mp3, dry, ' + fmt(s.len) + ' long';
   if (REC.state === 'idle') renderRec();
 }
-function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : 'Send it in'; }
+function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : M.mode === 'own' ? 'Add it to my version' : 'Add my take →'; }
 function setSrc(src) {
   M.src = src;
   [].forEach.call(document.querySelectorAll('[data-src]'), function (b) {
@@ -1740,11 +2541,11 @@ function countInLabel() {
   el('take-countin').disabled = !n;
   if (!n) el('take-countin').checked = false;
 }
-function openModal(roleId, extendPos) {
+function openModal(roleId, extendPos, own, keepRec) {
   if (!hasSeed()) { flash('Drop an audio track first, it sets the length for everyone.'); return; }
-  if (!isOpen()) { flash('This session is closed.'); return; }
+  if (!own && !isOpen()) { flash('This song is released, so the stack is final.'); return; }
   lastFocus = document.activeElement;
-  M.mode = extendPos ? 'extend' : 'layer';
+  M.mode = extendPos ? 'extend' : own ? 'own' : 'layer';
   M.pos = extendPos || 'after';
   var ext = M.mode === 'extend';
   el('role-field').hidden = ext;
@@ -1758,11 +2559,12 @@ function openModal(roleId, extendPos) {
     el('note-label').textContent = 'Why the song needs this';
     el('take-note').placeholder = 'e.g. it needs a quiet intro before the riff kicks in';
   } else {
-    el('modal-head').textContent = 'Add a layer';
+    el('modal-head').textContent = own ? 'Add your own take' : 'Add a take';
     M.sec = 'core';
     fillRoles(roleId || ROLES[0].id);
     fillSections();
-    el('note-label').textContent = 'One line to the room';
+    if (own) el('sec-field').hidden = true;
+    el('note-label').textContent = own ? 'A note, for if you send it to the creator later (optional)' : 'Say something to the room (optional)';
     el('take-note').placeholder = 'what you were going for';
     countInLabel();
   }
@@ -1771,8 +2573,8 @@ function openModal(roleId, extendPos) {
   el('take-countin').checked = false;
   el('file-name').textContent = ext ? 'wav or mp3, any length' : 'wav or mp3, dry, starting at bar 1';
   el('modal-send').disabled = false;
-  recReset(); REC.hear = {}; REC.click = true;
-  setSrc('file');
+  if (keepRec && REC.buf) { REC.where = 'modal'; setSrc('rec'); }
+  else { recReset(); REC.where = null; REC.fromDaw = false; REC.hear = {}; REC.click = true; setSrc('file'); }
   if (!ext) secHint();
   el('scrim').classList.add('on');
   el('take-name').focus();
@@ -1781,6 +2583,8 @@ function closeModal() {
   if (REC.state === 'recording' || REC.state === 'asking') recCancel();
   recStopPlayers();
   el('scrim').classList.remove('on');
+  /* a take recorded on the grey track goes back there if it wasn't sent */
+  if (REC.fromDaw) { if (REC.buf) REC.where = 'daw'; else REC.fromDaw = false; renderDaw(); }
   if (lastFocus) lastFocus.focus();
 }
 
@@ -1793,6 +2597,16 @@ el('take-file').addEventListener('change', function () {
 el('modal-cancel').addEventListener('click', closeModal);
 el('scrim').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('scrim').classList.contains('on')) closeModal(); });
+/* Enter posts a comment (Shift+Enter for a new line), Escape drops it */
+document.addEventListener('keydown', function (e) {
+  if (e.target.id !== 'cm-body' && e.target.id !== 'cm-name') return;
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); }
+  else if (e.key === 'Escape') { S.cmDraft = null; S.cmErr = ''; render(); }
+});
+/* Enter in the name field starts the session with a file that is already chosen */
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target.id === 'seed-by' && S.pendingSeed) { e.preventDefault(); startSeed(); }
+});
 
 function takeSource(fail) {
   if (M.src === 'rec') {
@@ -1813,7 +2627,11 @@ function takeSource(fail) {
 el('modal-send').addEventListener('click', function () {
   var name = el('take-name').value.trim(), btn = this;
   function fail(m){ el('modal-err').textContent = m; el('modal-err').classList.add('on'); btn.disabled = false; btn.textContent = sendLabel(); }
-  function upFail(e){ console.error(e); fail((e && e.message) || 'The upload failed. Try again.'); }
+  function upFail(e){
+    console.error(e);
+    var nu = M.mode === 'own' ? needsUpdate(e, '20261004120000_own_takes.sql') : null;
+    fail((nu || e).message || 'The upload failed. Try again.');
+  }
   if (!name) return fail('Add your name for the credits.');
   var p = takeSource(fail);
   if (!p) return;
@@ -1832,17 +2650,23 @@ el('modal-send').addEventListener('click', function () {
           return refresh();
         }, upFail);
     }
-    var want = secLen(M.sec);
+    var want = secLen(M.sec), own = M.mode === 'own';
     if (want && Math.abs(len - want) > TOL)
       return fail('Your file is ' + fmt(len) + ', ' + (M.sec === 'core' ? 'the track' : 'that part') + ' is ' + fmt(want) + '.' +
         (S.countIn && !el('take-countin').checked && Math.abs(len - want - S.countIn * barSeconds()) < TOL
           ? ' It looks like it still has the count-in: tick the box above.' : ' Trim or pad it to match.'));
     rememberName(name);
-    return uploadTake(src.file, src.buf, { role:el('take-role').value, status:'waiting', name:name, note:note,
+    return uploadTake(src.file, src.buf, { role:el('take-role').value, status:own ? 'own' : 'waiting', name:name, note:note,
                                            sec:M.sec === 'core' ? null : M.sec, analyse:true })
-      .then(function () {
+      .then(function (res) {
+        if (REC.fromDaw) { recReset(); REC.fromDaw = false; REC.where = null; }
         closeModal();
-        flash('It is waiting now. The creator lets it in or vetoes it.');
+        if (own) {
+          S.build.picks.push(res.row.id); S.buildDirty = true;
+          S.override = null; S.view = 'build';
+          refreshGains();
+          flash('It is in your version. Save the version to keep it, or send the take to the creator from the list.');
+        } else flash('Your take is in the takes to review. The creator decides if it goes in the stack.');
         return refresh();
       }, upFail);
   }).catch(function () { fail('That file could not be read.'); });
@@ -1855,7 +2679,7 @@ function setSeedRole(id) {
   S.meta.seedRole = id;
   render();
   patchSession({ seed_role:id }).then(function () {
-    if (out.length && S.session.seed_role === id) flash(out.map(function (t) { return t.by; }).join(' and ') + (out.length > 1 ? ' are' : ' is') + ' back in the waiting list, the original track plays ' + role(id).label.toLowerCase() + '.');
+    if (out.length && S.session.seed_role === id) flash(out.map(function (t) { return t.by; }).join(' and ') + (out.length > 1 ? ' are' : ' is') + ' back in the takes to review, the original track plays ' + role(id).label.toLowerCase() + '.');
     return refresh();
   });
 }
@@ -1871,18 +2695,28 @@ document.addEventListener('click', function (e) {
   var dl2 = e.target.closest('[data-del]');
   if (dl2) {
     e.stopPropagation();
-    if (dl2.classList.contains('armed')) { deleteTake(dl2.dataset.del); return; }
-    [].forEach.call(document.querySelectorAll('[data-del].armed'), function (b) { b.classList.remove('armed'); });
-    dl2.classList.add('armed');
-    dl2.title = 'Click again to delete';
-    flash('Click the bin again to delete this take for good.');
-    setTimeout(function () { dl2.classList.remove('armed'); dl2.title = 'Delete this take'; }, 3000);
+    var did = dl2.dataset.del;
+    clearTimeout(ARMED.timer);
+    if (armedFor(did)) { ARMED.id = null; deleteTake(did); return; }
+    ARMED.id = did; ARMED.until = Date.now() + 5000;
+    ARMED.timer = setTimeout(function () { ARMED.id = null; render(); }, 5000);
+    render();
+    flash('Click delete again to remove this take for good.');
     return;
   }
   var ex = e.target.closest('[data-extend]');
   if (ex) { e.stopPropagation(); openModal(null, ex.dataset.extend); return; }
   var sr = e.target.closest('[data-src]');
-  if (sr) { setSrc(sr.dataset.src); return; }
+  if (sr) {
+    /* a layer on the original track is recorded on the grey track in the DAW, like a real DAW */
+    if (sr.dataset.src === 'rec' && (M.mode === 'layer' || M.mode === 'own') && M.sec === 'core') { recordInDaw(); return; }
+    setSrc(sr.dataset.src); return;
+  }
+  if (e.target.closest('[data-dawrec]')) { dawRecStart(); return; }
+  if (e.target.closest('[data-seedpop]')) { openSeedRec(); return; }
+  if (e.target.closest('[data-seedrec]')) { seedRecStart(); return; }
+  if (e.target.closest('[data-dawsend]')) { dawRecSend(); return; }
+  if (e.target.closest('[data-dawdrop]')) { dawRecDiscard(); return; }
   var rc = e.target.closest('[data-rec]');
   if (rc) {
     var what = rc.dataset.rec;
@@ -1915,8 +2749,27 @@ document.addEventListener('click', function (e) {
   if (acp) { keepPart(findTake(acp.dataset.accpitch)); return; }
   var psp = e.target.closest('[data-passpitch]');
   if (psp) { passPart(findTake(psp.dataset.passpitch)); return; }
+  var to = e.target.closest('[data-takeout]');
+  if (to) {
+    var tt = findTake(to.dataset.takeout);
+    if (!tt || !isHost()) return;
+    stopAll();
+    db.takeOutLayer(tt.dbId).then(function () {
+      flash('Took ' + (tt.by || 'the') + '’s ' + role(tt.roleId).label.toLowerCase() + ' out of the stack. It is with the unused takes, and people can still use it in their versions.');
+      return refresh();
+    }).catch(function (err) { oops(needsUpdate(err, '20261004130000_take_out_layer.sql') || err); });
+    return;
+  }
+  if (e.target.closest('[data-metaedit]')) { S.metaOpen = !S.metaOpen; render(); return; }
+  var fx = e.target.closest('[data-fx]');
+  if (fx) { S.fxOpen = S.fxOpen || {}; var ft = findTake(fx.dataset.fx); S.fxOpen[fx.dataset.fx] = !fxOpen(ft); render(); return; }
+  var oo = e.target.closest('[data-ocopen]');
+  if (oo) { S.ocOpen = S.ocOpen || {}; S.ocOpen[oo.dataset.ocopen] = !S.ocOpen[oo.dataset.ocopen]; render(); return; }
+  var pr = e.target.closest('[data-pair]');
+  if (pr) { pairPreview(findTake(pr.dataset.pair)); return; }
   var dp = e.target.closest('[data-droppart]');
   if (dp) { dropPart(findTake(dp.dataset.droppart)); return; }
+  if (e.target.closest('[data-seedgo]')) { startSeed(); return; }
   var at = e.target.closest('[data-attach]');
   if (at) { pendingAttach = at.dataset.attach; el('attach-file').click(); return; }
   var d = e.target.closest('[data-dl]');
@@ -1925,29 +2778,32 @@ document.addEventListener('click', function (e) {
   if (pv) { preview(findTake(pv.dataset.prev)); return; }
   var vw = e.target.closest('[data-view]');
   if (vw) {
+    if (REC.state === 'recording' || REC.state === 'asking') recCancel();
     stopAll();
     S.override = null; S.view = vw.dataset.view;
     if (S.view === 'build') S.trial = null;
     refreshGains(); render();
-    flash(S.view === 'build' ? 'Pick takes from every instrument, then save your version.' : 'Back to the main project.');
+    flash(S.view === 'build' ? 'Pick takes for every layer, then save your version.' : 'Back to the stack.');
     return;
   }
   var pk = e.target.closest('[data-pick]');
   if (pk) {
     var pid = pk.dataset.pick, at2 = S.build.picks.indexOf(pid);
     if (at2 > -1) S.build.picks.splice(at2, 1); else S.build.picks.push(pid);
+    S.buildDirty = true;
     stopAll(); refreshGains(); render();
     return;
   }
-  if (e.target.closest('#ver-save')) {
+  if (e.target.closest('#ver-save') || e.target.closest('#ver-save-top')) {
     if (!S.build.picks.length || !S.session || !me) return;
-    var who = (el('ver-by').value || '').trim() || 'someone';
-    var nm = (el('ver-name').value || '').trim() || ('Version by ' + who);
+    var who = ((el('ver-by') && el('ver-by').value) || savedName() || '').trim() || 'someone';
+    var nm = ((el('ver-name') && el('ver-name').value) || '').trim() || ('Version by ' + who);
     rememberName(who);
     db.saveVersion({ session_id:S.session.id, author_id:me.id, name:nm.slice(0, 60), by_name:who.slice(0, 60),
                      picks:S.build.picks.slice(), ctl:JSON.parse(JSON.stringify(S.build.ctl)) })
       .then(function () {
-        el('ver-name').value = '';
+        if (el('ver-name')) el('ver-name').value = '';
+        S.buildDirty = false;
         flash('Saved "' + nm + '". It is in the versions list below the waiting takes.');
         return refresh();
       }).catch(oops);
@@ -1995,8 +2851,8 @@ document.addEventListener('click', function (e) {
     S.trial = (S.trial === tid) ? null : tid;
     S.override = null; S.view = 'lineup';
     stopAll(); render();
-    if (S.trial) { play(0); flash('Playing the project with this take on top.'); }
-    else flash('Back to the main project as it stands.');
+    if (S.trial) { play(0); flash('Playing the stack with this take on top.'); }
+    else flash('Back to the stack as it stands.');
     return;
   }
   if (e.target.closest('[data-untrial]')) { S.trial = null; stopAll(); render(); return; }
@@ -2026,6 +2882,27 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('#dl-all') || e.target.closest('#dl-all2')) { downloadAll(); return; }
+  var cmk = e.target.closest('[data-cm]');
+  if (cmk) { S.cmOpen = S.cmOpen === cmk.dataset.cm ? null : cmk.dataset.cm; S.cmDraft = null; render(); return; }
+  var cpl = e.target.closest('[data-cmplay]');
+  if (cpl) { play(Math.max(0, +cpl.dataset.cmplay - 2)); return; }
+  var chd = e.target.closest('[data-cmhide]');
+  if (chd) {
+    var hid = chd.dataset.cmhide;
+    db.hideComment(hid).then(function () { S.cmOpen = null; flash('Comment hidden.'); return refresh(); })
+      .catch(function (err) { oops(needsUpdate(err, '20261004140000_timeline_comments.sql') || err); });
+    return;
+  }
+  if (e.target.closest('[data-cmpost]')) { postComment(); return; }
+  if (e.target.closest('[data-cmcancel]')) { S.cmDraft = null; S.cmErr = ''; render(); return; }
+  if (e.target.closest('[data-cmhere]')) { openComposer(position()); return; }
+  var clane = e.target.closest('.c-lane.can');
+  if (clane && !e.target.closest('.cm-pop')) {
+    var cr = clane.getBoundingClientRect();
+    openComposer(Math.max(0, Math.min(1, (e.clientX - cr.left) / cr.width)) * duration());
+    return;
+  }
+  if (e.target.closest('.c-lane') && !e.target.closest('.cm-pop') && S.cmOpen) { S.cmOpen = null; render(); return; }
   var lane = e.target.closest('.t-lane');
   if (lane && (justDragged || e.target.closest('.fh'))) return;
   if (lane) {
@@ -2038,6 +2915,31 @@ document.addEventListener('click', function (e) {
   if (n) { veto(S.applicants.filter(function (t2) { return t2.id === n.dataset.no; })[0]); return; }
   var ap = e.target.closest('[data-apply]');
   if (ap) { openModal(ap.dataset.apply); return; }
+  var ow = e.target.closest('[data-own]');
+  if (ow) {
+    if (S.view !== 'build' || S.override) { stopAll(); S.override = null; S.trial = null; S.view = 'build'; refreshGains(); render(); }
+    openModal(ow.dataset.own, null, true);
+    return;
+  }
+  if (e.target.closest('[data-ownstart]')) {
+    if (S.view !== 'build' || S.override) {
+      stopAll(); S.override = null; S.trial = null; S.view = 'build'; refreshGains(); render();
+      flash('Your version. Pick takes from every instrument, record your own, then save it.');
+    }
+    el('daw').scrollIntoView({ behavior:'smooth', block:'start' });
+    return;
+  }
+  var so2 = e.target.closest('[data-sendown]');
+  if (so2) {
+    var ot = findTake(so2.dataset.sendown);
+    if (!ot || !isOwn(ot) || !mine(ot)) return;
+    so2.disabled = true; so2.textContent = 'Sending...';
+    db.sendOwnTake(ot.dbId).then(function () {
+      flash('Sent. Your ' + role(ot.roleId).label.toLowerCase() + ' take is waiting for the creator, and stays in your version.');
+      return refresh();
+    }).catch(function (err) { so2.disabled = false; so2.textContent = 'Send to the creator'; oops(needsUpdate(err, '20261004120000_own_takes.sql') || err); });
+    return;
+  }
   var react = e.target.closest('[data-react]');
   if (react && S.session && me && !S.reacted[react.dataset.react]) {
     var kind = react.dataset.react;
@@ -2049,7 +2951,7 @@ document.addEventListener('click', function (e) {
     if (!S.session) { flash('Drop a track first, then you get a link to share.'); return; }
     var link = location.origin + '/s/' + S.session.slug;
     (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
-      .then(function () { flash('Link copied. Anyone with it can add layers.'); },
+      .then(function () { flash('Link copied. Anyone with it can add takes.'); },
             function () { flash('Share this link: ' + link); });
   }
 });
@@ -2069,8 +2971,9 @@ document.addEventListener('input', function (e) {
     clearTimeout(bpmTimer);
     bpmTimer = setTimeout(function () { patchSession({ bpm:S.meta.bpm, meta_from:'you' }); }, 600);
   }
-  if (e.target.id === 'song-title' && isHost()) {
-    S.title = e.target.value;
+  if ((e.target.id === 'song-title' || e.target.id === 'proj-title') && isHost()) {
+    S.title = e.target.value.trim() || 'Untitled';
+    el('session-name').textContent = projName();
     clearTimeout(titleTimer);
     titleTimer = setTimeout(function () { patchSession({ title:(S.title || 'Untitled').slice(0, 120) }); }, 600);
   }
@@ -2089,6 +2992,12 @@ document.addEventListener('change', function (e) {
     if (el('countin-text')) countInLabel();
     return;
   }
+  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; return; }
+  if (e.target.classList.contains('mic-pick')) {
+    rememberMic(e.target.value);
+    [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.value = e.target.value; });
+    return;
+  }
   if (e.target.dataset.hear) {
     if (e.target.dataset.hear === 'click') REC.click = e.target.checked;
     else REC.hear[e.target.dataset.hear] = e.target.checked;
@@ -2101,12 +3010,12 @@ document.addEventListener('change', function (e) {
     var f = e.target.files[0], by = ((el('mix-by') && el('mix-by').value) || '').trim();
     if (!by) { e.target.value = ''; flash('Add who mixed it first.'); el('mix-by').focus(); return; }
     rememberName(by);
-    flash('Uploading the mix...');
+    flash('Uploading the Mix...');
     decode(f).then(function (buf) {
       return uploadTake(f, buf, { role:'mix', status:'mix', name:by, analyse:false });
     }).then(function () {
       mixEl = null;
-      flash('Mixed version added next to the raw one.');
+      flash('The Mix is added next to the Stack.');
       return refresh();
     }).catch(oops);
   }
@@ -2120,13 +3029,9 @@ el('lock-btn').addEventListener('click', function () {
   if (!isHost()) return;
   stopAll();
   patchSession({ status:'released', released_at:new Date().toISOString() }).then(function () {
-    flash('Session closed. It is released as it stands, and anyone can still build versions.');
+    flash('The song is released. The Stack is the song as it stands, and anyone can still build versions or add a Mix.');
     return refresh();
   });
-});
-el('proto-toggle').addEventListener('click', function () {
-  var open = el('protobar').classList.toggle('open');
-  this.setAttribute('aria-expanded', String(open));
 });
 
 el('strip-1').innerHTML = statics(80);
@@ -2149,9 +3054,10 @@ function boot() {
       S.session = sess;
       watch(sess.id);
       return refresh().then(function () {
-        flash(isHost() ? 'You started this session. Copy the invite link to bring people in.' : 'You are in the mix. Add a layer on any instrument, or pitch a new part.');
+        flash(isHost() ? 'You started this session. Copy the invite link to bring people in.' : 'You are in. Add a take on any layer, or pitch a new part.');
       });
     });
   }).catch(oops);
 }
 boot();
+refreshMics();
