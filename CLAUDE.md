@@ -55,6 +55,7 @@ supabase/migrations/        schema, RLS policies, RPC functions, storage bucket,
 - `version_likes`, `reactions`: one row per person, never deleted.
 - `roles`: slot counts per instrument. **Authoritative for slots.**
 - Homepage threads: `takes.reply_to` is the take a take was played on top of (null = on the original track or on the part in `section_id`); a trigger keeps it inside the session. `thread_comments` are written replies on a jam, a take (`reply_to_take`) or another comment (`reply_to_comment`); anyone signed in, also anonymously, can post; the creator hides one with `hide_thread_comment()`. `thread_votes` is one upserted row per person per jam/take/comment with `value` -1, 0 or 1. The song view doesn't read any of these yet.
+- Deleting from the homepage (author, or an admin): `delete_jam()` sets `sessions.deleted_at` (every page leaves the jam out, rows and audio stay); `delete_thread_take()` marks a take `deleted` (not seeds, mixes or parts) and the app then removes its audio from Storage (allowed only for a deleted take's file); `delete_thread_comment()` sets `thread_comments.deleted_at` and clears the text. Replies stay: the feed shows a deleted post that has replies as a placeholder, and a reply no longer plays the deleted take. `is_admin()` is true for accounts with `role: "admin"` in `app_metadata` (set in SQL or the dashboard, never by the user).
 
 Storage bucket `takes` is public-read. Upload path: `{session_id}/{user_id}/{uuid}.{ext}`, 50 MB per file, `audio/*` only.
 
@@ -77,7 +78,7 @@ Every visitor of the song view is signed in anonymously on first load (`ensureUs
 - The host is whoever created the session, in that browser. Opening the link on another device makes you a guest there.
 - Clearing site data loses the identity (and host rights).
 
-Accounts: email + password, signed in from the homepage (`signInWithEmail()` in data.js). They are created by hand in Supabase for now; the name shown is `user_metadata.username`. Signing in replaces the anonymous user in that browser (its takes and hosted sessions stay with the anonymous user). Signing up and Google sign-in are stubbed in the UI.
+Accounts: email + password, signed in from the homepage (`signInWithEmail()` in data.js). They are created by hand in Supabase for now; the name shown is `user_metadata.username`. Signing in replaces the anonymous user in that browser (its takes and hosted sessions stay with the anonymous user). Sign-up is switched off (greyed-out buttons) and Google sign-in is stubbed. The `admin` account has `app_metadata.role = 'admin'`.
 
 Planned: real sign-up and profiles. Supabase lets an anonymous user be upgraded in place (`supabase.auth.updateUser({ email })` or `linkIdentity()` for OAuth), which keeps the same `auth.uid()`, so existing takes, votes and hosted sessions carry over. Display names are currently free text per take (`author_name`, `by_name`) and remembered in local storage; a `profiles` table keyed by `auth.users.id` should replace that.
 

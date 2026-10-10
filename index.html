@@ -347,6 +347,11 @@ html{scroll-behavior:smooth}
 .sitefoot{border-top:1px solid var(--line);margin-top:48px;padding:18px 40px 28px;font-size:13px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
 .sitefoot a{color:var(--ink);font-weight:700}
 .r-len{font-size:13px}
+.btn:disabled,.btn:disabled:hover{background:var(--tint);border-color:var(--line);color:var(--muted);opacity:1;cursor:not-allowed}
+.auth-tabs button:disabled{opacity:.45;cursor:not-allowed}
+.ghost.del:hover{color:var(--red)}
+.ghost.del.sure{color:var(--red)}
+.rep.gone .rtext{font-style:italic;font-size:13px}
 .field input[type=file]{font-size:14px}
 .empty a{color:var(--ember-ink)}
 header.top .brand{display:flex}
@@ -356,7 +361,7 @@ header.top .brand{display:flex}
 <header class="top"><div class="in">
   <a href="/" class="brand"><img src="/stackato-logo.png" alt="Stackato" width="1100" height="230"></a>
   <nav><a class="on" href="#feed">Jams</a><a href="/songs">Songs</a></nav>
-  <div class="hdr-acts"><button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn" type="button" data-auth="up">Sign up</button><a class="btn btn-ember" href="#start">+ Start a jam</a></div>
+  <div class="hdr-acts"><button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn hdr-signup" type="button" disabled title="Sign-up opens soon">Sign up</button><a class="btn btn-ember" href="#start">+ Start a jam</a></div>
 </div></header>
 
 <section class="hero wide">
@@ -383,7 +388,7 @@ header.top .brand{display:flex}
   </ol>
   </details></div>
   <div class="hero-cta">
-    <div class="cta-row"><button class="btn btn-ember btn-lg" type="button" data-auth="up">Sign up</button></div>
+    <div class="cta-row"><button class="btn btn-ember btn-lg" type="button" disabled title="Sign-up opens soon">Sign up</button></div>
     <span class="muted cta-in">Already in? <button class="ghost" type="button" data-auth="in">Sign in</button></span>
   </div>
 </section>
@@ -453,8 +458,8 @@ header.top .brand{display:flex}
 <div class="scrim" id="auth-scrim" role="dialog" aria-modal="true" aria-labelledby="auth-title">
   <form class="modal auth-modal" id="auth-form" novalidate>
     <div class="auth-top"><div class="auth-tabs" role="tablist" aria-label="Sign up or sign in">
-      <button type="button" role="tab" data-authtab="up" aria-selected="true">Sign up</button>
-      <button type="button" role="tab" data-authtab="in" aria-selected="false">Sign in</button></div>
+      <button type="button" role="tab" data-authtab="up" aria-selected="false" disabled title="Sign-up opens soon">Sign up</button>
+      <button type="button" role="tab" data-authtab="in" aria-selected="true">Sign in</button></div>
       <button class="ghost" type="button" data-close="auth-scrim" aria-label="Close">Close</button></div>
     <h3 id="auth-title">Join Stackato</h3>
     <p class="muted auth-sub" id="auth-sub">Keep your name on every take, and hear it when someone plays on yours.</p>

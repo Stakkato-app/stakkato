@@ -23,7 +23,7 @@ ROLES.forEach(function (r) { LAYERS[r.id] = { label:r.label.toLowerCase(), c:'va
 function lay(id) { return LAYERS[id] || LAYERS.wild; }
 
 var RIFFS = [];
-var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'', name:'' }, loaded:false, failed:null };
+var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'', name:'' }, loaded:false, failed:null, sure:null };
 var KIND = {};                     /* target id -> { kind, sid } for votes */
 var me = null;                     /* the signed-in Supabase user (anonymous or an account), or null */
 var AC = null, BUF = {}, SRC = [];
@@ -80,8 +80,13 @@ function build(feed) {
       if (t.id === s.seed_take_id || t.role_id === 'seed') return;
       if (t.role_id === 'mix') { if (t.status === 'mix') mix = { by:t.author_name, url:db.publicUrl(t.storage_path) }; return; }
       if (t.status === 'own') return;   /* own takes only live in someone's version */
+      if (t.status === 'deleted') {
+        /* a deleted take stays as an empty spot, so the replies played on it keep their place */
+        if (t.role_id !== 'part') posts.push({ id:t.id, parent:t.reply_to || t.section_id || null, deleted:true, created:t.created_at, likes:0 });
+        return;
+      }
       var base = { id:t.id, by:t.author_name, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
-        text:t.note, url:db.publicUrl(t.storage_path), dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status };
+        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status };
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
@@ -93,6 +98,7 @@ function build(feed) {
     });
     feed.comments.filter(function (c) { return c.session_id === s.id; }).forEach(function (c) {
       KIND[c.id] = { kind:'comment', sid:s.id };
+      if (c.deleted_at) { posts.push({ id:c.id, parent:c.reply_to_take || c.reply_to_comment || null, deleted:true, isComment:true, created:c.created_at, likes:0 }); return; }
       posts.push({ id:c.id, parent:c.reply_to_take || c.reply_to_comment || null, by:c.author_name, mine:!!(me && c.author_id === me.id),
         time:ago(c.created_at), created:c.created_at, text:c.body, likes:votes[c.id] || 0, isComment:true });
     });
@@ -100,6 +106,14 @@ function build(feed) {
     /* a reply on something the feed leaves out (a deleted take) moves up to the jam */
     var ids = {}; posts.forEach(function (p) { ids[p.id] = 1; });
     posts.forEach(function (p) { if (p.parent && !ids[p.parent]) p.parent = null; });
+    /* deleted posts nobody replied to disappear; the ones with replies stay as a placeholder */
+    for (var again = true; again;) {
+      again = false;
+      posts = posts.filter(function (p) {
+        if (!p.deleted || posts.some(function (k) { return k.parent === p.id; })) return true;
+        again = true; return false;
+      });
+    }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
       time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec,
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
@@ -183,6 +197,29 @@ document.addEventListener('keydown', function (e) {
   if (e.target.id === 'c-text' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); postComment(); }
 });
 
+/* ---------- deleting: your own things, or anyone's as admin; two clicks ---------- */
+function canDelete(owner) { return owner || db.isAdmin(me); }
+function delBtn(what, id, label) {
+  var k = what + ':' + id, sure = S.sure === k;
+  return '<button class="ghost del' + (sure ? ' sure' : '') + '" type="button" data-del="' + k + '">' + (sure ? 'Click again to delete' : (label || 'Delete')) + '</button>';
+}
+var sureT = 0;
+function askOrDelete(k) {
+  if (S.sure !== k) { S.sure = k; render(); clearTimeout(sureT); sureT = setTimeout(function () { if (S.sure === k) { S.sure = null; render(); } }, 4000); return; }
+  S.sure = null;
+  var i = k.indexOf(':'), what = k.slice(0, i), id = k.slice(i + 1), job;
+  if (what === 'jam') job = db.deleteJam(id);
+  else {
+    var r = RIFFS.filter(function (x) { return postOf(x, id); })[0], p = r && postOf(r, id);
+    if (!p) return;
+    if (S.playing && S.playing.indexOf(r.id) === 0) stop();
+    job = p.isComment ? db.deleteThreadComment(id) : db.deleteThreadTake(id, p.path);
+  }
+  job.then(reload).then(function () {
+    toast(what === 'jam' ? 'The jam is deleted.' : 'Deleted. Replies to it stay in the thread.');
+  }).catch(function (e) { render(); oops(e); });
+}
+
 /* ---------- the thread ---------- */
 function mixLink(label, r, tid) {
   return '<a class="ghost mixlink" href="/s/' + encodeURIComponent(r.slug) + (tid ? '?stack=' + encodeURIComponent(tid) : '') + '">' + label + '</a>';
@@ -192,6 +229,7 @@ function riff(id) { return RIFFS.filter(function (r) { return r.id === id; })[0]
 function postOf(r, id) { return r.posts.filter(function (p) { return p.id === id; })[0]; }
 function kids(r, id) { return r.posts.filter(function (p) { return p.parent === id; }); }
 function audioPosts(r) { return r.posts.filter(function (p) { return p.layer && p.kind !== 'part'; }); }
+function livePosts(r) { return r.posts.filter(function (p) { return !p.deleted; }); }
 function players(r) { var seen = {}; return audioPosts(r).filter(function (p) { if (seen[p.by]) return false; seen[p.by] = 1; return true; }); }
 function key(r, pid) { return r.id + ':' + (pid || 'riff'); }
 function whose(p) { return p.mine ? 'your' : p.by + '’s'; }
@@ -293,7 +331,12 @@ function partHtml(r, p, depth) {
       mixLink('Open in mix view', r, p.id) + commentBtn(r, p.id) + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
   return html + kidsHtml(r, p, depth);
 }
+function goneHtml(r, p, depth) {
+  return '<div class="rep gone" id="post-' + r.id + '-' + p.id + '"><span class="ava sm" style="background:var(--line)"></span>' +
+    '<div class="rbody"><p class="rtext muted">' + (p.isComment ? 'This comment was deleted.' : 'This take was deleted. The replies played on it stay.') + '</p></div></div>' + kidsHtml(r, p, depth);
+}
 function replyHtml(r, p, depth) {
+  if (p.deleted) return goneHtml(r, p, depth);
   if (p.kind === 'part') return partHtml(r, p, depth);
   var on = S.playing === key(r, p.id);
   var html = '<div class="rep" id="post-' + r.id + '-' + p.id + '">' + ava(p.mine ? 'You' : p.by, p.layer, true) +
@@ -305,11 +348,12 @@ function replyHtml(r, p, depth) {
       '<div class="with">on top of ' + chainChips(r, chainOf(r, p.id).slice(0, -1)) + '</div></div>' : '') +
     '<div class="rsub">' + (p.layer && r.open ? '<button class="ghost ember" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
       (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="ghost song-pick" type="button" data-letin="' + p.id + '">&#9734; Add to song</button>' : '') +
-      (p.layer ? mixLink('Open in mix view', r, p.id) : '') + commentBtn(r, p.id, p.layer ? 'Comment' : 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
+      (p.layer ? mixLink('Open in mix view', r, p.id) : '') + commentBtn(r, p.id, p.layer ? 'Comment' : 'Reply') +
+      (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
   return html + kidsHtml(r, p, depth);
 }
 function riffHtml(r) {
-  var on = S.playing === key(r), ps = players(r), n = r.posts.length, open = !!S.expanded[r.id], song = songOf(r);
+  var on = S.playing === key(r), ps = players(r), n = livePosts(r).length, open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
   var html = '<article class="riff' + (r.host ? ' mine' : '') + (open && n ? ' wide-open' : '') + '" id="riff-' + r.id + '">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + esc(r.by) + (r.host ? ' (you)' : '') + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
@@ -322,11 +366,12 @@ function riffHtml(r) {
       (song.length ? '<button class="ghost songplay" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '')
       : '<span>' + (n ? n + ' repl' + (n > 1 ? 'ies' : 'y') + '. Nobody played along yet.' : 'Nobody played along yet. Be the first.') + '</span>') + '</div>' +
     '<div class="racts">' + (r.open ? '<button class="btn btn-sm btn-ember" type="button" data-reply="' + r.id + '">+ Play along</button>' : '') +
-      (n ? '<button class="ghost" type="button" data-expand="' + r.id + '">' + (open ? 'Hide replies' : 'Show replies (' + n + ')') + '</button>' : '') +
-      mixLink('Open in mix view', r, null) + commentBtn(r, null) + '<span class="grow"></span>' + voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
+      (r.posts.length ? '<button class="ghost" type="button" data-expand="' + r.id + '">' + (open ? 'Hide replies' : 'Show replies (' + n + ')') + '</button>' : '') +
+      mixLink('Open in mix view', r, null) + commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
+      '<span class="grow"></span>' + voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
   if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
     (r.mix ? '<button class="btn btn-sm btn-ember" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
-  if (open && n) html += '<div class="replies">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
+  if (open && r.posts.length) html += '<div class="replies">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
 }
 function render() {
@@ -568,6 +613,7 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-playsong]'))) { playSong(b.dataset.playsong); return; }
   if ((b = e.target.closest('[data-playmix]'))) { playMix(b.dataset.playmix); return; }
   if ((b = e.target.closest('[data-vote]'))) { vote(b.dataset.vote, +b.dataset.dir); return; }
+  if ((b = e.target.closest('[data-del]'))) { askOrDelete(b.dataset.del); return; }
   if ((b = e.target.closest('[data-tab]'))) { e.preventDefault(); S.tab = b.dataset.tab; render(); return; }
 });
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeScrims(); });
@@ -584,22 +630,22 @@ function authTab(t) {
   el('auth-go').textContent = t === 'up' ? 'Create my account' : 'Sign in';
   el('auth-pass').setAttribute('autocomplete', t === 'up' ? 'new-password' : 'current-password');
   el('auth-switch').innerHTML = t === 'up' ? 'Already have an account? <button class="ghost" type="button" data-authtab="in">Sign in</button>'
-    : 'New here? <button class="ghost" type="button" data-authtab="up">Create an account</button> <span aria-hidden="true">·</span> <button class="ghost" type="button" data-authforgot="1">Forgot your password?</button>';
+    : 'Sign-up opens soon. <button class="ghost" type="button" data-authforgot="1">Forgot your password?</button>';
   el('auth-err').textContent = '';
 }
 function renderAuth() {
   var name = db.accountName(me), acts = document.querySelector('header.top .hdr-acts');
-  [].forEach.call(acts.querySelectorAll('[data-auth], .hdr-user, [data-signout]'), function (x) { x.remove(); });
+  [].forEach.call(acts.querySelectorAll('[data-auth], .hdr-user, .hdr-signup, [data-signout]'), function (x) { x.remove(); });
   acts.insertAdjacentHTML('afterbegin', name
     ? '<span class="hdr-user"><i>' + esc(name.charAt(0).toUpperCase()) + '</i>' + esc(name) + '</span><button class="ghost" type="button" data-signout="1">Sign out</button>'
-    : '<button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn" type="button" data-auth="up">Sign up</button>');
+    : '<button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn hdr-signup" type="button" disabled title="Sign-up opens soon">Sign up</button>');
   [].forEach.call(document.querySelectorAll('.hero-cta'), function (w) { w.hidden = !!name; });
   if (name) ['up-name-in', 'r-name'].forEach(function (id) { if (el(id)) el(id).value = name; });
 }
 document.addEventListener('click', function (e) {
   var b = e.target.closest('[data-auth]');
-  if (b) { authTab(b.dataset.auth === 'up' ? 'up' : 'in'); openScrim('auth-scrim'); setTimeout(function () { el(AUTH.tab === 'up' ? 'auth-name' : 'auth-mail').focus(); }, 30); return; }
-  if ((b = e.target.closest('[data-authtab]'))) { authTab(b.dataset.authtab); return; }
+  if (b) { authTab('in'); openScrim('auth-scrim'); setTimeout(function () { el(AUTH.tab === 'up' ? 'auth-name' : 'auth-mail').focus(); }, 30); return; }
+  if ((b = e.target.closest('[data-authtab]'))) { if (!b.disabled) authTab(b.dataset.authtab); return; }
   if (e.target.closest('[data-authforgot]')) { el('auth-err').textContent = 'Resetting a password isn’t possible yet. Ask Yarne or Jurgen to reset it for you.'; return; }
   if (e.target.closest('[data-authgo="google"]')) { el('auth-err').textContent = 'Signing in with Google is coming soon. Use your email and password for now.'; return; }
   if (e.target.closest('[data-signout]')) {

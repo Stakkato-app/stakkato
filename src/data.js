@@ -37,6 +37,11 @@ export function accountName(user) {
   return m.username || (user.email ? user.email.split('@')[0] : null);
 }
 
+/* an admin can delete anyone's jams, takes and comments (role set server-side in app_metadata) */
+export function isAdmin(user) {
+  return !!(user && user.app_metadata && user.app_metadata.role === 'admin');
+}
+
 export async function signInWithEmail(email, password) {
   const res = await supabase.auth.signInWithPassword({ email, password });
   if (res.error) throw res.error;
@@ -55,7 +60,7 @@ export function onAuthChange(fn) {
 /* ---------- reads ---------- */
 
 export async function loadSessionBySlug(slug) {
-  return check(await supabase.from('sessions').select('*').eq('slug', slug).maybeSingle());
+  return check(await supabase.from('sessions').select('*').eq('slug', slug).is('deleted_at', null).maybeSingle());
 }
 
 export async function loadSessionById(id) {
@@ -87,6 +92,7 @@ export async function listSongs() {
       ' seed:takes!sessions_seed_take_fk(author_name),' +
       ' layers:takes!takes_session_id_fkey(count)')
     .not('seed_take_id', 'is', null)
+    .is('deleted_at', null)
     .eq('layers.status', 'in')
     .order('created_at', { ascending: false }));
 }
@@ -98,12 +104,13 @@ export async function loadFeed(limit) {
   const sessions = check(await supabase.from('sessions')
     .select('id, slug, host_id, title, status, bpm, music_key, time_sig, seed_role, seed_take_id, created_at, released_at')
     .not('seed_take_id', 'is', null)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit || 20));
   if (!sessions.length) return { sessions, takes: [], comments: [], votes: [] };
   const ids = sessions.map((s) => s.id);
   const [takes, comments, votes] = await Promise.all([
-    supabase.from('takes').select('*').in('session_id', ids).neq('status', 'deleted').order('created_at'),
+    supabase.from('takes').select('*').in('session_id', ids).order('created_at'),
     supabase.from('thread_comments').select('*').in('session_id', ids).eq('hidden', false).order('created_at'),
     supabase.from('thread_votes').select('target_id, voter_id, value').in('session_id', ids)
   ]);
@@ -115,6 +122,24 @@ export async function loadFeed(limit) {
     comments: comments.error ? [] : comments.data,
     votes: votes.error ? [] : votes.data
   };
+}
+
+/* Deleting from the homepage: your own (or anyone's, as admin). Replies stay. A deleted
+   take's audio file is removed from Storage too; if that fails the take is still gone. */
+export async function deleteJam(sessionId) {
+  return check(await supabase.rpc('delete_jam', { p_session: sessionId }));
+}
+
+export async function deleteThreadTake(takeId, storagePath) {
+  check(await supabase.rpc('delete_thread_take', { p_take: takeId }));
+  if (storagePath) {
+    const res = await supabase.storage.from(BUCKET).remove([storagePath]);
+    if (res.error) console.warn('The audio file could not be removed:', res.error.message);
+  }
+}
+
+export async function deleteThreadComment(commentId) {
+  return check(await supabase.rpc('delete_thread_comment', { p_comment: commentId }));
 }
 
 export async function addThreadComment(row) {
