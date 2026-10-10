@@ -2145,7 +2145,7 @@ function boot() {
     var m = location.pathname.match(/^\/s\/([\w-]+)/);
     if (!m) { flash('Drop an audio track to start a session. You will get a link to share.'); render(); return; }
     return db.loadSessionBySlug(m[1]).then(function (sess) {
-      if (!sess) { flash('That session does not exist. Drop a track to start a new one.'); history.replaceState(null, '', '/'); render(); return; }
+      if (!sess) { flash('That session does not exist. Drop a track to start a new one.'); history.replaceState(null, '', '/new'); render(); return; }
       S.session = sess;
       watch(sess.id);
       return refresh().then(function () {

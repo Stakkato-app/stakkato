@@ -12,7 +12,8 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 
 - **Frontend:** plain JavaScript (ES modules, no framework), bundled by **Vite**. The UI renders HTML strings into containers; there is no virtual DOM.
 - **Backend:** **Supabase** (Postgres + Row Level Security, Storage for audio, Realtime for live updates, Auth with anonymous sign-ins). There is no server code of our own.
-- **Hosting:** **Vercel**, static build from `dist/`. `vercel.json` rewrites `/s/:slug` to `index.html` and `/songs` to `songs.html` (the list of all songs, a second Vite entry; `vite.config.js` does the same rewrite for dev and preview).
+- **Hosting:** **Vercel**, static build from `dist/`. `/` is the homepage (`index.html`); `vercel.json` rewrites `/s/:slug` and `/new` to `session.html` (the song view), `/songs` to `songs.html` and `/privacy` to `privacy.html`. Each page is its own Vite entry; `vite.config.js` does the same rewrites for dev and preview.
+- **Access gate:** `middleware.js` (Vercel Routing Middleware) asks for an access password before serving anything, set in the Vercel env var `ACCESS_PASSWORD`. Until that is set it accepts the friends' password, kept in the file only as a hash. It only runs on Vercel, so `npm run dev` isn't gated.
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`). Nothing audio-related runs on a server.
 
 ## Commands
@@ -29,8 +30,11 @@ Apply database changes with the Supabase CLI (`npx supabase db push`) or by past
 ## Layout
 
 ```
-index.html                  page markup (static shell; most content is rendered by app.js)
+index.html, src/home.js     the homepage (/): feed of jams with threads of audio and written replies, votes, upload a new jam, sign in
+session.html                the song view (/s/<slug>, /new): static shell; most content is rendered by app.js
 songs.html, src/songs.js    the /songs page: every session with an original track, linking to /s/<slug>
+privacy.html                the privacy & rights page (/privacy), a draft for legal review
+middleware.js               the access gate (Vercel only)
 src/app.js                  the whole UI: state, rendering, audio engine, event handlers
 src/data.js                 every Supabase call; app.js never uses the client directly
 src/supabase.js             client setup from env vars
@@ -50,6 +54,7 @@ supabase/migrations/        schema, RLS policies, RPC functions, storage bucket,
 - `versions`: a fan version is just `picks` (take ids) plus `ctl` (per-take vol/mute/solo and `hp`/`lp` filter cutoffs in Hz, keyed by take id, with the seed under the key `"seed"`). No audio is copied.
 - `version_likes`, `reactions`: one row per person, never deleted.
 - `roles`: slot counts per instrument. **Authoritative for slots.**
+- Homepage threads: `takes.reply_to` is the take a take was played on top of (null = on the original track or on the part in `section_id`); a trigger keeps it inside the session. `thread_comments` are written replies on a jam, a take (`reply_to_take`) or another comment (`reply_to_comment`); anyone signed in, also anonymously, can post; the creator hides one with `hide_thread_comment()`. `thread_votes` is one upserted row per person per jam/take/comment with `value` -1, 0 or 1. The song view doesn't read any of these yet.
 
 Storage bucket `takes` is public-read. Upload path: `{session_id}/{user_id}/{uuid}.{ext}`, 50 MB per file, `audio/*` only.
 
@@ -67,12 +72,14 @@ Storage bucket `takes` is public-read. Upload path: `{session_id}/{user_id}/{uui
 
 ## Identity
 
-Every visitor is signed in anonymously on first load (`ensureUser()` in data.js); the user id lives in that browser's local storage. Consequences:
+Every visitor of the song view is signed in anonymously on first load (`ensureUser()` in data.js); the homepage only does that on the first write (comment, vote, take, new jam), so reading the feed creates no users. The user id lives in that browser's local storage. Consequences:
 
 - The host is whoever created the session, in that browser. Opening the link on another device makes you a guest there.
 - Clearing site data loses the identity (and host rights).
 
-Planned: real accounts and profiles. Supabase lets an anonymous user be upgraded in place (`supabase.auth.updateUser({ email })` or `linkIdentity()` for OAuth), which keeps the same `auth.uid()`, so existing takes, votes and hosted sessions carry over. Display names are currently free text per take (`author_name`, `by_name`) and remembered in local storage; a `profiles` table keyed by `auth.users.id` should replace that.
+Accounts: email + password, signed in from the homepage (`signInWithEmail()` in data.js). They are created by hand in Supabase for now; the name shown is `user_metadata.username`. Signing in replaces the anonymous user in that browser (its takes and hosted sessions stay with the anonymous user). Signing up and Google sign-in are stubbed in the UI.
+
+Planned: real sign-up and profiles. Supabase lets an anonymous user be upgraded in place (`supabase.auth.updateUser({ email })` or `linkIdentity()` for OAuth), which keeps the same `auth.uid()`, so existing takes, votes and hosted sessions carry over. Display names are currently free text per take (`author_name`, `by_name`) and remembered in local storage; a `profiles` table keyed by `auth.users.id` should replace that.
 
 ## Conventions
 

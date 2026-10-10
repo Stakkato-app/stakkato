@@ -21,6 +21,37 @@ export async function ensureUser() {
   return res.data.user;
 }
 
+/* ---------- accounts ----------
+   Signing in is optional: anonymous users can comment, vote and send takes. An account
+   signs in with email and password (accounts are made by hand for now). Signing up and
+   Google are stubbed in the UI until real support lands. */
+
+export function currentUser() {
+  return supabase.auth.getSession().then(function (r) { return r.data.session ? r.data.session.user : null; });
+}
+
+/* the name an account shows up with; null for anonymous users */
+export function accountName(user) {
+  if (!user || user.is_anonymous) return null;
+  var m = user.user_metadata || {};
+  return m.username || (user.email ? user.email.split('@')[0] : null);
+}
+
+export async function signInWithEmail(email, password) {
+  const res = await supabase.auth.signInWithPassword({ email, password });
+  if (res.error) throw res.error;
+  return res.data.user;
+}
+
+export async function signOut() {
+  const res = await supabase.auth.signOut();
+  if (res.error) throw res.error;
+}
+
+export function onAuthChange(fn) {
+  return supabase.auth.onAuthStateChange(function (event, session) { fn(session ? session.user : null, event); });
+}
+
 /* ---------- reads ---------- */
 
 export async function loadSessionBySlug(slug) {
@@ -58,6 +89,44 @@ export async function listSongs() {
     .not('seed_take_id', 'is', null)
     .eq('layers.status', 'in')
     .order('created_at', { ascending: false }));
+}
+
+/* The homepage feed: recent sessions with an original track, every take on them, the
+   written replies and the thread votes. Comments and votes come from a later migration;
+   until it is applied the feed works without them. */
+export async function loadFeed(limit) {
+  const sessions = check(await supabase.from('sessions')
+    .select('id, slug, host_id, title, status, bpm, music_key, time_sig, seed_role, seed_take_id, created_at, released_at')
+    .not('seed_take_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(limit || 20));
+  if (!sessions.length) return { sessions, takes: [], comments: [], votes: [] };
+  const ids = sessions.map((s) => s.id);
+  const [takes, comments, votes] = await Promise.all([
+    supabase.from('takes').select('*').in('session_id', ids).neq('status', 'deleted').order('created_at'),
+    supabase.from('thread_comments').select('*').in('session_id', ids).eq('hidden', false).order('created_at'),
+    supabase.from('thread_votes').select('target_id, voter_id, value').in('session_id', ids)
+  ]);
+  if (comments.error) console.warn('Thread comments are not available:', comments.error.message);
+  if (votes.error) console.warn('Thread votes are not available:', votes.error.message);
+  return {
+    sessions,
+    takes: check(takes),
+    comments: comments.error ? [] : comments.data,
+    votes: votes.error ? [] : votes.data
+  };
+}
+
+export async function addThreadComment(row) {
+  return check(await supabase.from('thread_comments').insert(row).select().single());
+}
+
+/* value 1 = up, -1 = down, 0 = taken back (votes are upserted, never deleted) */
+export async function voteInThread({ targetId, targetKind, sessionId, voterId, value }) {
+  return check(await supabase.from('thread_votes').upsert(
+    { target_id: targetId, target_kind: targetKind, session_id: sessionId, voter_id: voterId, value, updated_at: new Date().toISOString() },
+    { onConflict: 'target_id,voter_id' }
+  ));
 }
 
 export function publicUrl(path) {

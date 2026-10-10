@@ -66,6 +66,14 @@ git push -u origin main
 3. Deploy. Every push to `main` redeploys; pull requests get preview URLs.
 4. In Supabase, under **Authentication, URL Configuration**, set the Site URL to your Vercel domain. Anonymous sign-in doesn't need it, but email or OAuth login will.
 
+## Access gate
+
+Until it's public, every page asks for an access password first (`middleware.js`, Vercel only). Set it in Vercel under **Settings, Environment Variables** as `ACCESS_PASSWORD`, for Production and Preview, and redeploy; until then the gate accepts the password we gave friends (stored in `middleware.js` only as a hash). Changing it sends everyone back to the gate. Local `npm run dev` is not gated.
+
+## Accounts
+
+Signing in is optional: anyone can comment, vote and play along anonymously. Accounts sign in with email and password on the homepage. There's no sign-up yet; make an account in the Supabase dashboard (**Authentication, Users, Add user**, with auto-confirm) and put the display name in its user metadata as `{"username": "..."}`.
+
 ## Before sharing it widely
 
 - Turn on CAPTCHA protection for sign-ins in Supabase Auth settings, since anyone can create anonymous users.

@@ -62,7 +62,7 @@ function render() {
   el('songs-count').textContent = SONGS.length + ' song' + (SONGS.length === 1 ? '' : 's') + ', ' + open + ' open';
   var list = SONGS.filter(function (s) { return filter === 'all' || s.status === filter; });
   box.innerHTML = list.length ? list.map(row).join('') :
-    '<p class="song-empty">' + (SONGS.length ? 'No songs here yet.' : 'No songs yet. <a href="/">Drop a track</a> to start the first one.') + '</p>';
+    '<p class="song-empty">' + (SONGS.length ? 'No songs here yet.' : 'No songs yet. <a href="/new">Drop a track</a> to start the first one.') + '</p>';
 }
 
 document.querySelectorAll('.songfilter [data-filter]').forEach(function (b) {
