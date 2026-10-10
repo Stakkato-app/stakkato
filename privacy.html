@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>try{var t=localStorage.getItem("stackato:theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){}</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stackato privacy and rights</title>
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Sans:opsz,wght@9..40,400..700&family=Fredoka:wght@500..700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FCFBF4;--tint:#F4F1E5;--ink:#1C1922;--muted:#655E6C;--line:#DCD6C6;
+  --ember:#FF6B2C;--ember-ink:#C4430F;
+  --disp:'Bricolage Grotesque',system-ui,sans-serif;--body:'DM Sans',system-ui,sans-serif;--fun:'Fredoka','DM Sans',system-ui,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6}
+a{color:var(--ember-ink);text-underline-offset:3px}
+h1,h2,h3{font-family:var(--disp);font-weight:800;letter-spacing:-.02em;line-height:1.1;text-wrap:balance;margin:0}
+.demobar{background:var(--ink);color:#F4EFE6;font-size:13px;padding:8px 16px}
+.demobar b{color:var(--ember)}
+header.top{border-bottom:2px solid var(--ink);background:var(--paper)}
+header.top .in{max-width:1120px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+header.top img{height:26px;width:auto;display:block}
+header.top nav{display:flex;gap:16px;font-family:var(--fun);font-weight:600;font-size:15px}
+header.top nav a{color:var(--ink);text-decoration:none}
+header.top nav a[aria-current]{border-bottom:2px solid var(--ember)}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:40px 80px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:20px;align-self:start;font-size:14px}
+.toc b{display:block;font-family:var(--fun);font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:6px;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{color:var(--ink);text-decoration:none;display:flex;gap:8px}
+.toc a::before{content:counter(t);font-variant-numeric:tabular-nums;color:var(--ember-ink);font-weight:700;min-width:16px}
+.toc a:hover{color:var(--ember-ink)}
+main{min-width:0;max-width:70ch}
+.kicker{font-family:var(--fun);font-weight:600;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ember-ink)}
+h1{font-size:clamp(36px,5vw,56px);margin-top:6px}
+.meta{color:var(--muted);font-size:14px;margin-top:10px}
+.lead{font-size:19px;margin-top:18px}
+.short{margin-top:28px;border:2px solid var(--ink);border-radius:8px;background:var(--tint);padding:20px 22px}
+.short h2{font-size:22px}
+.short ul{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:10px}
+.short li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px}
+.short li::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--ember);margin-top:8px}
+section{margin-top:48px;scroll-margin-top:20px}
+section h2{font-size:28px;display:flex;gap:12px;align-items:baseline}
+section h2 .n{font-size:16px;color:var(--ember-ink);font-variant-numeric:tabular-nums}
+section h3{font-size:19px;margin-top:22px}
+section p,section ul{margin:12px 0 0}
+section ul{padding-left:20px}
+section li{margin-top:6px}
+table{width:100%;border-collapse:collapse;font-size:15px;margin-top:14px}
+.tbl{overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--fun);font-weight:600;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--ink)}
+td:first-child{font-weight:700;white-space:nowrap}
+.check{margin-top:14px;border:1.5px dashed var(--ember);border-radius:6px;padding:10px 14px;font-size:14px;background:#FFF6EF}
+.check b{font-family:var(--fun);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ember-ink);margin-right:6px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}
+.card{border:1.5px solid var(--line);border-radius:8px;padding:14px 16px;background:var(--paper)}
+.card b{display:block;font-family:var(--disp);font-size:17px}
+.card span{display:block;font-size:14px;color:var(--muted);margin-top:4px}
+.card.on{border-color:var(--ink);background:var(--tint)}
+footer{border-top:2px solid var(--ink);margin-top:56px;padding-top:18px;font-size:14px;color:var(--muted)}
+@media (max-width:860px){ .wrap{grid-template-columns:1fr;gap:24px;padding-block:24px 60px} .toc{display:none} .grid3{grid-template-columns:1fr} }
+</style>
+
+<div class="demobar"><b>Concept</b> · a draft of the privacy and rights page, written for a legal check. Points to confirm are marked “To check”.</div>
+<header class="top"><div class="in">
+  <img src="/stackato-logo.png" alt="Stackato">
+  <nav aria-label="Main"><a href="/">Jams</a><a href="#" aria-current="page">Privacy &amp; rights</a></nav>
+  <span data-theme-toggle style="margin-left:auto"></span>
+</div></header>
+
+<div class="wrap">
+  <aside class="toc" aria-label="On this page">
+    <b>On this page</b>
+    <ol>
+      <li><a href="#who">Who we are</a></li>
+      <li><a href="#what">What we keep</a></li>
+      <li><a href="#public">What everyone can see</a></li>
+      <li><a href="#rights">Your takes and your rights</a></li>
+      <li><a href="#songs">When a jam becomes a song</a></li>
+      <li><a href="#promise">What you promise us</a></li>
+      <li><a href="#delete">Deleting takes and your account</a></li>
+      <li><a href="#share">Who we share data with</a></li>
+      <li><a href="#gdpr">Your privacy rights</a></li>
+      <li><a href="#cookies">Cookies and local storage</a></li>
+      <li><a href="#changes">Changes and contact</a></li>
+    </ol>
+  </aside>
+
+  <main>
+    <div class="kicker">Privacy &amp; rights</div>
+    <h1>Your music stays yours</h1>
+    <p class="meta">Draft · last updated 10 October 2026</p>
+    <p class="lead">Stackato is a place to make songs with strangers. That only works if you know exactly what happens to a take once you post it. This page explains it in plain words.</p>
+
+    <div class="short">
+      <h2>In short</h2>
+      <ul>
+        <li><span><b>You keep the copyright</b> of every take you post. We never buy it from you and we never sell it.</span></li>
+        <li><span><b>Everything you post is public.</b> Anyone can hear your take, play on it, and use it in that jam’s song.</span></li>
+        <li><span><b>A released song belongs to everyone on it.</b> Anyone can share it for free with credits. Making money from it needs a yes from every musician on the song.</span></li>
+        <li><span><b>Your music never trains AI.</b> We don’t use your takes to train models, and we don’t let others do it.</span></li>
+        <li><span><b>You can delete your takes and your account.</b> A song that has already been released keeps your take, with your name on it, unless you ask us to take your name off.</span></li>
+      </ul>
+    </div>
+
+    <section id="who">
+      <h2><span class="n">1</span>Who we are</h2>
+      <p>Stackato is run by [company name], [address], Belgium. We are the controller for the personal data described here. You can reach us at [privacy@stackato.app].</p>
+      <div class="check"><b>To check</b>Company details, the contact address, and whether a data protection officer is needed (most likely not at this size).</div>
+    </section>
+
+    <section id="what">
+      <h2><span class="n">2</span>What we keep</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>What</th><th>Why</th><th>Legal basis</th></tr></thead>
+        <tbody>
+          <tr><td>Your account</td><td>Email address and display name, so you can sign in and so your takes carry your name.</td><td>Contract</td></tr>
+          <tr><td>Your takes</td><td>The audio file, the instrument, your note, the tempo and key, and which takes it was played on. This is what makes the jam work.</td><td>Contract</td></tr>
+          <tr><td>What you do in a jam</td><td>Votes, likes, reactions, songs you picked as an author, and when you did it.</td><td>Contract</td></tr>
+          <tr><td>Technical data</td><td>A random user ID in your browser, and IP addresses in the logs of our hosting providers, to keep the service safe and running.</td><td>Legitimate interest</td></tr>
+          <tr><td>Product emails</td><td>Only if you ask for them, for example “tell me when a jam needs bass”.</td><td>Consent</td></tr>
+        </tbody>
+      </table></div>
+      <p>We don’t ask for your real name, birthday, address or payment details. We don’t sell data and we don’t show ads.</p>
+      <p>Recording happens in your browser. We only receive a take when you post it or upload it. Takes you keep as a draft never leave your device.</p>
+    </section>
+
+    <section id="public">
+      <h2><span class="n">3</span>What everyone can see</h2>
+      <p>Stackato is public by design. Everything below can be seen by anyone, also without an account, and can show up in search engines:</p>
+      <ul>
+        <li>every jam, every take and every song, with the audio;</li>
+        <li>your display name next to everything you posted;</li>
+        <li>what each take was played on, votes and likes in totals.</li>
+      </ul>
+      <p>Your email address is never shown. Don’t put anything in a note or a take that you want to keep private.</p>
+      <div class="check"><b>To check</b>There is no private jam yet. If one is added, this section needs an extra paragraph.</div>
+    </section>
+
+    <section id="rights">
+      <h2><span class="n">4</span>Your takes and your rights</h2>
+      <p><b>You keep the copyright</b> and any neighbouring rights in your performance. By posting a take you give two permissions. Both are non-exclusive, free and worldwide.</p>
+      <h3>To Stackato</h3>
+      <p>We may store, copy, stream and process your take (for example to draw a waveform, mix it with other takes, or make a smaller file) and show it on Stackato and in links to Stackato. We may also use short clips of public jams to show what Stackato is, always with your name. This permission ends when your take is deleted, except for songs that were already released (see section 5) and copies in backups, which expire on their own.</p>
+      <h3>To the other musicians</h3>
+      <p>Anyone may, inside Stackato, play your take, record on top of it, use it in the jam’s song or in their own version, and download the stems of that jam to practise and record their part. That’s what you post a take for.</p>
+      <h3>What nobody may do</h3>
+      <ul>
+        <li>Take your take out of its jam and use it in other work, outside Stackato, without your permission.</li>
+        <li>Make money from it without your permission (see section 5).</li>
+        <li>Use it to train AI models. This also goes for us.</li>
+      </ul>
+      <div class="check"><b>To check</b>The wording of both permissions, the use of short clips for promotion, and whether the AI clause also needs to be in the general terms (text and data mining opt-out under the EU copyright directive).</div>
+    </section>
+
+    <section id="songs">
+      <h2><span class="n">5</span>When a jam becomes a song</h2>
+      <p>The person who started a jam is its author. The author picks which takes are in the song and decides when it’s released. Being the author doesn’t make the other takes theirs: every musician on the song keeps the rights in their own take.</p>
+      <div class="grid3">
+        <div class="card"><b>While the jam is open</b><span>Takes can go in and out of the song. You can still delete your take.</span></div>
+        <div class="card on"><b>Once it’s released</b><span>The song is final. Everyone on it is credited with their name and instrument.</span></div>
+        <div class="card"><b>Outside Stackato</b><span>Free sharing with credits is fine. Making money needs a yes from everyone on the song.</span></div>
+      </div>
+      <h3>Sharing a released song</h3>
+      <p>Anyone may play, share and embed a released song for free, as long as everyone on it is credited and nobody makes money from it. This is like a Creative Commons BY-NC licence.</p>
+      <h3>Making money from a song</h3>
+      <p>Putting a song on streaming services, selling it, or licensing it for a film or an ad needs written agreement from every musician whose take is in the released song. Unless they agree otherwise, the income is split in equal shares between everyone on the song, and the person who started the jam counts as one of them.</p>
+      <h3>Mixes</h3>
+      <p>Someone who uploads a mix of a released song adds their own work to it, but the mix uses everyone’s takes. The same rules apply to it as to the song.</p>
+      <div class="check"><b>To check</b>Whether a released song is a joint work under Belgian copyright law or a compilation of separate works; whether the free-sharing licence can be given this way; how the equal split relates to collecting societies (Sabam, PlayRight); and whether we need a simple split sheet that musicians sign before a commercial release.</div>
+    </section>
+
+    <section id="promise">
+      <h2><span class="n">6</span>What you promise us</h2>
+      <ul>
+        <li>You played or made what you post yourself, or you have the rights to post it. No samples, loops or other people’s recordings you don’t have a licence for.</li>
+        <li>Covers: playing someone else’s song is fine for practising in a jam, but releasing it or making money from it needs a licence from the songwriter.</li>
+        <li>Nothing in your take or note is hateful, sexual or breaks the law.</li>
+        <li>You are at least 16, or you have permission from a parent.</li>
+      </ul>
+      <p>If someone reports a take that breaks these rules or someone’s rights, we may hide or remove it, and close accounts that keep doing it.</p>
+      <div class="check"><b>To check</b>The minimum age (Belgium allows consent from 13 for online services), the notice-and-takedown procedure under the Digital Services Act, and how a rights holder reports a take.</div>
+    </section>
+
+    <section id="delete">
+      <h2><span class="n">7</span>Deleting takes and your account</h2>
+      <ul>
+        <li><b>A take in an open jam:</b> you can delete it at any time. It disappears from the jam and from the song. Takes recorded on top of it stay, but no longer play with yours.</li>
+        <li><b>A take in a released song:</b> the song stays as it was, because the others on it rely on it. You can ask us to take your name off it, or to replace your name with “anonymous”.</li>
+        <li><b>Your account:</b> delete it in your settings or email us. We delete your email address and your takes that aren’t in a released song within 30 days. Copies in backups are gone within 90 days.</li>
+      </ul>
+      <p>The author of a jam can also delete takes from their jam. That removes the take from the jam, not from your account history.</p>
+      <div class="check"><b>To check</b>Deleting must also delete the audio file itself. Today a deleted take keeps its file in storage; that needs to change before launch.</div>
+    </section>
+
+    <section id="share">
+      <h2><span class="n">8</span>Who we share data with</h2>
+      <p>Only with the services that run Stackato for us, under a data processing agreement:</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Service</th><th>For</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td>Supabase</td><td>Database, sign-in, audio storage</td><td>EU (Frankfurt) [to confirm]</td></tr>
+          <tr><td>Vercel</td><td>Hosting the website</td><td>Global network, EU and US</td></tr>
+          <tr><td>Email provider</td><td>Sign-in links and emails you asked for</td><td>[to confirm]</td></tr>
+        </tbody>
+      </table></div>
+      <p>Where data leaves the EU, we rely on the EU–US Data Privacy Framework or the standard contractual clauses. We only hand over data to the police or a court when the law requires it.</p>
+      <div class="check"><b>To check</b>The Supabase region of the project, the list of processors, and the transfer basis per provider.</div>
+    </section>
+
+    <section id="gdpr">
+      <h2><span class="n">9</span>Your privacy rights</h2>
+      <p>Under the GDPR you can ask us to see your data, correct it, delete it, get a copy of it (including your takes as audio files), or stop using it for something you object to. Email [privacy@stackato.app] and we answer within a month.</p>
+      <p>If you think we handle your data wrongly, you can complain to the Belgian Data Protection Authority (Gegevensbeschermingsautoriteit, dataprotectionauthority.be).</p>
+    </section>
+
+    <section id="cookies">
+      <h2><span class="n">10</span>Cookies and local storage</h2>
+      <p>We only store what Stackato needs to work: your sign-in, and small settings like which microphone you picked. No advertising cookies, no tracking across other sites. That’s why you don’t see a cookie banner.</p>
+      <div class="check"><b>To check</b>If analytics are added later, this section and possibly a consent banner are needed.</div>
+    </section>
+
+    <section id="changes">
+      <h2><span class="n">11</span>Changes and contact</h2>
+      <p>If we change how we handle your takes or your rights, we tell you by email and on the site at least 30 days before it applies. Changes never apply to songs that were already released.</p>
+      <p>Questions? Email [privacy@stackato.app].</p>
+    </section>
+
+    <footer>Stackato · Privacy &amp; rights · draft for legal review, not yet in force.</footer>
+  </main>
+</div>
+<script type="module" src="/src/theme.js"></script>

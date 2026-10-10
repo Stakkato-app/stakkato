@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>try{var t=localStorage.getItem("stackato:theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){}</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Make a song with strangers. One original track, then musicians add their takes, layer by layer, until the stack becomes a song.">
+<title>Stackato — build the song</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Sans:opsz,wght@9..40,400..700&display=swap" rel="stylesheet">
+</head>
+<body>
+<nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" hidden><a href="/">Jams</a><span aria-hidden="true">›</span><a class="crumb-jam" id="crumb-jam" href="/">The jam</a><span aria-hidden="true">›</span><b>The song</b><a class="crumb-back crumb-jam" id="crumb-back" href="/">← Back to the thread</a></nav>
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="#top" aria-label="Stackato, back to top">
+      <img class="logo" src="/stackato-logo.png" width="1100" height="230" alt="Stackato">
+    </a>
+    <div class="session"><span id="session-name">New session</span><br><span id="session-sub">no track yet</span></div>
+    <div class="phases" role="tablist" aria-label="Phase">
+      <button class="phase" role="tab" aria-selected="true" data-phase="open"><span>1</span>Build the song</button>
+      <button class="phase" role="tab" aria-selected="false" data-phase="released"><span>2</span>Release the song</button>
+    </div>
+    <div class="hdr-acts">
+      <span data-theme-toggle></span>
+      <button class="btn btn-sm" id="copy-link" type="button">Invite people</button>
+      <details class="hdr-more">
+        <summary aria-label="More">&#8943;</summary>
+        <div class="menu-pop">
+          <a class="mi" href="/songs">All songs</a>
+          <a class="mi" href="/new">Start a new session</a>
+          <a class="mi" href="/">All jams</a>
+        </div>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="stage on" id="stage-open">
+    <div class="wrap">
+
+      <div class="intro" id="intro">
+        <h1>Make a <span class="hi">song</span> with <span class="hi">strangers</span></h1>
+        <p id="intro-p"></p>
+      </div>
+      <div class="how full" id="howtop"></div>
+
+      <div class="projtitle" id="projtitle" style="display:none"></div>
+      <div class="seed empty" id="seedpanel"></div>
+      <div class="metabar" id="metabar"></div>
+
+      <details class="howbox" id="howbox" open>
+        <summary>How it works</summary>
+        <div class="how steps-only" id="howsteps"></div>
+      </details>
+
+      <div class="head" id="mix-head">
+        <div>
+          <div class="kicker" id="mix-kicker">Current stacks</div>
+          <h2 id="mix-title">Layers in the song</h2>
+        </div>
+        <p id="lineup-sub"></p>
+      </div>
+      <div class="instruments" id="instruments"></div>
+      <div class="daw" id="daw"></div>
+      <div class="pitches" id="pitches" style="display:none"></div>
+      <div class="picker" id="picker" style="display:none"></div>
+
+      <div class="head" id="thread-head">
+        <div>
+          <div class="kicker">Everything people played</div>
+          <h2>The thread</h2>
+        </div>
+        <p>Pick a take to hear it in the second tab above, with everything it was played on. Record there to play on it.</p>
+      </div>
+      <div class="thread" id="thread"></div>
+
+    </div>
+
+    <div class="wrap">
+      <div class="owncta" id="owncta" style="display:none"></div>
+
+
+      <div class="lockbar">
+        <div class="status" id="lock-status"></div>
+        <button class="btn btn-ember" id="lock-btn" type="button" style="margin-left:auto">Release the song</button>
+      </div>
+
+      <div class="strip" id="strip-1" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <section class="stage" id="stage-released">
+    <div class="wrap">
+      <div class="release">
+        <div style="grid-column:1 / -1">
+          <div class="kicker" id="rel-kicker">Released</div>
+          <input class="titlefield" id="song-title" value="Untitled" aria-label="Song title">
+        </div>
+      </div>
+
+      <div class="versions">
+        <article class="panel version">
+          <div class="p-head"><h3 id="rel-song">The song</h3><span class="tiny muted">Every take in the song, mixed by the creator.</span></div>
+          <div class="up" id="raw-box"></div>
+        </article>
+
+        <article class="panel version">
+          <div class="p-head"><h3>The Mix (optional)</h3><span class="tiny muted">A polished mix of the same song.</span></div>
+          <div class="up" id="mix-box"></div>
+        </article>
+      </div>
+
+      <div class="head">
+        <div>
+          <div class="kicker">Credits</div>
+          <h2>The musicians</h2>
+        </div>
+        <p>Everyone who became part of the song.</p>
+      </div>
+      <div class="credits" id="credits"></div>
+
+
+
+      <div class="reactions">
+        <button class="btn btn-sm" type="button" data-react="banger">Absolute banger <span>0</span></button>
+        <button class="btn btn-sm" type="button" data-react="mess">Beautiful mess <span>0</span></button>
+        <button class="btn btn-sm" type="button" data-react="again">Run it back <span>0</span></button>
+      </div>
+
+      <div class="strip" id="strip-2" aria-hidden="true"></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="proto-hint" role="status" aria-live="polite"></div>
+
+<input type="file" id="attach-file" accept="audio/*" style="position:absolute;width:1px;height:1px;opacity:0" aria-hidden="true" tabindex="-1">
+
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal">
+    <h3 id="modal-title"><span id="modal-ico"></span> <span id="modal-head">Add a take</span></h3>
+    <p class="tiny muted" id="modal-sub"></p>
+    <div class="field" id="sec-field" hidden>
+      <label for="take-sec">Which part of the song</label>
+      <select id="take-sec"></select>
+    </div>
+    <div class="field" id="role-field">
+      <label for="take-role">Layer</label>
+      <select id="take-role"></select>
+      <span class="tiny muted" id="role-hint"></span>
+    </div>
+    <div class="srctabs" role="tablist" aria-label="Where the audio comes from">
+      <button type="button" role="tab" data-src="file" aria-selected="true">Upload a file</button>
+      <button type="button" role="tab" data-src="rec" aria-selected="false">Record here</button>
+    </div>
+    <div id="src-file">
+      <div class="filebox">
+        <b>Choose your audio file</b>
+        <span class="tiny muted" id="file-name">wav or mp3, dry, starting at bar 1</span>
+        <input type="file" id="take-file" accept="audio/*" aria-label="Choose your audio file">
+      </div>
+      <label class="check countin-check" id="countin-field" for="take-countin">
+        <input type="checkbox" id="take-countin">
+        <span id="countin-text"></span>
+      </label>
+    </div>
+    <div id="src-rec" hidden><div class="rec-box" id="rec-box"></div></div>
+    <div class="field">
+      <label for="take-name">Your name</label>
+      <input type="text" id="take-name" placeholder="how you'll appear in the credits">
+    </div>
+    <div class="field">
+      <label for="take-note" id="note-label">Say something to the room (optional)</label>
+      <textarea id="take-note" placeholder="what you were going for"></textarea>
+    </div>
+    <p class="err" id="modal-err"></p>
+    <div class="modal-foot">
+      <button class="btn" type="button" id="modal-cancel">Cancel</button>
+      <button class="btn btn-ember" type="button" id="modal-send">Add my take →</button>
+    </div>
+  </div>
+</div>
+
+<!-- recording the original track: same recorder as for layers, in its own pop-up -->
+<div class="scrim" id="sr-scrim" role="dialog" aria-modal="true" aria-labelledby="sr-title">
+  <div class="modal">
+    <h3 id="sr-title"><span class="rec-dot"></span> Record your track</h3>
+    <p class="tiny muted">Pick the tempo and time, then play along with the click. It records until you stop. This becomes the original track everyone builds on.</p>
+    <div class="sr-two">
+      <div class="field"><label for="sr-by">Your name</label><input type="text" id="sr-by" maxlength="60" placeholder="how you show up in the credits"></div>
+      <div class="field"><label for="sr-role">What is it</label><select id="sr-role"></select></div>
+    </div>
+    <div class="rec-row sr-set">
+      <label class="mini"><span>tempo</span><input type="number" id="sr-bpm" min="40" max="240" value="100"></label>
+      <label class="mini"><span>time</span><select id="sr-time"></select></label>
+      <label class="mini"><span>count-in</span><select data-countin="1" id="sr-countin"></select></label>
+      <label class="rec-opt"><input type="checkbox" data-hear="click" id="sr-click" checked><span>Click</span></label>
+      <label class="mini mic"><span>input</span><select class="mic-pick" id="sr-mic"></select></label>
+    </div>
+    <div class="seed-rec" id="sr-rec"></div>
+    <p class="err" id="sr-err"></p>
+    <div class="modal-foot">
+      <button class="btn" type="button" id="sr-cancel">Cancel</button>
+      <button class="btn btn-ember" type="button" id="sr-start" disabled>Start the session</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/src/app.js"></script>
+</body>
+</html>
