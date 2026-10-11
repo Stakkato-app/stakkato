@@ -15,6 +15,7 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 - **Hosting:** **Vercel**, static build from `dist/`. `/` is the homepage (`index.html`); `vercel.json` rewrites `/s/:slug` and `/new` to `session.html` (the song view), `/songs` to `songs.html` and `/privacy` to `privacy.html`. Each page is its own Vite entry; `vite.config.js` does the same rewrites for dev and preview.
 - **Access gate:** `middleware.js` (Vercel Routing Middleware) asks for an access password before serving anything, set in the Vercel env var `ACCESS_PASSWORD`. Until that is set it accepts the friends' password, kept in the file only as a hash. Once accepted, a cookie keeps you in for 30 days; it covers every page and file (also `/amps/*` and the audio worklet). It only runs on Vercel, so `npm run dev` isn't gated.
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`), amp sims (`src/amp.js`). Nothing audio-related runs on a server.
+- **Analytics:** Google Tag Manager (`GTM-5RQ4VKFH`, the snippet near the top of every page's `<head>`, right after the theme script) and Vercel Web Analytics (`src/analytics.js`, the `@vercel/analytics` package, loaded by every page; cookieless, and it only collects once Web Analytics is enabled for the project in the Vercel dashboard). There is no cookie consent banner yet: whatever tags are added in the GTM dashboard run for everyone (see Known limitations).
 
 ## Commands
 
@@ -37,6 +38,8 @@ session.html                the song view (/s/<slug>, /new): static shell; most 
 songs.html, src/songs.js    the /songs page: every session with an original track, linking to /s/<slug>
 privacy.html                the privacy & rights page (/privacy), a draft for legal review
 middleware.js               the access gate (Vercel only)
+src/analytics.js            Vercel Web Analytics (inject()); every page loads it
+public/fonts/               the self-hosted fonts: fonts.css, woff2 files, OFL licences
 src/app.js                  the whole UI: state, rendering, audio engine, event handlers
 src/data.js                 every Supabase call; app.js never uses the client directly
 src/supabase.js             client setup from env vars
@@ -177,6 +180,7 @@ Then email the preview URL to the collaborator:
 
 - Every client downloads and decodes every take's full audio. Fine for a handful of takes; long sessions with many large WAVs will get heavy. Compressed previews or streaming would fix it.
 - If an upload succeeds but the row insert fails, the file stays in Storage as an orphan.
+- No cookie consent yet. Vercel Analytics sets no cookies, but most tags added in Google Tag Manager (GA4, ads pixels) do, and in the EU (Belgium) those need consent before they run: add a consent banner with Google Consent Mode before adding such tags. The /privacy cookies section still says there is no tracking and no banner; update it with the analytics setup.
 - Anonymous sign-ins can be abused; turn on CAPTCHA (Supabase Auth settings) before promoting the app publicly.
 - Every session is listed at `/songs`, and anyone can read it and its audio. There's no private-session mode.
 - The host can replace the seed with a different length after takes exist; nothing stops that.
