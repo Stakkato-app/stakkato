@@ -1,6 +1,6 @@
 /* Access gate (Vercel Routing Middleware, runs before every request on Vercel).
 
-   While Stackato is only for friends, every page and file needs the access password
+   While Stakkato is only for friends, every page and file needs the access password
    first. Set it in the ACCESS_PASSWORD environment variable of the Vercel project.
    Until that is set, the gate accepts the password we hand out to friends, which is
    kept here only as a hash (DEFAULT_TOKEN). Entering the password sets an HttpOnly
@@ -16,7 +16,7 @@ export const config = {
 
 const COOKIE = 'stackato_access';
 const GATE_PATH = '/__access';
-const OPEN = ['/stackato-logo.png', '/favicon.svg'];   /* the gate page itself shows these */
+const OPEN = ['/stakkato-logo.svg', '/favicon.svg'];   /* the gate page itself shows these */
 const MAX_AGE = 60 * 60 * 24 * 30;                      /* 30 days */
 /* tokenFor() of the friends' password, used while ACCESS_PASSWORD isn't set */
 const DEFAULT_TOKEN = 'e46f9f2844ccd65da134600e3cdb010329779b507eff22f15b8027744ffa6907';
@@ -52,7 +52,7 @@ function gatePage(next, error, status) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Stackato</title>
+<title>Stakkato</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -76,9 +76,9 @@ button:hover{background:#ff8450}
 </head>
 <body>
 <main>
-  <img src="/stackato-logo.png" alt="Stackato" width="1100" height="230">
+  <img src="/stakkato-logo.svg" alt="Stakkato" width="1760" height="384">
   <h1>Not open to everyone yet</h1>
-  <p>Stackato is in a test with friends. Fill in the access password you got from us to come in.</p>
+  <p>Stakkato is in a test with friends. Fill in the access password you got from us to come in.</p>
   <form method="post" action="${GATE_PATH}">
     <input type="hidden" name="next" value="${esc(next)}">
     <label for="pw">Access password</label>

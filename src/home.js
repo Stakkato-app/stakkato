@@ -741,7 +741,7 @@ var AUTH = { tab:'in' };
 function authTab(t) {
   AUTH.tab = t;
   [].forEach.call(document.querySelectorAll('.auth-tabs [data-authtab]'), function (b) { b.setAttribute('aria-selected', String(b.dataset.authtab === t)); });
-  el('auth-title').textContent = t === 'up' ? 'Join Stackato' : 'Welcome back';
+  el('auth-title').textContent = t === 'up' ? 'Join Stakkato' : 'Welcome back';
   el('auth-sub').textContent = t === 'up' ? 'Keep your name on every take, and hear it when someone plays on yours.' : 'Sign in to keep playing where you left off.';
   el('auth-name-f').hidden = t !== 'up';
   el('auth-go').textContent = t === 'up' ? 'Create my account' : 'Sign in';

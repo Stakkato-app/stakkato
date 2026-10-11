@@ -1,4 +1,4 @@
-/* Stackato, the session page.
+/* Stakkato, the session page.
    The UI, audio engine and rendering are carried over from the original artifact.
    What changed: state comes from Supabase (see data.js) instead of living only in memory,
    every visitor has an identity, the original track's owner is the creator (host), and
@@ -1142,7 +1142,7 @@ function fileName(t, i) {
   return (i !== undefined ? ('0' + (i + 1)).slice(-2) + ' ' : '') + clean(labelOf(t)) + ' - ' + clean(t.by || 'you') + '.' + extOf(t.fileName);
 }
 function sheet(list) {
-  return 'Stackato session sheet\r\n\r\n' +
+  return 'Stakkato session sheet\r\n\r\n' +
     'Tempo: ' + (S.meta.bpm || '?') + ' bpm\r\nKey: ' + (S.meta.key || '?') + '\r\nTime: ' + S.meta.time +
     '\r\nLength of the original track: ' + fmt(target()) + '\r\n\r\nEvery file starts at the time listed below. Takes on the original track start at its first beat, takes on a new part start with that part.\r\n\r\n' +
     list.map(function (t, i) {
@@ -1176,7 +1176,7 @@ function downloadAll() {
     var files = arr.map(function (u, i) { return { name:fileName(list[i], i), data:u }; });
     files.push({ name:'session sheet.txt', data:new TextEncoder().encode(sheet(list)) });
     var title = (S.override ? S.override.name : (S.view === 'build' ? 'my version' : 'the stack'));
-    hand('Stackato - ' + clean(title) + ' stems.zip', zip(files));
+    hand('Stakkato - ' + clean(title) + ' stems.zip', zip(files));
   }).catch(oops);
 }
 
@@ -1232,14 +1232,14 @@ function downloadClick() {
   var b = beatInfo(), n = S.countIn, sec = target();
   var bpm = S.meta.bpm || 120, sig = S.meta.time === 'odd' ? '4/4' : S.meta.time;
   var name = 'click ' + bpm + ' bpm ' + sig.replace('/', '-') + (n ? ' with ' + n + ' bar count-in' : '');
-  var readme = 'Stackato click track\r\n\r\n' + bpm + ' bpm, ' + sig + ', ' + fmt(sec) + ' of song' +
+  var readme = 'Stakkato click track\r\n\r\n' + bpm + ' bpm, ' + sig + ', ' + fmt(sec) + ' of song' +
     (n ? ', plus ' + n + ' bar' + (n > 1 ? 's' : '') + ' of count-in (' + (n * b.bar).toFixed(2) + ' s)' : '') + '.\r\n\r\n' +
     (n ? 'Bar 1 of the song starts right after the count-in. When you upload, either cut the count-in off your take, ' +
-         'or tick "my file starts with the count-in" and Stackato cuts it for you.\r\n'
+         'or tick "my file starts with the count-in" and Stakkato cuts it for you.\r\n'
        : 'Bar 1 of the song is the very start of the file.\r\n') +
     (S.meta.bpm ? '' : '\r\nNo tempo was detected for this session, so this click runs at 120 bpm. Ask the creator to set the tempo, then download again.\r\n');
   encodeWav(clickBuffer(n, sec)).arrayBuffer().then(function (ab) {
-    hand('Stackato ' + name + '.zip', zip([
+    hand('Stakkato ' + name + '.zip', zip([
       { name: name + '.wav', data: new Uint8Array(ab) },
       { name: 'read me.txt', data: new TextEncoder().encode(readme) }
     ]));
@@ -1286,10 +1286,10 @@ function playBacking(list, T, into) {
 /* The microphone is captured by an AudioWorklet (off the page's main thread, so redrawing
    the page can't make it drop audio). Browsers without it fall back to ScriptProcessorNode.
    The worklet hands over blocks of 2048 samples with the context time of their first sample. */
-var REC_WORKLET = "class StackatoRec extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0;this.t=0}" +
+var REC_WORKLET = "class StakkatoRec extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0;this.t=0}" +
   "process(inputs){var ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(var i=0;i<ch.length;i++){if(this.n===0)this.t=currentTime+i/sampleRate;" +
   "this.b[this.n++]=ch[i];if(this.n===this.b.length){this.port.postMessage({t:this.t,d:this.b},[this.b.buffer]);this.b=new Float32Array(2048);this.n=0}}return true}}" +
-  "registerProcessor('stackato-rec',StackatoRec);";
+  "registerProcessor('stackato-rec',StakkatoRec);";
 function recWorklet(a) {
   if (!a.audioWorklet || typeof AudioWorkletNode === 'undefined') return Promise.reject(new Error('no worklet'));
   if (!a.__stackatoRec) {
