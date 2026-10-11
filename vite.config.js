@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 
 /* The pretty routes: / is the homepage (index.html), /songs and /privacy are their own
    pages, and the song view (session.html) answers /new and /s/<slug>. vercel.json
@@ -28,6 +29,10 @@ export default defineConfig({
   // Only put public values (URL, anon/publishable key) under these prefixes.
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   plugins: [prettyRoutes()],
+  /* the NAM engine's WebAssembly binary isn't in the package's exports; src/amp.js imports it by this name */
+  resolve: {
+    alias: { 'nam-web-dist': fileURLToPath(new URL('./node_modules/@happysoftware/nam-web/dist', import.meta.url)) }
+  },
   build: {
     rollupOptions: {
       input: { home: 'index.html', session: 'session.html', songs: 'songs.html', privacy: 'privacy.html' }

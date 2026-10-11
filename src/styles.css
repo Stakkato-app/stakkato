@@ -1088,3 +1088,6 @@ body:not(.has-track) #howbox{display:block}
 .ampchip.on:disabled{opacity:.8}
 .amptag{display:inline-block;padding:0 6px;border-radius:99px;background:rgba(255,107,44,.14);color:var(--ember-ink);
   font-size:10.5px;font-weight:700;white-space:nowrap}
+.amptag.busy{opacity:.65;animation:ampbusy 1.2s ease-in-out infinite alternate}
+@keyframes ampbusy{to{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.amptag.busy{animation:none}}

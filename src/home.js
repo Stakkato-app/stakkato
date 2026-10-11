@@ -15,7 +15,7 @@ import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { ico } from './icons.js';
-import { buildAmp } from './amp.js';
+import { renderAmp } from './amp.js';
 
 var NAME_KEY = 'riffraff:name';    /* shared with the song view */
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
@@ -281,16 +281,16 @@ function load(r, p) {
     .then(function (b) { BUF[k] = b; drawWaves(); })
     .catch(function (e) { console.warn('Could not load audio', p.url, e); });
 }
-/* where a take plays into: straight out, or through its amp (a dry DI guitar, set in the song view) */
-function outFor(p, b) {
-  var a = ac();
-  if (!p.amp) return a.destination;
-  if (b.__peak === undefined) { var d = b.getChannelData(0), m = 0; for (var i = 0; i < d.length; i++) { var v = d[i] < 0 ? -d[i] : d[i]; if (v > m) m = v; } b.__peak = m; }
-  var amp = buildAmp(a, p.amp, b.__peak);
-  if (!amp) return a.destination;
-  amp.output.connect(a.destination);
-  return amp.input;
+/* A take with an amp (a dry DI guitar, set in the song view) plays rendered through it.
+   The render is made once and kept next to the dry audio; if it fails, the take plays dry. */
+function ampKey(r, p) { return bufKey(r, p) + '@' + p.amp; }
+function amped(r, p) {
+  var b = BUF[bufKey(r, p)], k = ampKey(r, p);
+  if (!p.amp || !b || BUF[k] || BUF[k + ':failed']) return Promise.resolve();
+  if (!BUF[k + ':busy']) BUF[k + ':busy'] = renderAmp(b, p.amp).then(function (x) { BUF[k] = x; }, function (e) { console.warn('Could not render the amp', e); BUF[k + ':failed'] = true; });
+  return BUF[k + ':busy'];
 }
+function bufFor(r, p) { return (p.amp && BUF[ampKey(r, p)]) || BUF[bufKey(r, p)]; }
 function stop() { SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; S.playing = null; CLOCK = null; }
 /* CLOCK: when the loop that is playing started and how long it is, for the playhead */
 var CLOCK = null;
@@ -303,13 +303,15 @@ function playList(k, r, c, at) {
   SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; CLOCK = null;
   S.playing = k; if (was !== k) render();
   Promise.all(c.map(function (p) { return load(r, p); })).then(function () {
+    return Promise.all(c.map(function (p) { return amped(r, p); }));
+  }).then(function () {
     if (S.playing !== k) return;
     var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0;
-    c.forEach(function (p) { var b = BUF[bufKey(r, p)]; if (b) len = Math.max(len, b.duration); });
+    c.forEach(function (p) { var b = bufFor(r, p); if (b) len = Math.max(len, b.duration); });
     var from = seek ? ((at % len) + len) % len : 0;
     c.forEach(function (p) {
-      var b = BUF[bufKey(r, p)]; if (!b) return;
-      var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(outFor(p, b));
+      var b = bufFor(r, p); if (!b) return;
+      var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(a.destination);
       s.start(T, from % b.duration); SRC.push(s);
     });
     CLOCK = { k:k, t0:T - from, len:len };
@@ -552,9 +554,10 @@ function mdPlay() {
   var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05; MD.gains = {};
   var lanes = MD.c.concat(R.buf ? [{ mine:true, buf:R.buf }] : []);
   lanes.forEach(function (p, i) {
-    var b = p.buf || BUF[bufKey(r, p)]; if (!b) return;
+    var b = p.buf || bufFor(r, p); if (!b) return;
+    if (!p.buf) amped(r, p);
     var src = a.createBufferSource(), g = a.createGain(); src.buffer = b; src.loop = true;
-    g.gain.value = MD.mute[i] ? 0 : 1; src.connect(g); g.connect(outFor(p, b)); src.start(T); SRC.push(src); MD.gains[i] = g;
+    g.gain.value = MD.mute[i] ? 0 : 1; src.connect(g); g.connect(a.destination); src.start(T); SRC.push(src); MD.gains[i] = g;
   });
   MD.t0 = T; el('md-head').hidden = false;
   (function tick() {

@@ -18,7 +18,7 @@ import './styles.css';
 import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
-import { AMPS, ampLabel, buildAmp, dropAmp } from './amp.js';
+import { AMPS, ampLabel, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
@@ -581,7 +581,7 @@ function applySnapshot(sess, snap) {
     /* keep what the creator is dragging or saving right now */
     if (!t.fadeBusy && !(drag && drag.t === t)) { t.fin = row.fade_in || 0; t.fout = row.fade_out || 0; t.xfade = row.xfade || 0; }
     if (!t.buf) t.len = row.duration_sec;
-    if (!t.ampBusy) t.amp = row.amp || '';
+    if (!t.ampSaving) t.amp = row.amp || '';
     if (row.an_bpm || row.an_key) t.an = { bpm:row.an_bpm, key:row.an_key || '?' };
   });
 
@@ -805,8 +805,8 @@ function audible(t) {
   if (anySolo() && !ctl(t).solo) return false;
   return true;
 }
-/* Each track runs source -> fade envelope -> amp (if any) -> high-pass -> low-pass -> gain -> master.
-   Returns the input of the chain. */
+/* Each track runs source -> fade envelope -> high-pass -> low-pass -> gain -> master (a take
+   with an amp plays its rendered buffer, see playBuf()). Returns the input of the chain. */
 function gainFor(t) {
   var ch = gains[t.id];
   if (!ch) {
@@ -816,31 +816,53 @@ function gainFor(t) {
     hp.frequency.value = cutOf(t, 'hp');
     lp.frequency.value = cutOf(t, 'lp');
     inp.connect(hp); hp.connect(lp); lp.connect(g); g.connect(master);
-    ch = gains[t.id] = { inp:inp, hp:hp, lp:lp, g:g, amp:null, ampId:'' };
+    ch = gains[t.id] = { inp:inp, hp:hp, lp:lp, g:g };
   }
-  setAmpNode(ch, t);
   ch.g.gain.value = audible(t) ? volOf(t) : 0;
   setCut(ch.hp, cutOf(t, 'hp'));
   setCut(ch.lp, cutOf(t, 'lp'));
   return ch.inp;
 }
-/* swap the amp in a track's chain when its choice changed (also while it plays) */
-function setAmpNode(ch, t) {
+/* What a take plays: its own audio, or that audio rendered through its amp. A render is made
+   once per take and amp, in the background, and kept on the take (t.amped[id]). Until it is
+   ready the take is silent (never the raw DI in the mix), and when it arrives during
+   playback the song picks up from where it is. */
+function playBuf(t) {
   var id = ampOf(t);
-  if (id === ch.ampId) return;
-  ch.inp.disconnect();
-  dropAmp(ch.amp);
-  ch.amp = buildAmp(ac(), id, t.mm ? t.mm.peak : 0);
-  ch.ampId = id;
-  if (ch.amp) { ch.inp.connect(ch.amp.input); ch.amp.output.connect(ch.hp); }
-  else ch.inp.connect(ch.hp);
+  if (!id || !t.buf) return t.buf;
+  var r = wantAmp(t, id);
+  return r.buf || null;
 }
-/* an amp chain on its own, for backing tracks and your fresh recording; returns its input */
-function ampInto(id, level, dest, keep) {
-  var a = buildAmp(ac(), id, level);
+function wantAmp(t, id) {
+  t.amped = t.amped || {};
+  var r = t.amped[id];
+  if (r && (r.buf || r.busy || r.failed)) return r;
+  r = t.amped[id] = { busy:true };
+  var src = t.buf;
+  renderAmp(src, id).then(function (buf) {
+    r.busy = false;
+    if (t.buf !== src) return;
+    r.buf = buf;
+    if (running && !only && tracks().indexOf(t) > -1 && ampOf(t) === id) play(position());
+    else render();
+  }, function (e) {
+    console.error(e);
+    r.busy = false; r.failed = true;
+    flash('The ' + ampLabel(id).toLowerCase() + ' amp could not load, so ' + (t.by || 'that take') + ' plays as it was recorded. Reload the page to try again.');
+    render();
+  });
+  return r;
+}
+/* an amp failed to load: play the take as recorded rather than not at all */
+function ampFailed(t) { var id = ampOf(t); return !!(id && t.amped && t.amped[id] && t.amped[id].failed); }
+function ampBusy(t) { var id = ampOf(t); return !!(id && t.buf && !ampFailed(t) && !(t.amped && t.amped[id] && t.amped[id].buf)); }
+/* an amp running live, for hearing yourself and your fresh take; returns its input. Its nodes
+   go in `keep` (as one entry) so recCleanup() takes the whole thing down. */
+function ampInto(id, peak, dest, keep) {
+  var a = liveAmp(ac(), id, peak);
   if (!a) return dest;
   a.output.connect(dest);
-  if (keep) keep.push.apply(keep, a.nodes);
+  keep.push({ disconnect:function () { dropAmp(a); } });
   return a.input;
 }
 /* glide to the new cutoff so turning a knob during playback doesn't click */
@@ -848,7 +870,9 @@ function setCut(node, hz) {
   if (Math.abs(node.frequency.value - hz) < .5) return;
   node.frequency.setTargetAtTime(hz, ac().currentTime, .015);
 }
-function refreshGains(){ tracks().forEach(gainFor); }
+function refreshGains() {
+  tracks().forEach(function (t) { gainFor(t); if (ampOf(t)) playBuf(t); });
+}
 function position() {
   if (!running) return offset;
   return Math.min(duration(), ac().currentTime - startedAt);
@@ -877,10 +901,10 @@ function play(from, soloId) {
   var now = ac().currentTime;
   list.forEach(function (t) {
     if (!audible(t)) return;
-    var st = startOf(t);
-    if (at >= st + t.len) return;
+    var st = startOf(t), b = ampFailed(t) ? t.buf : playBuf(t);
+    if (at >= st + t.len || !b) return;
     var s = ac().createBufferSource(), env = ac().createGain();
-    s.buffer = t.buf;
+    s.buffer = b;
     s.connect(env); env.connect(gainFor(t));
     var T = at >= st ? now : now + (st - at), x0 = at >= st ? at - st : 0;
     scheduleEnv(env, t, T, x0);
@@ -901,10 +925,12 @@ function toggleTransport(){ running ? stopAll(true) : play(); }
 function preview(t) {
   if (!t || !t.buf) { if (t && t.loading) flash('Still loading that take.'); return; }
   if (only === t.id) { stopAll(); return; }
+  var b = ampFailed(t) ? t.buf : playBuf(t);
+  if (!b) { flash('Putting that take through the ' + ampLabel(ampOf(t)).toLowerCase() + ' amp. Press play again in a moment.'); return; }
   stopAll();
   only = t.id;
   var s = ac().createBufferSource(), env = ac().createGain();
-  s.buffer = t.buf;
+  s.buffer = b;
   s.connect(env); env.connect(gainFor(t));
   ac().resume();
   var T = ac().currentTime + 0.02;
@@ -921,11 +947,12 @@ function previewGroup(t) {
   var key = 'grp:' + t.id, list = groupOf(t).filter(function (g) { return g.buf; });
   if (only === key) { stopAll(); return; }
   if (!list.length) { flash('Still loading that take.'); return; }
+  if (list.some(ampBusy)) { list.forEach(playBuf); flash('Putting it through the amp. Press play again in a moment.'); return; }
   stopAll(); only = key; ac().resume();
   var T = ac().currentTime + 0.02, left = list.length;
   list.forEach(function (g) {
     var s2 = ac().createBufferSource(), env = ac().createGain();
-    s2.buffer = g.buf; s2.connect(env); env.connect(gainFor(g));
+    s2.buffer = ampFailed(g) ? g.buf : playBuf(g); s2.connect(env); env.connect(gainFor(g));
     scheduleEnv(env, g, T, 0); s2.start(T); sources[g.id] = s2;
     s2.onended = function () { delete sources[g.id]; if (--left <= 0 && only === key) { only = null; render(); } };
   });
@@ -936,13 +963,14 @@ function pairPreview(t) {
   var key = 'pair:' + t.id;
   if (only === key) { stopAll(); return; }
   if (!t || !t.buf || !S.seed.buf) { flash('Still loading the audio.'); return; }
+  if (ampBusy(t) || ampBusy(S.seed)) { playBuf(t); playBuf(S.seed); flash('Putting it through the amp. Press play again in a moment.'); return; }
   stopAll();
   only = key;
   ac().resume();
   var T = ac().currentTime + 0.02, left = 2;
   [S.seed, t].forEach(function (x) {
     var s = ac().createBufferSource(), env = ac().createGain();
-    s.buffer = x.buf;
+    s.buffer = ampFailed(x) ? x.buf : playBuf(x);
     s.connect(env); env.connect(gainFor(x));
     scheduleEnv(env, x, T, 0);
     s.start(T);
@@ -1066,7 +1094,9 @@ function setBuffer(t, buf) {
   t.len = buf.duration;
   t.peaks = peaksOf(buf, 1200);
   t.mm = minMaxOf(buf, 2400);
+  t.amped = {};
   delete gains[t.id];
+  if (ampOf(t)) playBuf(t); /* start its amp render now, so it is ready by the time it plays */
 }
 
 /* Upload the audio, analyse it in parallel, then record the take. The decoded buffer is
@@ -1245,9 +1275,11 @@ function playBacking(list, T, into) {
   list.forEach(function (t) {
     var rel = startOf(t) - s0, off = rel < 0 ? -rel : 0;
     if (off >= t.len) return;
+    var b = ampFailed(t) ? t.buf : playBuf(t);
+    if (!b) return;
     var s = a.createBufferSource(), g = a.createGain();
-    s.buffer = t.buf; g.gain.value = volOf(t);
-    s.connect(g); g.connect(ampInto(ampOf(t), t.mm ? t.mm.peak : 0, master, REC.nodes)); s.start(T + Math.max(0, rel), off);
+    s.buffer = b; g.gain.value = volOf(t);
+    s.connect(g); g.connect(master); s.start(T + Math.max(0, rel), off);
     into.push(s); REC.nodes.push(g);
   });
 }
@@ -1290,6 +1322,7 @@ function recRoleId() { return REC.where === 'daw' ? S.recRole || ROLES[0].id : R
 function recAmpFor(rid) { return AMP_ROLES.indexOf(rid) > -1 ? savedAmp() : ''; }
 function ampPicker(rid) {
   var cur = savedAmp(), on = AMP_ROLES.indexOf(rid) > -1;
+  if (on && cur) preloadAmp(cur);
   return '<label class="mini amp-mini"' + (on ? '' : ' hidden') + ' title="Recorded dry, heard through this amp. You can change it later."><span>amp</span><select class="amp-pick">' +
     '<option value="">Off, as it comes in</option>' + AMPS.map(function (a) {
       return '<option value="' + a.id + '"' + (a.id === cur ? ' selected' : '') + '>' + a.label + '</option>';
@@ -2145,12 +2178,12 @@ function setAmp(t, id) {
   } else {
     t.amp = id;
     if (t.status !== 'draft') {
-      t.ampBusy = true;
+      t.ampSaving = true;
       db.setAmp(t.dbId, id || null).then(function () {
-        t.ampBusy = false;
+        t.ampSaving = false;
         flash(id ? (t.by || 'This take') + ' plays through the ' + ampLabel(id).toLowerCase() + ' amp now, for everyone.' : 'The amp is off, everyone hears the take as it was recorded.');
         return refresh();
-      }).catch(function (e) { t.ampBusy = false; oops(needsUpdate(e, '20261012090000_take_amps.sql') || e); refresh(); });
+      }).catch(function (e) { t.ampSaving = false; oops(needsUpdate(e, '20261012090000_take_amps.sql') || e); refresh(); });
     }
   }
   refreshGains(); render();
@@ -2232,7 +2265,7 @@ function renderDaw() {
         '<div class="t-name">' + ico(r.icon, col(r)) +
           '<div><b>' + esc(t.by || 'you') + (isTrial ? ' <span class="trybadge">trying out</span>' : '') +
           (status ? ' <span class="stag">' + status + '</span>' : '') + '</b>' +
-          '<span class="tiny muted">' + esc(labelOf(t)) + (ampOf(t) ? ' <span class="amptag">' + ampLabel(ampOf(t)).toLowerCase() + ' amp</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
+          '<span class="tiny muted">' + esc(labelOf(t)) + (ampOf(t) ? ' <span class="amptag' + (ampBusy(t) ? ' busy' : '') + '"' + (ampBusy(t) ? ' title="Putting the take through its amp. It plays as soon as that is done."' : '') + '>' + ampLabel(ampOf(t)).toLowerCase() + ' amp' + (ampBusy(t) ? ', loading' : '') + '</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
@@ -3659,6 +3692,7 @@ document.addEventListener('change', function (e) {
   if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); return; }
   if (e.target.classList.contains('amp-pick')) {
     rememberAmp(e.target.value);
+    preloadAmp(e.target.value);
     [].forEach.call(document.querySelectorAll('.amp-pick'), function (sel) { sel.value = e.target.value; });
     return;
   }
