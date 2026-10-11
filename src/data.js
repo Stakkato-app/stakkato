@@ -205,6 +205,12 @@ export async function setFades(takeId, { fadeIn, fadeOut, xfade }) {
   return check(await supabase.rpc('set_fades', { p_take: takeId, p_in: fadeIn, p_out: fadeOut, p_xfade: xfade }));
 }
 
+/* The amp a take plays through (null = off). The creator, or the take's author while it
+   waits or is their own; heard by everyone. The audio itself stays dry. */
+export async function setAmp(takeId, amp) {
+  return check(await supabase.rpc('set_amp', { p_take: takeId, p_amp: amp }));
+}
+
 /* ---------- timeline comments ---------- */
 
 export async function addComment(row) {

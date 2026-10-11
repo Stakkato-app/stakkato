@@ -15,6 +15,7 @@ import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { ico } from './icons.js';
+import { renderAmp } from './amp.js';
 
 var NAME_KEY = 'riffraff:name';    /* shared with the song view */
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
@@ -87,7 +88,7 @@ function build(feed) {
         return;
       }
       var base = { id:t.id, by:t.author_name, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
-        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status };
+        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
@@ -108,7 +109,7 @@ function build(feed) {
     posts = posts.filter(function (p) {
       var g = p.group; if (!g || p.deleted) return true;
       if (!groups[g]) { groups[g] = p; p.stems = []; return true; }
-      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur }); return false;
+      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, amp:p.amp }); return false;
     });
     posts.sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
     /* a reply on something the feed leaves out (a deleted take) moves up to the jam */
@@ -123,7 +124,7 @@ function build(feed) {
       });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
-      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec,
+      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '',
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };
     return r;
@@ -263,7 +264,7 @@ function chainOf(r, pid) {
     if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, isPart:true }].concat(out);
     if (p.layer) out = stemsOf(p).concat(out);
   }
-  return [{ id:'riff', by:r.by, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host }].concat(out);
+  return [{ id:'riff', by:r.by, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host, amp:r.amp }].concat(out);
 }
 function bufKey(r, p) { return p.isRiff ? r.id + ':riff' : r.id + ':' + p.id; }
 function chipLabel(p) { return p.isRiff ? 'clip' : p.isPart ? 'new part' : lay(p.layer).label; }
@@ -280,6 +281,16 @@ function load(r, p) {
     .then(function (b) { BUF[k] = b; drawWaves(); })
     .catch(function (e) { console.warn('Could not load audio', p.url, e); });
 }
+/* A take with an amp (a dry DI guitar, set in the song view) plays rendered through it.
+   The render is made once and kept next to the dry audio; if it fails, the take plays dry. */
+function ampKey(r, p) { return bufKey(r, p) + '@' + p.amp; }
+function amped(r, p) {
+  var b = BUF[bufKey(r, p)], k = ampKey(r, p);
+  if (!p.amp || !b || BUF[k] || BUF[k + ':failed']) return Promise.resolve();
+  if (!BUF[k + ':busy']) BUF[k + ':busy'] = renderAmp(b, p.amp).then(function (x) { BUF[k] = x; }, function (e) { console.warn('Could not render the amp', e); BUF[k + ':failed'] = true; });
+  return BUF[k + ':busy'];
+}
+function bufFor(r, p) { return (p.amp && BUF[ampKey(r, p)]) || BUF[bufKey(r, p)]; }
 function stop() { SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; S.playing = null; CLOCK = null; }
 /* CLOCK: when the loop that is playing started and how long it is, for the playhead */
 var CLOCK = null;
@@ -292,12 +303,14 @@ function playList(k, r, c, at) {
   SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; CLOCK = null;
   S.playing = k; if (was !== k) render();
   Promise.all(c.map(function (p) { return load(r, p); })).then(function () {
+    return Promise.all(c.map(function (p) { return amped(r, p); }));
+  }).then(function () {
     if (S.playing !== k) return;
     var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0;
-    c.forEach(function (p) { var b = BUF[bufKey(r, p)]; if (b) len = Math.max(len, b.duration); });
+    c.forEach(function (p) { var b = bufFor(r, p); if (b) len = Math.max(len, b.duration); });
     var from = seek ? ((at % len) + len) % len : 0;
     c.forEach(function (p) {
-      var b = BUF[bufKey(r, p)]; if (!b) return;
+      var b = bufFor(r, p); if (!b) return;
       var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(a.destination);
       s.start(T, from % b.duration); SRC.push(s);
     });
@@ -541,7 +554,8 @@ function mdPlay() {
   var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05; MD.gains = {};
   var lanes = MD.c.concat(R.buf ? [{ mine:true, buf:R.buf }] : []);
   lanes.forEach(function (p, i) {
-    var b = p.buf || BUF[bufKey(r, p)]; if (!b) return;
+    var b = p.buf || bufFor(r, p); if (!b) return;
+    if (!p.buf) amped(r, p);
     var src = a.createBufferSource(), g = a.createGain(); src.buffer = b; src.loop = true;
     g.gain.value = MD.mute[i] ? 0 : 1; src.connect(g); g.connect(a.destination); src.start(T); SRC.push(src); MD.gains[i] = g;
   });

@@ -18,6 +18,7 @@ import './styles.css';
 import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
+import { AMPS, ampLabel, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
@@ -171,7 +172,9 @@ function seedHolds(id, sec) { return cap(id, sec) < 1; }
 function waitingFor(id){ return S.applicants.filter(function (a) { return a.roleId === id; }); }
 function findTake(id) {
   if (id === 'seed') return S.seed;
-  return TAKES[id];
+  if (TAKES[id]) return TAKES[id];
+  var d = (S.drafts || []).filter(function (x) { return x.t.id === id; })[0];
+  return d ? d.t : undefined;
 }
 function live(t) { return t && t.status !== 'deleted'; }
 function trialTake() {
@@ -542,6 +545,13 @@ function cutOf(t, kind) {
   var v = ctl(t)[kind];
   return typeof v === 'number' ? v : (kind === 'hp' ? F_MIN : F_MAX);
 }
+/* the amp a take plays through: a version keeps its own choice, otherwise the take's own
+   (set by its author when sending, or by the creator). '' = off, the take as recorded. */
+function ampOf(t) {
+  var c = ctl(t);
+  if (c !== t && typeof c.amp === 'string') return c.amp;
+  return t.amp || '';
+}
 function hzToKnob(hz){ return Math.log(hz / F_MIN) / Math.log(F_MAX / F_MIN); }
 function knobToHz(k){ return Math.round(F_MIN * Math.pow(F_MAX / F_MIN, Math.max(0, Math.min(1, k)))); }
 function fmtHz(hz){ return hz >= 1000 ? (Math.round(hz / 100) / 10) + ' kHz' : hz + ' Hz'; }
@@ -571,6 +581,7 @@ function applySnapshot(sess, snap) {
     /* keep what the creator is dragging or saving right now */
     if (!t.fadeBusy && !(drag && drag.t === t)) { t.fin = row.fade_in || 0; t.fout = row.fade_out || 0; t.xfade = row.xfade || 0; }
     if (!t.buf) t.len = row.duration_sec;
+    if (!t.ampSaving) t.amp = row.amp || '';
     if (row.an_bpm || row.an_key) t.an = { bpm:row.an_bpm, key:row.an_key || '?' };
   });
 
@@ -654,6 +665,7 @@ function refresh() {
     if (!S.session || S.session.id !== id) return;
     applySnapshot(r[0], r[1]);
     syncPhase();
+    if (AC) refreshGains(); /* an amp someone else changed is heard right away */
     renderAll();
   }).catch(oops);
 }
@@ -793,30 +805,74 @@ function audible(t) {
   if (anySolo() && !ctl(t).solo) return false;
   return true;
 }
-/* Each track runs source -> fade envelope -> high-pass -> low-pass -> gain -> master.
-   Returns the input of the filter chain. */
+/* Each track runs source -> fade envelope -> high-pass -> low-pass -> gain -> master (a take
+   with an amp plays its rendered buffer, see playBuf()). Returns the input of the chain. */
 function gainFor(t) {
   var ch = gains[t.id];
   if (!ch) {
-    var hp = ac().createBiquadFilter(), lp = ac().createBiquadFilter(), g = ac().createGain();
+    var inp = ac().createGain(), hp = ac().createBiquadFilter(), lp = ac().createBiquadFilter(), g = ac().createGain();
     hp.type = 'highpass'; lp.type = 'lowpass';
     hp.Q.value = lp.Q.value = Math.SQRT1_2;
     hp.frequency.value = cutOf(t, 'hp');
     lp.frequency.value = cutOf(t, 'lp');
-    hp.connect(lp); lp.connect(g); g.connect(master);
-    ch = gains[t.id] = { hp:hp, lp:lp, g:g };
+    inp.connect(hp); hp.connect(lp); lp.connect(g); g.connect(master);
+    ch = gains[t.id] = { inp:inp, hp:hp, lp:lp, g:g };
   }
   ch.g.gain.value = audible(t) ? volOf(t) : 0;
   setCut(ch.hp, cutOf(t, 'hp'));
   setCut(ch.lp, cutOf(t, 'lp'));
-  return ch.hp;
+  return ch.inp;
+}
+/* What a take plays: its own audio, or that audio rendered through its amp. A render is made
+   once per take and amp, in the background, and kept on the take (t.amped[id]). Until it is
+   ready the take is silent (never the raw DI in the mix), and when it arrives during
+   playback the song picks up from where it is. */
+function playBuf(t) {
+  var id = ampOf(t);
+  if (!id || !t.buf) return t.buf;
+  var r = wantAmp(t, id);
+  return r.buf || null;
+}
+function wantAmp(t, id) {
+  t.amped = t.amped || {};
+  var r = t.amped[id];
+  if (r && (r.buf || r.busy || r.failed)) return r;
+  r = t.amped[id] = { busy:true };
+  var src = t.buf;
+  renderAmp(src, id).then(function (buf) {
+    r.busy = false;
+    if (t.buf !== src) return;
+    r.buf = buf;
+    if (running && !only && tracks().indexOf(t) > -1 && ampOf(t) === id) play(position());
+    else render();
+  }, function (e) {
+    console.error(e);
+    r.busy = false; r.failed = true;
+    flash('The ' + ampLabel(id).toLowerCase() + ' amp could not load, so ' + (t.by || 'that take') + ' plays as it was recorded. Reload the page to try again.');
+    render();
+  });
+  return r;
+}
+/* an amp failed to load: play the take as recorded rather than not at all */
+function ampFailed(t) { var id = ampOf(t); return !!(id && t.amped && t.amped[id] && t.amped[id].failed); }
+function ampBusy(t) { var id = ampOf(t); return !!(id && t.buf && !ampFailed(t) && !(t.amped && t.amped[id] && t.amped[id].buf)); }
+/* an amp running live, for hearing yourself and your fresh take; returns its input. Its nodes
+   go in `keep` (as one entry) so recCleanup() takes the whole thing down. */
+function ampInto(id, peak, dest, keep) {
+  var a = liveAmp(ac(), id, peak);
+  if (!a) return dest;
+  a.output.connect(dest);
+  keep.push({ disconnect:function () { dropAmp(a); } });
+  return a.input;
 }
 /* glide to the new cutoff so turning a knob during playback doesn't click */
 function setCut(node, hz) {
   if (Math.abs(node.frequency.value - hz) < .5) return;
   node.frequency.setTargetAtTime(hz, ac().currentTime, .015);
 }
-function refreshGains(){ tracks().forEach(gainFor); }
+function refreshGains() {
+  tracks().forEach(function (t) { gainFor(t); if (ampOf(t)) playBuf(t); });
+}
 function position() {
   if (!running) return offset;
   return Math.min(duration(), ac().currentTime - startedAt);
@@ -845,10 +901,10 @@ function play(from, soloId) {
   var now = ac().currentTime;
   list.forEach(function (t) {
     if (!audible(t)) return;
-    var st = startOf(t);
-    if (at >= st + t.len) return;
+    var st = startOf(t), b = ampFailed(t) ? t.buf : playBuf(t);
+    if (at >= st + t.len || !b) return;
     var s = ac().createBufferSource(), env = ac().createGain();
-    s.buffer = t.buf;
+    s.buffer = b;
     s.connect(env); env.connect(gainFor(t));
     var T = at >= st ? now : now + (st - at), x0 = at >= st ? at - st : 0;
     scheduleEnv(env, t, T, x0);
@@ -869,10 +925,12 @@ function toggleTransport(){ running ? stopAll(true) : play(); }
 function preview(t) {
   if (!t || !t.buf) { if (t && t.loading) flash('Still loading that take.'); return; }
   if (only === t.id) { stopAll(); return; }
+  var b = ampFailed(t) ? t.buf : playBuf(t);
+  if (!b) { flash('Putting that take through the ' + ampLabel(ampOf(t)).toLowerCase() + ' amp. Press play again in a moment.'); return; }
   stopAll();
   only = t.id;
   var s = ac().createBufferSource(), env = ac().createGain();
-  s.buffer = t.buf;
+  s.buffer = b;
   s.connect(env); env.connect(gainFor(t));
   ac().resume();
   var T = ac().currentTime + 0.02;
@@ -889,11 +947,12 @@ function previewGroup(t) {
   var key = 'grp:' + t.id, list = groupOf(t).filter(function (g) { return g.buf; });
   if (only === key) { stopAll(); return; }
   if (!list.length) { flash('Still loading that take.'); return; }
+  if (list.some(ampBusy)) { list.forEach(playBuf); flash('Putting it through the amp. Press play again in a moment.'); return; }
   stopAll(); only = key; ac().resume();
   var T = ac().currentTime + 0.02, left = list.length;
   list.forEach(function (g) {
     var s2 = ac().createBufferSource(), env = ac().createGain();
-    s2.buffer = g.buf; s2.connect(env); env.connect(gainFor(g));
+    s2.buffer = ampFailed(g) ? g.buf : playBuf(g); s2.connect(env); env.connect(gainFor(g));
     scheduleEnv(env, g, T, 0); s2.start(T); sources[g.id] = s2;
     s2.onended = function () { delete sources[g.id]; if (--left <= 0 && only === key) { only = null; render(); } };
   });
@@ -904,13 +963,14 @@ function pairPreview(t) {
   var key = 'pair:' + t.id;
   if (only === key) { stopAll(); return; }
   if (!t || !t.buf || !S.seed.buf) { flash('Still loading the audio.'); return; }
+  if (ampBusy(t) || ampBusy(S.seed)) { playBuf(t); playBuf(S.seed); flash('Putting it through the amp. Press play again in a moment.'); return; }
   stopAll();
   only = key;
   ac().resume();
   var T = ac().currentTime + 0.02, left = 2;
   [S.seed, t].forEach(function (x) {
     var s = ac().createBufferSource(), env = ac().createGain();
-    s.buffer = x.buf;
+    s.buffer = ampFailed(x) ? x.buf : playBuf(x);
     s.connect(env); env.connect(gainFor(x));
     scheduleEnv(env, x, T, 0);
     s.start(T);
@@ -1034,7 +1094,9 @@ function setBuffer(t, buf) {
   t.len = buf.duration;
   t.peaks = peaksOf(buf, 1200);
   t.mm = minMaxOf(buf, 2400);
+  t.amped = {};
   delete gains[t.id];
+  if (ampOf(t)) playBuf(t); /* start its amp render now, so it is ready by the time it plays */
 }
 
 /* Upload the audio, analyse it in parallel, then record the take. The decoded buffer is
@@ -1048,17 +1110,24 @@ function uploadTake(file, buf, o) {
     o.analyse ? analyse(file).catch(function () { return null; }) : Promise.resolve(null)
   ]).then(function (r) {
     var an = r[1];
-    return db.insertTake({
+    var row = {
       session_id: sid, author_id: me.id, author_name: o.name, role_id: o.role, note: o.note || '',
       status: o.status, storage_path: path, file_name: file.name, mime_type: type, duration_sec: buf.duration,
       part_pos: o.pos || null, section_id: o.sec || null,
       on_takes: o.on ? o.on : o.status === 'waiting' && o.role !== 'part' && !o.sec ? (currentStack() || { takes:[] }).takes.filter(function (x) { return !x.mute; }).map(function (x) { return x.dbId; }) : null,
       group_id: o.group || null,
       an_bpm: an && an.tempo ? an.tempo.bpm : null, an_key: an && an.key ? an.key.key : null
+    };
+    if (o.amp) row.amp = o.amp;
+    /* without the amp migration the take still goes in, just without its amp */
+    return db.insertTake(row).catch(function (e) {
+      if (!row.amp || !/amp/.test(String(e && (e.message || e.details)))) throw e;
+      delete row.amp;
+      return db.insertTake(row);
     }).then(function (row) {
       var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{},
                                 roleId:row.role_id, status:row.status, by:row.author_name, authorId:row.author_id,
-                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0, on:row.on_takes || null, group:row.group_id || null, created:row.created_at };
+                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0, on:row.on_takes || null, group:row.group_id || null, created:row.created_at, amp:row.amp || '' };
       if (row.status === 'waiting' && row.role_id !== 'part' && !o.group) { S.stack = row.id; S.sel = row.id; }
       setBuffer(t, buf);
       file.arrayBuffer().then(function (ab) { t.bytes = new Uint8Array(ab); });
@@ -1079,7 +1148,7 @@ function sheet(list) {
     list.map(function (t, i) {
       var e = envOf(t);
       return fileName(t, i) + '   (' + labelOf(t) + ', ' + (t.by || 'you') + ', starts at ' + clockMs(startOf(t)) +
-        (e.fi > 0.01 ? ', fade in ' + e.fi.toFixed(1) + ' s' : '') + (e.fo > 0.01 ? ', fade out ' + e.fo.toFixed(1) + ' s' : '') + ')';
+        (e.fi > 0.01 ? ', fade in ' + e.fi.toFixed(1) + ' s' : '') + (e.fo > 0.01 ? ', fade out ' + e.fo.toFixed(1) + ' s' : '') + (ampOf(t) ? ', ' + ampLabel(ampOf(t)).toLowerCase() + ' amp in the app, the file is dry' : '') + ')';
     }).join('\r\n') + '\r\n';
 }
 function hand(filename, blob) {
@@ -1206,8 +1275,10 @@ function playBacking(list, T, into) {
   list.forEach(function (t) {
     var rel = startOf(t) - s0, off = rel < 0 ? -rel : 0;
     if (off >= t.len) return;
+    var b = ampFailed(t) ? t.buf : playBuf(t);
+    if (!b) return;
     var s = a.createBufferSource(), g = a.createGain();
-    s.buffer = t.buf; g.gain.value = volOf(t);
+    s.buffer = b; g.gain.value = volOf(t);
     s.connect(g); g.connect(master); s.start(T + Math.max(0, rel), off);
     into.push(s); REC.nodes.push(g);
   });
@@ -1237,6 +1308,32 @@ function micOptions() {
   return '<option value="">Default input</option>' + S.mics.map(function (m, i) {
     return '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' + esc(m.label || ('Input ' + (i + 1))) + '</option>';
   }).join('');
+}
+/* ---------- the amp you record through: remembered per browser. The take is stored dry
+   and keeps this amp as its setting, so it can be changed later. ---------- */
+var AMP_KEY = 'stackato:amp', MON_KEY = 'stackato:monitor', AMP_ROLES = ['guitar', 'lead', 'bass'];
+function savedAmp() { try { return localStorage.getItem(AMP_KEY) || ''; } catch (e) { return ''; } }
+function rememberAmp(id) { try { if (id) localStorage.setItem(AMP_KEY, id); else localStorage.removeItem(AMP_KEY); } catch (e) {} }
+function savedMon() { try { return localStorage.getItem(MON_KEY) === '1'; } catch (e) { return false; } }
+function rememberMon(on) { try { localStorage.setItem(MON_KEY, on ? '1' : '0'); } catch (e) {} }
+/* the amp a recording for this layer gets: only guitar-like layers use one */
+/* the layer being recorded: the grey track's, the send window's, none for the original track */
+function recRoleId() { return REC.where === 'daw' ? S.recRole || ROLES[0].id : REC.where === 'seed' ? '' : el('take-role').value; }
+function recAmpFor(rid) { return AMP_ROLES.indexOf(rid) > -1 ? savedAmp() : ''; }
+function ampPicker(rid) {
+  var cur = savedAmp(), on = AMP_ROLES.indexOf(rid) > -1;
+  if (on && cur) preloadAmp(cur);
+  return '<label class="mini amp-mini"' + (on ? '' : ' hidden') + ' title="Recorded dry, heard through this amp. You can change it later."><span>amp</span><select class="amp-pick">' +
+    '<option value="">Off, as it comes in</option>' + AMPS.map(function (a) {
+      return '<option value="' + a.id + '"' + (a.id === cur ? ' selected' : '') + '>' + a.label + '</option>';
+    }).join('') + '</select></label>';
+}
+function showAmpPick(rid) {
+  [].forEach.call(document.querySelectorAll('.amp-mini'), function (l) { l.hidden = AMP_ROLES.indexOf(rid) < 0; });
+}
+function monPicker() {
+  return '<label class="rec-opt mon-opt" title="Hear your input in the headphones while you record. Leave it off if your interface already lets you hear yourself.">' +
+    '<input type="checkbox" class="mon-pick"' + (savedMon() ? ' checked' : '') + '><span>Hear yourself</span></label>';
 }
 function micPicker() { return '<label class="mini mic"><span>input</span><select class="mic-pick">' + micOptions() + '</select></label>'; }
 /* labels only show once the browser has been allowed to use a microphone */
@@ -1304,6 +1401,10 @@ function recStart() {
       };
       src.connect(proc); proc.connect(sink); sink.connect(a.destination);
       REC.nodes = [src, proc, sink];
+    }
+    /* hearing yourself, through the amp if one is picked (the take itself stays dry) */
+    if (savedMon()) {
+      src.connect(ampInto(recAmpFor(recRoleId()), 0, master, REC.nodes));
     }
     /* what you hear: the click and, for a layer, the chosen tracks from bar 1 */
     if (REC.click) {
@@ -1387,12 +1488,15 @@ function recFinish() {
   if (bleed) REC.warn = 'The click was in your recording' + (bleed.clean ? '' : ' (some of it may still be audible)') + ', so your input also picks up the computer’s sound. ' +
     'We took it out and lined the take up with the beat. To keep it out next time, wear headphones and turn off the computer’s sound on the input you record from (Quad Cortex: don’t send USB playback to USB 1/2).';
   /* a very quiet take usually means the wrong input or channel (a DI channel, for one) */
-  if (REC.peak > 0 && REC.peak < 0.06)
+  /* (a dry guitar through one of our amps is fine quiet: the amp brings it up) */
+  var amped = !!recAmpFor(recRoleId());
+  if (REC.peak > 0 && REC.peak < (amped ? 0.004 : 0.06))
     REC.warn = 'This came in very quiet (peak ' + Math.round(20 * Math.log10(REC.peak)) + ' dB). On an interface with many channels, like a Quad Cortex, ' +
-      'the browser records the first channel, which is often the dry DI. Send your processed sound there (Quad Cortex: I/O settings, DRY/WET for USB 1/2) or pick another input.';
+      'the browser records the first channel, which is often the dry DI. Send your processed sound there (Quad Cortex: I/O settings, DRY/WET for USB 1/2) or pick another input.' +
+      (amped || AMP_ROLES.indexOf(recRoleId()) < 0 ? '' : ' If it is a dry guitar on purpose, pick an amp for it.');
   var buf = a.createBuffer(1, out.length, sr);
   buf.copyToChannel(out, 0);
-  REC.buf = buf;
+  REC.buf = buf; REC.peakOf = minMaxOf(buf, 64).peak;
   REC.file = new File([encodeWav(buf)], REC.where === 'seed' ? 'recorded track.wav' : 'recorded take.wav', { type:'audio/wav' });
   /* a first track recorded on the session page waits to start the session, like a chosen file */
   if (REC.where === 'seed') S.seedRecMeta = { bpm:S.meta.bpm, time:S.meta.time };
@@ -1545,7 +1649,8 @@ function recListen(withBacking) {
   if (!REC.buf) return;
   var a = ac(); a.resume();
   var at = a.currentTime + 0.05;
-  var s = a.createBufferSource(); s.buffer = REC.buf; s.connect(master); s.start(at);
+  var s = a.createBufferSource();
+  s.buffer = REC.buf; s.connect(ampInto(recAmpFor(recRoleId()), REC.peakOf || 0, master, REC.nodes)); s.start(at);
   REC.player.push(s);
   if (withBacking && M.mode !== 'extend') playBacking(recBacking(), at, REC.player);
 }
@@ -1615,7 +1720,7 @@ function renderRec() {
     '<div class="rec-row">' +
       '<label class="rec-opt"><input type="checkbox" data-hear="click"' + (REC.click ? ' checked' : '') + '><span>Click</span></label>' +
       '<label class="mini"><span>count-in</span><select data-countin="1">' + countInOptions() + '</select></label>' +
-      micPicker() +
+      micPicker() + ampPicker(el('take-role').value) + monPicker() +
     '</div>' +
     '<p class="tiny muted">Wear headphones, otherwise the backing ends up in your take. ' +
       (extend ? 'Stop whenever your part is done.' : 'Recording starts on the first beat of ' + esc((section(M.sec) || section('core')).label) +
@@ -2045,9 +2150,43 @@ function dawTabs() {
       '<span class="m-ico">+</span><span class="m-txt"><b>Your version</b><small>any take, plus your own takes</small></span></button>' +
     '</div>';
 }
-/* the filter knobs show when you ask for them, or when a filter is already doing something */
+/* the amp and filter knobs show when you ask for them, or when one is already doing something */
 function fxOpen(t) {
-  return !!(S.fxOpen && S.fxOpen[t.id]) || cutOf(t, 'hp') > F_MIN || cutOf(t, 'lp') < F_MAX;
+  return !!(S.fxOpen && S.fxOpen[t.id]) || !!ampOf(t) || cutOf(t, 'hp') > F_MIN || cutOf(t, 'lp') < F_MAX;
+}
+/* Who can change a take's amp here: anyone in a version (it is saved with the version); on the
+   song the creator, or the take's author while it waits for the creator or is their own. */
+function canAmp(t) {
+  if (mixCtx() || t.status === 'draft') return true;
+  if (isHost() && isOpen()) return true;
+  return !!(me && t.authorId === me.id && (t.status === 'waiting' || t.status === 'own'));
+}
+function ampChips(t) {
+  var cur = ampOf(t), ok = canAmp(t);
+  var why = ok ? '' : ' disabled title="Only the creator can change the amp on the song. Try other amps in your version."';
+  return '<div class="t-amp" role="group" aria-label="Amp for ' + esc(t.by || 'you') + '"><span class="kn-l"><b>Amp</b></span>' +
+    [{ id:'', label:'Off', long:'Off: the take as it was recorded' }].concat(AMPS).map(function (a) {
+      return '<button class="ampchip' + (a.id === cur ? ' on' : '') + '" type="button" data-amp="' + a.id + '" data-take="' + t.id + '"' +
+        ' aria-pressed="' + (a.id === cur) + '"' + (ok ? ' title="' + esc(a.long) + '"' : why) + '>' + a.label + '</button>';
+    }).join('') + '</div>';
+}
+function setAmp(t, id) {
+  if (!t || !canAmp(t) || ampOf(t) === id) return;
+  if (mixCtx()) {
+    ctl(t).amp = id;
+    if (S.view === 'build' && !S.override) S.buildDirty = true;
+  } else {
+    t.amp = id;
+    if (t.status !== 'draft') {
+      t.ampSaving = true;
+      db.setAmp(t.dbId, id || null).then(function () {
+        t.ampSaving = false;
+        flash(id ? (t.by || 'This take') + ' plays through the ' + ampLabel(id).toLowerCase() + ' amp now, for everyone.' : 'The amp is off, everyone hears the take as it was recorded.');
+        return refresh();
+      }).catch(function (e) { t.ampSaving = false; oops(needsUpdate(e, '20261012090000_take_amps.sql') || e); refresh(); });
+    }
+  }
+  refreshGains(); render();
 }
 function renderDaw() {
   var list = tracks(), d = duration(), own = S.view === 'build' && !S.override;
@@ -2126,7 +2265,7 @@ function renderDaw() {
         '<div class="t-name">' + ico(r.icon, col(r)) +
           '<div><b>' + esc(t.by || 'you') + (isTrial ? ' <span class="trybadge">trying out</span>' : '') +
           (status ? ' <span class="stag">' + status + '</span>' : '') + '</b>' +
-          '<span class="tiny muted">' + esc(labelOf(t)) + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
+          '<span class="tiny muted">' + esc(labelOf(t)) + (ampOf(t) ? ' <span class="amptag' + (ampBusy(t) ? ' busy' : '') + '"' + (ampBusy(t) ? ' title="Putting the take through its amp. It plays as soon as that is done."' : '') + '>' + ampLabel(ampOf(t)).toLowerCase() + ' amp' + (ampBusy(t) ? ', loading' : '') + '</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
@@ -2138,7 +2277,7 @@ function renderDaw() {
           '<button class="tbtn' + (c.mute ? ' on' : '') + '" type="button" data-mute="' + t.id + '" aria-pressed="' + !!c.mute + '" title="Mute">M</button>' +
           '<button class="tbtn' + (c.solo ? ' on solo' : '') + '" type="button" data-solo="' + t.id + '" aria-pressed="' + !!c.solo + '" title="Solo">S</button>' +
           '<input type="range" min="0" max="1" step="0.02" value="' + v + '" data-vol="' + t.id + '" aria-label="Volume for ' + esc(t.by) + '">' +
-          '<button class="tbtn eq' + (fxOpen(t) ? ' on' : '') + '" type="button" data-fx="' + t.id + '" aria-pressed="' + fxOpen(t) + '" title="Low cut and high cut">EQ</button>' +
+          '<button class="tbtn eq' + (fxOpen(t) ? ' on' : '') + '" type="button" data-fx="' + t.id + '" aria-pressed="' + fxOpen(t) + '" title="Amp, low cut and high cut">FX</button>' +
           (t.status === 'draft' ? menuBtn('t:' + t.id, mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') + mi('data-draftdel="' + t.id + '"', 'Remove from your draft')) :
           menuBtn('t:' + t.id,
             mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') +
@@ -2148,7 +2287,7 @@ function renderDaw() {
             (boss && !isPart && t.id !== 'seed' && S.members.indexOf(t) > -1 ? mi('data-takeout="' + t.id + '"', 'Take out of the song') : '') +
             (t.id !== 'seed' && (lineupView ? boss : isOwn(t)) ? miDel(t.id) : ''))) +
         '</div>' +
-        (fxOpen(t) ? '<div class="t-fx">' + knob(t, 'hp') + knob(t, 'lp') + '</div>' : '') +
+        (fxOpen(t) ? '<div class="t-fx">' + ampChips(t) + knob(t, 'hp') + knob(t, 'lp') + '</div>' : '') +
         (boss && isPart ? '<label class="xf"><span>crossfade</span>' +
           '<input type="range" min="0" max="' + xfMax(t).toFixed(1) + '" step="0.1" value="' + xf(t) + '" data-xfade="' + t.id + '" aria-label="Crossfade for the part by ' + esc(t.by) + '">' +
           '<em>' + xf(t).toFixed(1) + ' s</em></label>' : '') +
@@ -2287,6 +2426,7 @@ function addDraft(file, buf, roleId) {
   var t = { id:'draft-' + (++DRAFT_N), dbId:null, by:'Your draft', roleId:roleId, status:'draft', vol:1, mute:false, solo:false, votes:{}, fin:0, fout:0, xfade:0 };
   setBuffer(t, buf);
   S.drafts.push({ t:t, file:file });
+  return t;
 }
 function draftBar() {
   var ds = S.drafts || [];
@@ -2312,7 +2452,7 @@ function postDraft() {
   stopAll(true);
   ds.reduce(function (pr, d, i) {
     return pr.then(function () {
-      return uploadTake(d.file, d.t.buf, { role:d.t.roleId, status:'waiting', name:name, note:note, analyse:false, group:gid, on:on }).then(function (res) { if (!first) first = res.row.id; });
+      return uploadTake(d.file, d.t.buf, { role:d.t.roleId, status:'waiting', name:name, note:note, analyse:false, group:gid, on:on, amp:d.t.amp || '' }).then(function (res) { if (!first) first = res.row.id; });
     });
   }, Promise.resolve()).then(function () {
     S.drafts = []; S.draftBase = null;
@@ -2383,7 +2523,7 @@ function addRowInner(building) {
       ' <em>Wear headphones.</em></span>' +
       '<button class="btn btn-ember" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
-      micPicker() + err + '</div>';
+      micPicker() + ampPicker(rid) + monPicker() + err + '</div>';
   }
   return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
 }
@@ -2981,6 +3121,7 @@ function fillRoles(sel) {
 function roleHint() {
   if (M.mode === 'extend') return;
   var id = el('take-role').value, r = role(id), free = cap(id, M.sec) - inSong(id, M.sec).length;
+  showAmpPick(id);
   el('modal-ico').innerHTML = ico(r.icon, col(r));
   el('role-hint').textContent = M.mode === 'own'
     ? 'It goes straight into your version, nobody has to approve it. Add as many as you like.'
@@ -3143,7 +3284,7 @@ el('modal-send').addEventListener('click', function () {
           ? ' It looks like it still has the count-in: tick the box above.' : ' Trim or pad it to match.'));
     rememberName(name);
     return uploadTake(src.file, src.buf, { role:el('take-role').value, status:own ? 'own' : 'waiting', name:name, note:note,
-                                           sec:M.sec === 'core' ? null : M.sec, analyse:true })
+                                           sec:M.sec === 'core' ? null : M.sec, analyse:true, amp:src.rec ? recAmpFor(el('take-role').value) : '' })
       .then(function (res) {
         if (REC.fromDaw) { recReset(); REC.fromDaw = false; REC.where = null; }
         closeModal();
@@ -3187,7 +3328,7 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('[data-draftkeep]')) {
-    if (REC.buf && REC.file) { addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
+    if (REC.buf && REC.file) { var dr = addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id); if (dr) dr.amp = recAmpFor(S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
     return;
   }
   if (e.target.closest('[data-draftup]')) { el('draft-files').click(); return; }
@@ -3305,6 +3446,8 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('[data-metaedit]')) { S.metaOpen = !S.metaOpen; render(); return; }
+  var am = e.target.closest('[data-amp]');
+  if (am) { setAmp(findTake(am.dataset.take), am.dataset.amp); return; }
   var fx = e.target.closest('[data-fx]');
   if (fx) { S.fxOpen = S.fxOpen || {}; var ft = findTake(fx.dataset.fx); S.fxOpen[fx.dataset.fx] = !fxOpen(ft); render(); return; }
   var oo = e.target.closest('[data-ocopen]');
@@ -3546,7 +3689,18 @@ document.addEventListener('change', function (e) {
     if (el('countin-text')) countInLabel();
     return;
   }
-  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; return; }
+  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); return; }
+  if (e.target.classList.contains('amp-pick')) {
+    rememberAmp(e.target.value);
+    preloadAmp(e.target.value);
+    [].forEach.call(document.querySelectorAll('.amp-pick'), function (sel) { sel.value = e.target.value; });
+    return;
+  }
+  if (e.target.classList.contains('mon-pick')) {
+    rememberMon(e.target.checked);
+    [].forEach.call(document.querySelectorAll('.mon-pick'), function (c) { c.checked = e.target.checked; });
+    return;
+  }
   if (e.target.classList.contains('mic-pick')) {
     rememberMic(e.target.value);
     [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.value = e.target.value; });
