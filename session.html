@@ -2,15 +2,20 @@
 <html lang="en">
 <head>
 <script>try{var t=localStorage.getItem("stackato:theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){}</script>
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-5RQ4VKFH');</script>
+<!-- End Google Tag Manager -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Make a song with strangers. One original track, then musicians add their takes, layer by layer, until the stack becomes a song.">
 <title>Stakkato — build the song</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Sans:opsz,wght@9..40,400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fonts/fonts.css">
 </head>
 <body>
 <nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" hidden><a href="/">Jams</a><span aria-hidden="true">›</span><a class="crumb-jam" id="crumb-jam" href="/">The jam</a><span aria-hidden="true">›</span><b>The song</b><a class="crumb-back crumb-jam" id="crumb-back" href="/">← Back to the thread</a></nav>
@@ -214,6 +219,7 @@
   </div>
 </div>
 
+<script type="module" src="/src/analytics.js"></script>
 <script type="module" src="/src/app.js"></script>
 </body>
 </html>

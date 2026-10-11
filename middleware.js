@@ -17,6 +17,7 @@ export const config = {
 const COOKIE = 'stackato_access';
 const GATE_PATH = '/__access';
 const OPEN = ['/stakkato-logo.svg', '/favicon.svg'];   /* the gate page itself shows these */
+const OPEN_DIRS = ['/fonts/'];                          /* and its fonts (public/fonts) */
 const MAX_AGE = 60 * 60 * 24 * 30;                      /* 30 days */
 /* tokenFor() of the friends' password, used while ACCESS_PASSWORD isn't set */
 const DEFAULT_TOKEN = 'e46f9f2844ccd65da134600e3cdb010329779b507eff22f15b8027744ffa6907';
@@ -54,9 +55,7 @@ function gatePage(next, error, status) {
 <meta name="robots" content="noindex, nofollow">
 <title>Stakkato</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700..800&family=DM+Sans:opsz,wght@9..40,400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fonts/fonts.css">
 <style>
 :root{--paper:#FCFBF4;--tint:#F4F1E5;--ink:#1C1922;--muted:#655E6C;--line:#DCD6C6;--ember:#FF6B2C;--ember-ink:#C4430F;--red:#C7322A;color-scheme:light}
 *{box-sizing:border-box}
@@ -123,7 +122,7 @@ export default async function middleware(request) {
     });
   }
 
-  if (OPEN.includes(url.pathname) || cookieOf(request, COOKIE) === token) return pass();
+  if (OPEN.includes(url.pathname) || OPEN_DIRS.some((d) => url.pathname.startsWith(d)) || cookieOf(request, COOKIE) === token) return pass();
 
   /* files (scripts, styles, audio) get a plain 401; pages get the gate */
   const wantsPage = request.method === 'GET' && (request.headers.get('accept') || '').includes('text/html');
