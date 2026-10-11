@@ -13,7 +13,7 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 - **Frontend:** plain JavaScript (ES modules, no framework), bundled by **Vite**. The UI renders HTML strings into containers; there is no virtual DOM.
 - **Backend:** **Supabase** (Postgres + Row Level Security, Storage for audio, Realtime for live updates, Auth with anonymous sign-ins). There is no server code of our own.
 - **Hosting:** **Vercel**, static build from `dist/`. `/` is the homepage (`index.html`); `vercel.json` rewrites `/s/:slug` and `/new` to `session.html` (the song view), `/songs` to `songs.html` and `/privacy` to `privacy.html`. Each page is its own Vite entry; `vite.config.js` does the same rewrites for dev and preview.
-- **Access gate:** `middleware.js` (Vercel Routing Middleware) asks for an access password before serving anything, set in the Vercel env var `ACCESS_PASSWORD`. Until that is set it accepts the friends' password, kept in the file only as a hash. It only runs on Vercel, so `npm run dev` isn't gated.
+- **Access gate:** `middleware.js` (Vercel Routing Middleware) asks for an access password before serving anything, set in the Vercel env var `ACCESS_PASSWORD`. Until that is set it accepts the friends' password, kept in the file only as a hash. Once accepted, a cookie keeps you in for 30 days; it covers every page and file (also `/amps/*` and the audio worklet). It only runs on Vercel, so `npm run dev` isn't gated.
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`), amp sims (`src/amp.js`). Nothing audio-related runs on a server.
 
 ## Commands
@@ -26,6 +26,8 @@ npm run preview   # serve the build locally
 ```
 
 Apply database changes with the Supabase CLI (`npx supabase db push`) or by pasting a migration into the Supabase SQL editor. See README.md for first-time setup.
+
+**The live database** is the Supabase project `riffraff` (ref `trsnykjzupevdiupvmlj`). Every migration in `supabase/migrations/` up to `20261012090000_take_amps.sql` is applied there. Most were applied through the SQL editor or the Supabase MCP tools, so the project's migration history has its own version numbers (the date they were applied), not the file names' timestamps: compare by name (`list_migrations`) before applying anything, and apply a new migration on its own rather than running `db push` against the live project, which would try to re-run the old ones. `own_takes` was applied with `ALTER POLICY` instead of drop + create (the drop timed out on the live database); the resulting policy is the same. Say in the PR whether a migration is already applied.
 
 ## Layout
 
@@ -52,7 +54,7 @@ supabase/migrations/        schema, RLS policies, RPC functions, storage bucket,
 
 - `sessions`: one per song. `host_id` is the user who created it (and dropped the seed). `status` is `open` or `released`. Tempo/key/time live here (`bpm`, `music_key`, `key_alt`, `time_sig`, `meta_from`, `meta_sure`). `seed_role` is the instrument the host says the seed is (null = not one instrument). Every instrument has open slots (`roles.slots` is null = unlimited; `role_cap()`/`section_cap()` pass the null through), so nobody is ever pushed out by a new take -- it stops only when the creator decides. The seed's own instrument still notionally takes one slot in that role (`role_cap()` subtracts it when the role is finite), and `seed_role_claims_slot()` bumps the oldest takes if a *finite* role overflows; that trigger is a no-op for the unlimited roles in place today, and is refused once the session is closed. `seed_take_id` points at the current seed; replaced seeds stay in `takes` but are ignored.
 - `takes`: every piece of audio. `role_id` is `seed`, `mix`, `part` or an instrument id. `status` is `seed | waiting | in | archived | mix | deleted | own`. `joined_at` orders the line-up (the oldest take in a full role is the one that gets pushed out). Audio lives in Storage at `storage_path`. `fade_in` / `fade_out` (seconds) and `xfade` (parts only) are set by the host through `set_fades()` and heard by everyone.
-- New parts: a take with `role_id = 'part'` and `part_pos` `before | after` is a piece of any length that makes the song longer. Pitched = `waiting`, kept = `in`, passed or dropped = `archived` with reason `passed`. Layers can sit on a kept part: `section_id` is that part's id (null = the seed). Slots count per section (`section_cap()`): the seed and each kept part have their own line-up, and the seed's instrument only takes a slot on the seed.
+- New parts: a take with `role_id = 'part'` and `part_pos` `before | after` is a piece of any length that makes the song longer. Pitched = `waiting`, kept = `in`, passed or dropped = `archived` with reason `passed`. Layers can sit on a kept part: `section_id` is that part's id (null = the seed). Slots count per section (`section_cap()`): the seed and each kept part have their own line-up, and the seed's instrument only takes a slot on the seed. `arrangement()` in app.js builds the timeline: parts before (the newest plays first), the original track with its layers, parts after (the newest plays last). A layer must match the length of its section. Crossfades go up to 8 s and never more than half of either side; they lengthen the fades where parts overlap. The upload policy requires a position for a part, allows layers only on a kept part of the same session, and refuses takes sent with fades already set.
 - Own takes: a take with status `own` was recorded or uploaded for someone's own version. It never waits for the creator and never enters the project; only its author sees it in the version builder (other clients load it only when a version uses it). Its author can send it to the creator with `send_own_take()`, which turns it into an ordinary `waiting` take. Its author can also delete it (`delete_take()` allows that for own takes, also after release). Own takes are layers on the original track only (no `section_id`), and can be added after the session is closed too.
 - `comments`: SoundCloud-style comments on the timeline. `at_sec` counts from the start of the original track (negative = on a part before it), so a comment stays on the same music when parts are added. Readable by everyone; anyone signed in can comment while the session is open; the host hides one with `hide_comment()` (`hidden = true`, never deleted). The app loads them with the snapshot and listens on a separate realtime channel, and works without them if their migration isn't applied.
 - `votes`: `(take_id, voter_id)` → `up | down`. Only people with a take in the line-up can vote, and not on the take that would replace their own. **The voting UI is switched off** (the creator decides alone); the table, `can_vote()` and the vote handlers in app.js stay, unused.
@@ -76,6 +78,8 @@ Storage bucket `takes` is public-read. Upload path: `{session_id}/{user_id}/{uui
 - **Roles are defined twice.** `src/roles.js` (labels, colours, icons, slots for display) and the `roles` table + the `role_id` check constraint on `takes` in the migration. Change them together, in a new migration.
 - **`TAKES` is a cache keyed by database id.** Take objects are updated in place on refresh so decoded audio, peaks and line-up mixer settings survive. Don't rebuild them from scratch.
 - **Re-rendering must not eat user input.** Realtime refreshes re-render while people type. `keepInputs()` preserves values and focus for the ids in `KEEP`; add new free-text inputs that live inside re-rendered markup to that list.
+- **Amp ids live in three places.** `AMPS` / `P` in `src/amp.js`, the check constraint on `takes.amp` and the list in `set_amp()`. Adding an amp means a new migration for the last two, its files in `public/amps/`, and its credits in `public/amps/CREDITS.md` and on /privacy (the files are GPL v3 and CC BY 4.0, which require that).
+- **Takes with an amp play their render, never `t.buf` directly.** Anything new that plays takes goes through `playBuf(t)` (and falls back to `t.buf` only when `ampFailed(t)`), or the amp is skipped there.
 - **Only public keys in the frontend.** The anon/publishable key is fine in the browser because RLS protects the data. Never add the service role key to this app or to any `VITE_` / `NEXT_PUBLIC_` variable.
 
 ## Identity
@@ -93,7 +97,11 @@ Planned: real sign-up and profiles. Supabase lets an anonymous user be upgraded 
 
 - Match the existing style in `app.js`: `var`, function declarations, string-built HTML, `esc()` on every user-provided string that goes into markup or attributes.
 - UI copy is plain, sentence case, and speaks from the user's side ("Send a take", "Let it in"). Errors say what happened and what to do.
-- Keep the visual design as is unless asked; it's the original author's. Colours are CSS custom properties on `:root`.
+- Keep the visual design as is unless asked; it's the original author's. Colours are CSS custom properties on `:root`. The light theme is cream (`#FCFBF4` background), the fonts are Bricolage Grotesque (headings, never all caps) and DM Sans (body).
+- Left out on purpose, don't bring back without asking: the prototype-only controls ("Signals", "View as", "Empty the session", the fake "Let the line-up vote" button), the concept's "Add your instrument" band, and the voting UI.
+- Per-browser settings live in local storage under `stackato:*`: `stackato:theme`, `stackato:mic` (input), `stackato:amp` (the amp picked for recording; only offered for guitar, lead and bass, `AMP_ROLES` in app.js) and `stackato:monitor` ("Hear yourself"); the name for the credits under `riffraff:name`.
+- The song view's breadcrumbs lead back to the jam's thread on the homepage, at the take whose stack was open.
+- Stem downloads (a store-only zip, `src/zip.js`) include a session sheet: each file's start time, fades and amp (the files themselves are dry).
 - Dark mode: `<html data-theme="dark">` (set before first paint by a small inline script in each page's head; the choice is remembered under `stackato:theme`, otherwise the device setting wins). `src/dark.css` redefines the tokens; a colour written out instead of a token needs a dark override there. The dark bands (`.startband`, `.owncta`, ...) bring the light-mode paper/ink back inside, so they look the same in both modes. Canvases redraw on the `stackato:theme` event.
 - New database changes go in a new, timestamped file in `supabase/migrations/`. Never edit a migration that has already been applied.
 
@@ -112,7 +120,14 @@ Layout rule: one main (orange) action per block. Secondary actions on a take (pl
 
 ## Testing
 
-There's no automated test suite yet. Before shipping a change, run through this with two browsers (or a normal and a private window, which get different anonymous users):
+There's no automated test suite yet. What earlier changes were checked with, and works in a cloud session:
+
+- `npm run build` must pass (Vercel runs the same).
+- Headless Chromium through Playwright (installed globally; `PLAYWRIGHT_BROWSERS_PATH` is set) against `npm run dev` or `npx vite preview`. Without `.env.local` the pages load but can't reach Supabase; earlier PRs drove the UI against an in-memory stand-in for `data.js` / Supabase.
+- Audio code (amps, recording maths) can be checked offline in Chromium with an `OfflineAudioContext`: render a synthetic signal and look at levels, NaNs and spectra.
+- Database permissions: try the RPCs as real users inside rolled-back transactions (`begin; set local role authenticated; set local request.jwt.claims = '...'; ... rollback;`).
+
+Before shipping a change, run through this with two browsers (or a normal and a private window, which get different anonymous users):
 
 1. Browser A: load a seed with a name (or "Record right here": a pop-up with name, instrument, tempo, time, count-in and click, records until you stop, then "Start the session"; the session gets the tempo/time it was recorded at). Nothing starts until name and instrument are filled in. URL changes to `/s/<slug>`; tempo/key show up.
 2. Browser B: open the link. B sees "<name>'s track", no host controls, and can send a take. A take of the wrong length is rejected.
@@ -156,6 +171,8 @@ Then email the preview URL to the collaborator:
   user it wasn't sent and why.
 
 ## Known limitations
+
+- The amp engine is `@happysoftware/nam-web`, pinned to 0.2.0 (a young package). Its WebAssembly binary isn't in the package's exports, so `vite.config.js` aliases `nam-web-dist` to its `dist/` folder and `src/amp.js` imports the files with `?url`.
 
 - Every client downloads and decodes every take's full audio. Fine for a handful of takes; long sessions with many large WAVs will get heavy. Compressed previews or streaming would fix it.
 - If an upload succeeds but the row insert fails, the file stays in Storage as an orphan.
