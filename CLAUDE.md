@@ -144,23 +144,27 @@ Before shipping a change, run through this with two browsers (or a normal and a 
 
 ## After pushing a branch
 
-Always end by telling the user the Vercel preview URL for the branch.
+Always end by telling the user the Cloudflare Pages preview URL for the branch.
+Cloudflare Pages (project `stakkato`) builds every pushed branch. There is no
+Cloudflare connector in these sessions, so the URL is worked out, not looked up.
 
-- If the Vercel MCP tools are available, find the latest deployment for the branch,
-  wait until it is ready, and report two URLs: the branch URL, taken from the
-  deployment's `alias` list (it always points at the branch's latest build), and
-  the deployment's own URL (pinned to that commit). If the build fails, read the
-  build log, fix the problem, push again, and report the new URLs.
-- Otherwise, report the branch URL:
-  https://<project>-git-<branch-slug>-<team>.vercel.app
-  where <branch-slug> is the branch name lowercased, with every character that is
-  not a letter or digit replaced by "-". Mention that it goes live once the build
-  finishes, usually in a minute or two.
-- The formula only works when the part before `.vercel.app` is at most 63
-  characters. Longer names get the branch part shortened and a hash added (e.g.
-  `riffraff-git-claude-wizardly-pas-5195e0-paceflo-projects`), which can't
-  be predicted. In that case say the formula URL may not resolve and point the
-  user to the branch's deployment in the Vercel dashboard instead.
+- Report the branch URL, which always points at the branch's latest build:
+  https://<branch-alias>.stakkato.pages.dev
+  where <branch-alias> is the branch name lowercased, with every character that
+  is not a letter, digit or "-" replaced by "-", cut to its first 28 characters,
+  and with leading and trailing "-" removed. For example
+  `claude/friendly-wright-qbggks` becomes `claude-friendly-wright-qbggk`.
+  Mention that it goes live once the build finishes, usually in a minute or two.
+- Long branch names are cut, not hashed, so the alias stays predictable. The
+  28-character rule comes from Cloudflare staff on the community forum, though,
+  not from the official docs. When the branch name is longer than 28 characters,
+  say the URL may not resolve and point the user to the branch's deployment in
+  the Cloudflare dashboard (Workers & Pages → stakkato → Deployments).
+  Two branches whose first 28 characters match share one alias.
+- The dashboard also shows each deployment's own URL,
+  https://<hash>.stakkato.pages.dev, pinned to that commit, and the build log
+  if a build fails. When the user reports a failed build, fix the problem, push
+  again and report the new URL.
 
 Then email the preview URL to the collaborator:
 
@@ -170,7 +174,7 @@ Then email the preview URL to the collaborator:
 - If it's set and the Gmail connector is available, send one short email to that
   address: subject `Riffraff preview: <branch>`, body with the preview URL(s),
   the branch name and a one-line summary of what changed. Send it only after the
-  preview URL is confirmed or reported, and once per push.
+  preview URL is reported, and once per push.
 - If the variable is unset or Gmail isn't connected, skip the email and tell the
   user it wasn't sent and why.
 
