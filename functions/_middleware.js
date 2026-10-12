@@ -60,25 +60,25 @@ function gatePage(next, error, status) {
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/fonts/fonts.css">
 <style>
-:root{--paper:#FCFBF4;--tint:#F4F1E5;--ink:#1C1922;--muted:#655E6C;--line:#DCD6C6;--ember:#FF6B2C;--ember-ink:#C4430F;--red:#C7322A;color-scheme:light}
+:root{--bg:#FAF9F6;--paper:#FFFFFF;--ink:#121212;--muted:#5C5A55;--line:#E6E4DE;--line-strong:#D9D6CE;--red:#C7322A;color-scheme:light}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:var(--paper);color:var(--ink);font:16px/1.5 'DM Sans',system-ui,sans-serif}
-main{width:min(400px,100%);display:grid;gap:18px}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:var(--bg);color:var(--ink);font:16px/1.5 'Figtree',system-ui,sans-serif}
+main{width:min(420px,100%);display:grid;gap:18px}
 img{height:30px;width:auto}
-h1{margin:0;font:800 30px/1.05 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em}
+h1{margin:0;font:700 26px/1.1 'Unbounded',system-ui,sans-serif;letter-spacing:-.02em}
 p{margin:0;color:var(--muted)}
-form{display:grid;gap:10px;border:2px solid var(--ink);border-radius:6px;padding:18px;background:var(--tint)}
-label{font-size:13px;font-weight:700}
-input{font:inherit;min-height:44px;border:2px solid var(--line);border-radius:3px;background:var(--paper);padding:8px 10px;color:inherit}
+form{display:grid;gap:10px;border:1px solid var(--line);border-radius:18px;padding:20px;background:var(--paper);box-shadow:0 1px 2px rgba(18,18,18,.04),0 14px 34px -20px rgba(18,18,18,.22)}
+label{font-size:13.5px;font-weight:700}
+input{font:inherit;min-height:44px;border:1px solid var(--line-strong);border-radius:12px;background:var(--paper);padding:8px 12px;color:inherit}
 input:focus{outline:none;border-color:var(--ink)}
-button{font:inherit;font-weight:700;min-height:44px;border:2px solid var(--ember);border-radius:3px;background:var(--ember);color:#240D03;cursor:pointer}
-button:hover{background:#ff8450}
+button{font:inherit;font-weight:700;min-height:44px;border:1px solid #121212;border-radius:99px;background:#121212;color:#FFFFFF;cursor:pointer}
+button:hover{background:#2E2E2E}
 .err{color:var(--red);font-size:14px;font-weight:600}
 </style>
 </head>
 <body>
 <main>
-  <img src="/stakkato-logo.svg" alt="Stakkato" width="1760" height="384">
+  <img src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311">
   <h1>Not open to everyone yet</h1>
   <p>Stakkato is in a test with friends. Fill in the access password you got from us to come in.</p>
   <form method="post" action="${GATE_PATH}">

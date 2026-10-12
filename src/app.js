@@ -1083,8 +1083,8 @@ function drawSeedWave() {
     if (!w || !h) return;
     c.width = w * dpr; c.height = h * dpr;
     var g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
-    /* the original track stays orange: faint where it hasn't played yet, full where it has */
-    g.fillStyle = cvar('--ember'); g.globalAlpha = c.dataset.seedwave === 'prog' ? 1 : .32;
+    /* the original track's waveform is green (sound): faint where it hasn't played yet, full where it has */
+    g.fillStyle = cvar('--sound'); g.globalAlpha = c.dataset.seedwave === 'prog' ? 1 : .32;
     waveShape(g, t.mm, 0, w, h);
     g.globalAlpha = 1;
   });
@@ -1690,9 +1690,9 @@ function renderRec() {
       (REC.state === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
       '<div class="rec-meterwrap"><i id="rec-meter"></i></div>' +
       '<div class="rec-acts">' + (REC.fixed
-        ? '<button class="btn btn-ember" type="button" data-rec="finish">Stop and keep it</button>' +
+        ? '<button class="btn btn-main" type="button" data-rec="finish">Stop and keep it</button>' +
           '<button class="btn btn-sm" type="button" data-rec="cancel">Stop and throw away</button>'
-        : '<button class="btn btn-ember" type="button" data-rec="finish">Stop recording</button>' +
+        : '<button class="btn btn-main" type="button" data-rec="finish">Stop recording</button>' +
           '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button>') +
       '</div>' + (REC.fixed ? '<p class="tiny muted">It stops by itself at the end of the track. Stop earlier and you keep what you played; the rest of the take is silence.</p>' : '') + '</div>';
     renderRecStatus();
@@ -1725,7 +1725,7 @@ function renderRec() {
     '<p class="tiny muted">Wear headphones, otherwise the backing ends up in your take. ' +
       (extend ? 'Stop whenever your part is done.' : 'Recording starts on the first beat of ' + esc((section(M.sec) || section('core')).label) +
         ' and stops by itself after ' + fmt(secLen(M.sec)) + '.') + '</p>' +
-    '<button class="btn btn-ember rec-go" type="button" data-rec="start"><span class="rec-dot"></span> Start recording</button>' + err;
+    '<button class="btn btn-main rec-go" type="button" data-rec="start"><span class="rec-dot"></span> Start recording</button>' + err;
 }
 
 /* ---------- floor logic (creator only, enforced by the database) ---------- */
@@ -1852,8 +1852,8 @@ function renderInstruments() {
     return n ? '<span class="ichip" style="--c:' + col(r) + '">' + ico(r.icon, col(r)) + r.label + (n > 1 ? ' <b>&times;' + n + '</b>' : '') + '</span>' : '';
   }).join('');
   box.innerHTML = '<span class="i-lbl">Layers in the stack</span>' +
-    '<span class="ichip">' + ico('seed', 'var(--ember)') + 'Original track' + (ri ? ' <b>' + ri.label.toLowerCase() + '</b>' : '') + '</span>' +
-    (partTakes().length ? '<span class="ichip">' + ico('part', 'var(--cyan)') + 'New parts <b>&times;' + partTakes().length + '</b></span>' : '') +
+    '<span class="ichip">' + ico('seed', 'var(--seed)') + 'Original track' + (ri ? ' <b>' + ri.label.toLowerCase() + '</b>' : '') + '</span>' +
+    (partTakes().length ? '<span class="ichip">' + ico('part', 'var(--part)') + 'New parts <b>&times;' + partTakes().length + '</b></span>' : '') +
     (chips || '<span class="tiny muted">Nothing on top yet.</span>');
 }
 /* ---------- recording the first track right on the session page ----------
@@ -1923,7 +1923,7 @@ function renderSeedPop() {
     box.innerHTML = '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
       '<canvas id="seed-canvas"></canvas>' +
       '<div class="rec-meterwrap"><i id="rec-meter"></i></div>' +
-      '<div class="rec-acts"><button class="btn btn-ember" type="button" data-rec="finish">Stop recording</button>' +
+      '<div class="rec-acts"><button class="btn btn-main" type="button" data-rec="finish">Stop recording</button>' +
       '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div>';
   } else if (st === 'done') {
     box.className = 'seed-rec done';
@@ -1934,7 +1934,7 @@ function renderSeedPop() {
       (REC.info && REC.state === 'done' ? '<p class="rec-info">' + esc(REC.info) + '</p>' : '') + (REC.warn ? '<p class="rec-warn">' + esc(REC.warn) + '</p>' : '') + err;
   } else {
     box.className = 'seed-rec';
-    box.innerHTML = '<button class="btn btn-ember rec-go" type="button" data-seedrec="1"><span class="rec-dot"></span> Start recording</button>' +
+    box.innerHTML = '<button class="btn btn-main rec-go" type="button" data-seedrec="1"><span class="rec-dot"></span> Start recording</button>' +
       '<span class="tiny muted">Wear headphones, so the click stays out of your recording.</span>' + err;
   }
   el('sr-start').disabled = st !== 'done';
@@ -1950,7 +1950,7 @@ function drawSeedRec() {
   var g = c.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  g.fillStyle = cvar('--ember');
+  g.fillStyle = cvar('--sound');
   var mid = h / 2;
   if (REC.state === 'recording' && REC.chunks) {
     var a = ac(), now = Math.max(0, a.currentTime - REC.songStart), total = Math.max(8 * barSeconds(), now + 1);
@@ -1963,7 +1963,7 @@ function drawSeedRec() {
         g.fillRect(x0, mid - bar / 2, Math.max(1, sub / total * w + .5), bar);
       });
     });
-    g.fillStyle = cvar('--red'); g.fillRect(now / total * w, 0, 2, h);
+    g.fillStyle = cvar('--live'); g.fillRect(now / total * w, 0, 2, h);
   } else if (REC.state === 'done' && REC.buf) {
     var pk2 = REC.peaks || (REC.peaks = peaksOf(REC.buf, 1200)), n = pk2.length;
     for (var x = 0; x < w; x++) {
@@ -2007,7 +2007,7 @@ function renderOwnCta() {
       '<h2>Start your own song</h2>' +
       '<p>Drop a riff, a groove or a vocal line, or record one right here. Strangers stack their instruments on top, and you decide what becomes the song.</p></div>' +
     '<div class="oc-acts">' +
-      '<button class="btn btn-ember btn-lg" type="button" data-newsong="1">Start your own song</button>' +
+      '<button class="btn btn-main btn-lg" type="button" data-newsong="1">Start your own song</button>' +
     '</div>';
 }
 /* every take you can build with, inside the "make your own version" block: the ones the
@@ -2086,9 +2086,9 @@ function renderSeed() {
       (S.pendingSeed && !S.seedBusy
         ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready. Fill in your name and what it is, then start.</span>' +
           (S.seedErr ? '<p class="db-err" role="alert">' + esc(S.seedErr) + '</p>' : '') +
-          '<button class="btn btn-ember" type="button" data-seedgo="1">Start the session with this track</button>' +
+          '<button class="btn btn-main" type="button" data-seedgo="1">Start the session with this track</button>' +
           '<button class="btn btn-sm" type="button" data-attach="seed">Choose another file</button></div>'
-        : '<div class="db-acts"><button class="btn btn-ember" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
+        : '<div class="db-acts"><button class="btn btn-main" type="button" data-attach="seed"' + (S.seedBusy ? ' disabled' : '') + '>' +
             (S.seedBusy ? 'Uploading...' : 'Choose a file') + '</button>' +
             (S.seedBusy ? '' : '<button class="btn db-rec" type="button" data-seedpop="1"><span class="rec-dot"></span> Record right here</button>') + '</div>' +
           '<span class="tiny muted">wav, mp3 or m4a, or record it with a click</span>') +
@@ -2207,7 +2207,7 @@ function renderDaw() {
   } else if (S.view === 'build' && isHost()) {
     banner = '<div class="listening build"><span><b>Compose the song.</b> Pick takes from every branch of the thread. ' +
       'Make it the Author’s creation and it plays first, for everyone. It shows up in the thread too.</span>' +
-      '<button class="btn btn-sm btn-ember" type="button" data-makecreation="build"' + (S.build.picks.length ? '' : ' disabled') + '>Make this the Author’s creation</button></div>';
+      '<button class="btn btn-sm btn-main" type="button" data-makecreation="build"' + (S.build.picks.length ? '' : ' disabled') + '>Make this the Author’s creation</button></div>';
   } else if (S.view === 'build') {
     var mineOwn = S.own.filter(mine).length;
     banner = '<div class="listening build"><span><b>Create your own stack.</b> Pick takes from every branch of the thread, name it and save it. ' +
@@ -2220,18 +2220,18 @@ function renderDaw() {
     var cp = currentStack(), lt = cp.last, grp = groupOf(lt), picked = grp.every(function (g) { return S.members.indexOf(g) > -1; });
     banner = '<div class="listening build"><span>You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
       'Record below to play on this. Mute a track to leave it out of what you play on.</span>' +
-      (isHost() && isOpen() && !picked ? '<button class="btn btn-sm btn-ember" type="button" data-yesg="' + lt.dbId + '">Add to song</button>' : '') +
+      (isHost() && isOpen() && !picked ? '<button class="btn btn-sm btn-main" type="button" data-yesg="' + lt.dbId + '">Add to song</button>' : '') +
       (picked ? '<span class="tp-in">In the song</span>' : '') + '</div>';
   } else if (!S.override && S.view !== 'build') {
     var cs = currentStack(), ups = onCreation();
     if (cs && isHost() && isOpen() && !cs.creation)
       banner = '<div class="listening"><span><b>Nothing picked yet.</b> This is the room’s suggestion: the stack from the thread with the most instruments. ' +
         'Use it as the song, or pick takes with “Add to song” in the thread.</span>' +
-        '<button class="btn btn-sm btn-ember" type="button" data-makecreation="' + cs.id + '">Use this as the song</button></div>';
+        '<button class="btn btn-sm btn-main" type="button" data-makecreation="' + cs.id + '">Use this as the song</button></div>';
     else if (cs && cs.creation && isHost() && isOpen() && ups.length)
       banner = '<div class="listening"><span><b>' + ups.map(function (t) { return esc(t.by) + '’s ' + esc(role(t.roleId).label.toLowerCase()); }).join(', ') +
         '</b> ' + (ups.length > 1 ? 'were' : 'was') + ' played on the song. It stays out until you add it.</span>' +
-        ups.map(function (t) { return '<button class="btn btn-sm" type="button" data-try="' + t.id + '">Hear it with the song</button><button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>'; }).join('') + '</div>';
+        ups.map(function (t) { return '<button class="btn btn-sm" type="button" data-try="' + t.id + '">Hear it with the song</button><button class="btn btn-sm btn-main" type="button" data-yes="' + t.id + '">Add to song</button>'; }).join('') + '</div>';
     else if (cs && cs.largest && !isHost())
       banner = '<div class="listening build"><span><b>The author hasn’t picked takes yet.</b> Until then you hear the room’s suggestion: the stack from the thread with the most instruments.</span></div>';
   }
@@ -2268,10 +2268,10 @@ function renderDaw() {
           '<span class="tiny muted">' + esc(labelOf(t)) + (ampOf(t) ? ' <span class="amptag' + (ampBusy(t) ? ' busy' : '') + '"' + (ampBusy(t) ? ' title="Putting the take through its amp. It plays as soon as that is done."' : '') + '>' + ampLabel(ampOf(t)).toLowerCase() + ' amp' + (ampBusy(t) ? ', loading' : '') + '</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
-          '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
+          '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
           '<button class="btn btn-sm" type="button" data-untrialpitch="1">Take it out</button></div>' : '') +
         (isTrial ? '<div class="t-try">' +
-          (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>' : '') +
+          (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-main" type="button" data-yes="' + t.id + '">Add to song</button>' : '') +
           '<button class="btn btn-sm" type="button" data-untrial="1">Take it out</button></div>' : '') +
         '<div class="t-ctrl">' +
           '<button class="tbtn' + (c.mute ? ' on' : '') + '" type="button" data-mute="' + t.id + '" aria-pressed="' + !!c.mute + '" title="Mute">M</button>' +
@@ -2303,7 +2303,7 @@ function renderDaw() {
 
   el('daw').innerHTML = stacksBar() + banner +
     '<div class="daw-bar">' +
-      '<button class="btn btn-ember" type="button" id="transport">' + (running ? I_PAUSE + ' Stop' : I_PLAY + ' Play') + '</button>' +
+      '<button class="btn btn-sound" type="button" id="transport">' + (running ? I_PAUSE + ' Stop' : I_PLAY + ' Play') + '</button>' +
       (building && !isHost() ? '<button class="btn btn-ink" type="button" id="ver-save-top"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save your stack</button>' +
         (S.buildDirty && S.build.picks.length ? '<span class="unsaved">not saved yet</span>' : '') : '') +
       '<button class="btn btn-sm" type="button" id="rewind" title="Back to the start">&#9198;</button>' +
@@ -2375,7 +2375,7 @@ function cmRow() {
         '<textarea id="cm-body" maxlength="500" rows="2" placeholder="Say something about this moment"></textarea>' +
         (savedName() ? '' : '<input type="text" id="cm-name" maxlength="60" placeholder="Your name">') +
         (S.cmErr ? '<p class="cm-err">' + esc(S.cmErr) + '</p>' : '') +
-        '<div class="cm-acts"><button class="btn btn-sm btn-ember" type="button" data-cmpost="1">Post</button>' +
+        '<div class="cm-acts"><button class="btn btn-sm btn-main" type="button" data-cmpost="1">Post</button>' +
         '<button class="btn btn-sm" type="button" data-cmcancel="1">Cancel</button></div>' +
       '</div>';
   }
@@ -2440,7 +2440,7 @@ function draftBar() {
     }).join('') + '</div>' +
     '<div class="db-post"><label class="field"><span>Say something (optional)</span><input type="text" id="draft-note" maxlength="200" placeholder="what you were going for"></label>' +
       '<label class="field"><span>Your name</span><input type="text" id="draft-name" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
-      '<button class="btn btn-ember" type="button" data-draftpost="1">Post my take →</button>' +
+      '<button class="btn btn-main" type="button" data-draftpost="1">Post my take →</button>' +
       '<button class="ghost" type="button" data-draftclear="1">Throw the draft away</button></div></div>';
 }
 function postDraft() {
@@ -2500,13 +2500,13 @@ function addRowInner(building) {
       '<div class="rec-status" id="rec-status">' + (st === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
       '<div class="rec-meterwrap"><i id="rec-meter"></i></div>';
     lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
-      '<button class="btn btn-sm btn-ember" type="button" data-rec="finish">Stop and keep it</button>' +
+      '<button class="btn btn-sm btn-main" type="button" data-rec="finish">Stop and keep it</button>' +
       '<button class="btn btn-sm" type="button" data-rec="cancel">Throw away</button></div>';
   } else if (st === 'done') {
     head = '<div class="t-name">' + ico(r.icon, col(r)) + '<div><b>Your take</b><span class="tiny muted">' + esc(r.label) + ', ' +
       (REC.partial ? clockMs(REC.partial) + ' played, rest silent' : clockMs(REC.buf.duration)) + '</span></div></div>';
     lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
-      '<button class="btn btn-sm btn-ember" type="button" data-draftkeep="1">Keep it as a track</button>' +
+      '<button class="btn btn-sm btn-main" type="button" data-draftkeep="1">Keep it as a track</button>' +
       '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the rest</button>' +
       '<button class="btn btn-sm" type="button" data-dawrec="1">Record again</button>' +
       '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>' +
@@ -2521,7 +2521,7 @@ function addRowInner(building) {
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
         : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
       ' <em>Wear headphones.</em></span>' +
-      '<button class="btn btn-ember" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
+      '<button class="btn btn-main" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
       micPicker() + ampPicker(rid) + monPicker() + err + '</div>';
   }
@@ -2598,7 +2598,7 @@ function renderPitches() {
         (tr ? mixToggle('this part') : '') +
         '<button class="btn btn-sm' + (tr ? ' trybtn on' : '') + '" type="button" data-trypitch="' + t.id + '"' + (t.buf ? '' : ' disabled') + '>' + (tr ? 'Take it out' : 'Hear it in place') + '</button>' +
         delBtn(t.id) +
-        (boss ? '<button class="btn btn-sm btn-ember" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
+        (boss ? '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
         '<button class="btn btn-sm btn-veto" type="button" data-passpitch="' + t.id + '">Pass</button>' : '<span class="tiny muted">The creator decides</span>') + '</div>';
     }).join('');
 }
@@ -2639,7 +2639,7 @@ function renderPicker() {
     '<div class="pk-save">' +
       '<label class="field"><span>Name your stack</span><input type="text" id="ver-name" maxlength="60" placeholder="e.g. Half-time with the lead"></label>' +
       '<label class="field"><span>Your name</span><input type="text" id="ver-by" maxlength="60" placeholder="how you show up under the session" value="' + esc(savedName()) + '"></label>' +
-      '<button class="btn btn-ember" type="button" id="ver-save"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save this stack</button>' +
+      '<button class="btn btn-main" type="button" id="ver-save"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save this stack</button>' +
       '<span class="tiny muted">' + S.build.picks.length + ' take(s) on top of the original track. Only the choice is saved, nothing gets re-uploaded.</span>' +
     '</div>';
 }
@@ -2700,7 +2700,7 @@ function drawWave(t) {
   var d = duration() || t.len, st = startOf(t);
   var x0 = Math.round(st / d * w), x1 = Math.round((st + t.len) / d * w), cw = Math.max(1, x1 - x0);
   var hearing = running && audible(t) && (!only || only === t.id);
-  g.fillStyle = cvar(hearing ? '--ink' : '--wave');
+  g.fillStyle = cvar(hearing ? '--sound' : '--wave');
   g.globalAlpha = ctl(t).mute ? .35 : 1;
   var e = envOf(t);
   waveShape(g, t.mm, x0, cw, h, function (f) { return envAt(f * t.len, t.len, e); });
@@ -2735,7 +2735,7 @@ function applyCard(r) {
       (t.note ? '<div class="note">&ldquo;' + esc(t.note) + '&rdquo;</div>' : '') +
       (host && open
         ? '<div class="app-foot"><span class="acts">' +
-          (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-ember" type="button" data-yes="' + t.id + '">Add to song</button>') +
+          (seedHolds(t.roleId, secOf(t)) ? '' : '<button class="btn btn-sm btn-main" type="button" data-yes="' + t.id + '">Add to song</button>') +
           '<button class="btn btn-sm btn-veto" type="button" data-no="' + t.id + '">Veto</button></span></div>'
         : '<div class="app-foot"><span class="tiny muted">Waiting for the creator</span></div>') +
       '</li>';
@@ -2913,14 +2913,14 @@ function renderRelease() {
   el('raw-box').innerHTML =
     '<div class="rel-wave" id="rel-wave-box"><canvas id="rel-wave"></canvas></div>' +
     '<div class="rawrow">' +
-      '<button class="btn btn-ember" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : I_PLAY + ' Play the song') + '</button>' +
+      '<button class="btn btn-sound" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : I_PLAY + ' Play the song') + '</button>' +
       '<span class="rel-time" id="rel-time">' + clockMs(running && !S.override ? position() : 0) + ' / ' + clockMs(duration()) + '</span>' +
       '<span class="tiny muted">' + Object.keys(nMus).length + ' musicians, ' + list.length + ' tracks</span></div>' +
     '<button class="btn btn-sm" type="button" id="dl-all2">' + I_DL + ' Download the stems</button>';
   drawRelWave();
 
   el('mix-box').innerHTML = S.mix
-    ? '<div class="rawrow"><button class="btn btn-ember btn-sm" type="button" id="play-mix">' + I_PLAY + ' Play the Mix</button>' +
+    ? '<div class="rawrow"><button class="btn btn-sound btn-sm" type="button" id="play-mix">' + I_PLAY + ' Play the Mix</button>' +
       '<div><b>' + esc(S.mix.by) + '</b><div class="tiny muted">' + esc(S.mix.fileName) + '</div></div></div>' +
       '<p class="tiny muted">Sits next to the song, it does not replace it.</p>'
     : isOpen()
@@ -2932,9 +2932,9 @@ function renderRelease() {
         '<input type="text" id="mix-by" placeholder="your name" value="' + esc(savedName()) + '"></label>';
 
   el('credits').innerHTML =
-    (hasSeed() ? '<div class="credit">' + ico('seed', 'var(--ember)') + '<div><b>' + esc(host ? 'you' : S.seed.by) + '</b><small>original track' + (seedInstr() ? ', ' + seedInstr().label.toLowerCase() : '') + '</small></div></div>' : '') +
+    (hasSeed() ? '<div class="credit">' + ico('seed', 'var(--seed)') + '<div><b>' + esc(host ? 'you' : S.seed.by) + '</b><small>original track' + (seedInstr() ? ', ' + seedInstr().label.toLowerCase() : '') + '</small></div></div>' : '') +
     partTakes().map(function (p) {
-      return '<div class="credit">' + ico('part', 'var(--cyan)') +
+      return '<div class="credit">' + ico('part', 'var(--part)') +
         '<div><b>' + esc(p.by) + '</b><small>new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the track</small></div></div>';
     }).join('') +
     S.members.filter(onKeptSection).map(function (m) {
@@ -2942,7 +2942,7 @@ function renderRelease() {
       return '<div class="credit">' + ico(r.icon, col(r)) +
         '<div><b>' + esc(m.by) + '</b><small>' + r.label.toLowerCase() + '</small></div></div>';
     }).join('') +
-    (S.mix ? '<div class="credit">' + ico('prod', 'var(--cyan)') +
+    (S.mix ? '<div class="credit">' + ico('prod', 'var(--part)') +
       '<div><b>' + esc(S.mix.by) + '</b><small>mix</small></div></div>' : '');
 
   renderVersionLists();
@@ -2978,7 +2978,7 @@ function drawRelWave() {
   var d = duration(), at = running && !S.override && d ? position() / d : 0, bars = Math.floor(w / 3), mid = h / 2;
   for (var i = 0; i < bars; i++) {
     var v = pk[Math.floor(i / bars * pk.length)] || 0, bh = Math.max(2, v * (h - 4));
-    g.fillStyle = i / bars < at ? cvar('--ember') : cvar('--wave') || '#B3AC9F';
+    g.fillStyle = i / bars < at ? cvar('--sound') : cvar('--wave') || '#CDCAC2';
     g.fillRect(i * 3, mid - bh / 2, 2, bh);
   }
   var tm = el('rel-time'); if (tm) tm.textContent = clockMs(running && !S.override ? position() : 0) + ' / ' + clockMs(d);
@@ -3179,7 +3179,7 @@ function openModal(roleId, extendPos, own, keepRec) {
   if (ext) el('sec-field').hidden = true;
   el('countin-field').hidden = ext;
   if (ext) {
-    el('modal-ico').innerHTML = ico('part', 'var(--cyan)');
+    el('modal-ico').innerHTML = ico('part', 'var(--part)');
     el('modal-head').textContent = 'Convince the creator';
     el('modal-sub').textContent = 'Write a new part that plays ' + (M.pos === 'before' ? 'before' : 'after') +
       ' the song. Any length. The creator hears it in place and decides whether the song gets longer.';
