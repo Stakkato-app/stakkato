@@ -1,23 +1,26 @@
-/* Access gate (Vercel Routing Middleware, runs before every request on Vercel).
+/* Access gate and pretty routes (a Cloudflare Pages Function: _middleware.js at the root
+   of functions/ runs before every request on Cloudflare Pages, pages and files alike).
 
    While Stakkato is only for friends, every page and file needs the access password
-   first. Set it in the ACCESS_PASSWORD environment variable of the Vercel project.
+   first. Set it in the ACCESS_PASSWORD environment variable of the Pages project.
    Until that is set, the gate accepts the password we hand out to friends, which is
    kept here only as a hash (DEFAULT_TOKEN). Entering the password sets an HttpOnly
    cookie holding that hash, so changing the password signs everyone out of the gate.
 
-   This runs on Vercel's servers; none of it reaches the browser. `npm run dev` / `preview` don't run
-   this file, so local development is not gated. The audio itself lives in Supabase
-   Storage, which this gate doesn't cover. */
+   Once in, /new and /s/<slug> are served the song view (session.html); Cloudflare serves
+   /songs and /privacy from songs.html and privacy.html by itself, and sends /session.html
+   to /session, so the song view is fetched as /session.
 
-export const config = {
-  matcher: '/:path*'
-};
+   This runs on Cloudflare's servers; none of it reaches the browser. `npm run dev` /
+   `preview` don't run this file (vite.config.js does the same routes there), so local
+   development is not gated. The audio itself lives in Supabase Storage, which this gate
+   doesn't cover. */
 
 const COOKIE = 'stackato_access';
 const GATE_PATH = '/__access';
 const OPEN = ['/stakkato-logo.svg', '/favicon.svg'];   /* the gate page itself shows these */
 const OPEN_DIRS = ['/fonts/'];                          /* and its fonts (public/fonts) */
+const SONG_VIEW = /^\/(new|s\/[\w-]+)\/?$/;              /* paths answered by session.html */
 const MAX_AGE = 60 * 60 * 24 * 30;                      /* 30 days */
 /* tokenFor() of the friends' password, used while ACCESS_PASSWORD isn't set */
 const DEFAULT_TOKEN = 'e46f9f2844ccd65da134600e3cdb010329779b507eff22f15b8027744ffa6907';
@@ -94,14 +97,16 @@ button:hover{background:#ff8450}
   });
 }
 
-/* let the request through to the site (what next() from @vercel/functions returns) */
-function pass() {
-  return new Response(null, { headers: { 'x-middleware-next': '1' } });
+/* let the request through to the site, serving the song view for its paths */
+function pass(context, url) {
+  if (SONG_VIEW.test(url.pathname)) return context.env.ASSETS.fetch(new Request(new URL('/session' + url.search, url), context.request));
+  return context.next();
 }
 
-export default async function middleware(request) {
+export async function onRequest(context) {
+  const request = context.request;
   const url = new URL(request.url);
-  const password = process.env.ACCESS_PASSWORD;
+  const password = context.env.ACCESS_PASSWORD;
   const token = password ? await tokenFor(password) : DEFAULT_TOKEN;
 
   if (url.pathname === GATE_PATH) {
@@ -122,7 +127,7 @@ export default async function middleware(request) {
     });
   }
 
-  if (OPEN.includes(url.pathname) || OPEN_DIRS.some((d) => url.pathname.startsWith(d)) || cookieOf(request, COOKIE) === token) return pass();
+  if (OPEN.includes(url.pathname) || OPEN_DIRS.some((d) => url.pathname.startsWith(d)) || cookieOf(request, COOKIE) === token) return pass(context, url);
 
   /* files (scripts, styles, audio) get a plain 401; pages get the gate */
   const wantsPage = request.method === 'GET' && (request.headers.get('accept') || '').includes('text/html');

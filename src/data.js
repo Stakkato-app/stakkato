@@ -177,7 +177,7 @@ export async function updateSession(id, patch) {
 /* ---------- takes ---------- */
 
 /* Uploads go straight from the browser to Supabase Storage, so file size is bounded
-   by the bucket limit (50 MB), not by Vercel's request size. */
+   by the bucket limit (50 MB), not by the hosting's request size. */
 export async function uploadAudio(path, file, contentType) {
   return check(await supabase.storage.from(BUCKET).upload(path, file, { contentType, upsert: false }));
 }

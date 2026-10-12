@@ -2,8 +2,8 @@ import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 
 /* The pretty routes: / is the homepage (index.html), /songs and /privacy are their own
-   pages, and the song view (session.html) answers /new and /s/<slug>. vercel.json
-   rewrites them in production; this does the same for `npm run dev` and `npm run preview`. */
+   pages, and the song view (session.html) answers /new and /s/<slug>. On Cloudflare Pages
+   functions/_middleware.js serves them; this does the same for `npm run dev` and `npm run preview`. */
 const ROUTES = [
   [/^\/songs(?=$|\?)/, '/songs.html'],
   [/^\/privacy(?=$|\?)/, '/privacy.html'],
@@ -25,7 +25,7 @@ function prettyRoutes() {
 }
 
 export default defineConfig({
-  // NEXT_PUBLIC_ is what the Vercel Supabase integration writes; VITE_ is for .env.local.
+  // VITE_ is for .env.local and the Cloudflare Pages build; NEXT_PUBLIC_ is what Vercel's Supabase integration wrote.
   // Only put public values (URL, anon/publishable key) under these prefixes.
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   plugins: [prettyRoutes()],

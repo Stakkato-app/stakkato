@@ -12,10 +12,10 @@ It started life as a single-file Claude artifact (an in-memory prototype with a 
 
 - **Frontend:** plain JavaScript (ES modules, no framework), bundled by **Vite**. The UI renders HTML strings into containers; there is no virtual DOM.
 - **Backend:** **Supabase** (Postgres + Row Level Security, Storage for audio, Realtime for live updates, Auth with anonymous sign-ins). There is no server code of our own.
-- **Hosting:** **Vercel**, static build from `dist/`. `/` is the homepage (`index.html`); `vercel.json` rewrites `/s/:slug` and `/new` to `session.html` (the song view), `/songs` to `songs.html` and `/privacy` to `privacy.html`. Each page is its own Vite entry; `vite.config.js` does the same rewrites for dev and preview.
-- **Access gate:** `middleware.js` (Vercel Routing Middleware) asks for an access password before serving anything, set in the Vercel env var `ACCESS_PASSWORD`. Until that is set it accepts the friends' password, kept in the file only as a hash. Once accepted, a cookie keeps you in for 30 days; it covers every page and file (also `/amps/*` and the audio worklet). It only runs on Vercel, so `npm run dev` isn't gated.
+- **Hosting:** **Cloudflare Pages** (project `stakkato`, production on stakkato.app), static build from `dist/`; the Node version is in `.node-version`, the Supabase URL and key are `VITE_` build variables in the Pages project. `/` is the homepage (`index.html`); Cloudflare serves `/songs` and `/privacy` from `songs.html` and `privacy.html` by itself (and redirects `/x.html` to `/x`), and `functions/_middleware.js` serves the song view (`session.html`) for `/s/<slug>` and `/new`. Each page is its own Vite entry; `vite.config.js` does the same routes for dev and preview. There is no `_redirects` file: Functions run first, so routes live in the middleware.
+- **Access gate:** `functions/_middleware.js` (a Cloudflare Pages Function that runs before every request) asks for an access password before serving anything, set in the Pages project's `ACCESS_PASSWORD` variable. Until that is set it accepts the friends' password, kept in the file only as a hash. Once accepted, a cookie keeps you in for 30 days; it covers every page and file (also `/amps/*` and the audio worklet). It only runs on Cloudflare, so `npm run dev` isn't gated (`npx wrangler pages dev dist` runs it locally after a build).
 - **Audio:** Web Audio API in the browser: decoding, mixing, waveform peaks, tempo/key detection (`src/analysis.js`), amp sims (`src/amp.js`). Nothing audio-related runs on a server.
-- **Analytics:** Google Tag Manager (`GTM-5RQ4VKFH`, the snippet near the top of every page's `<head>`, right after the theme script) and Vercel Web Analytics (`src/analytics.js`, the `@vercel/analytics` package, loaded by every page; cookieless, and it only collects once Web Analytics is enabled for the project in the Vercel dashboard). There is no cookie consent banner yet: whatever tags are added in the GTM dashboard run for everyone (see Known limitations).
+- **Analytics:** Google Tag Manager (`GTM-5RQ4VKFH`, the snippet near the top of every page's `<head>`, right after the theme script) and Cloudflare Web Analytics (cookieless; switched on for the Pages project in the Cloudflare dashboard, which injects its script into every page, so there is no code for it here). There is no cookie consent banner yet: whatever tags are added in the GTM dashboard run for everyone (see Known limitations).
 
 ## Commands
 
@@ -37,8 +37,7 @@ index.html, src/home.js     the homepage (/): feed of jams with threads of audio
 session.html                the song view (/s/<slug>, /new): static shell; most content is rendered by app.js
 songs.html, src/songs.js    the /songs page: every session with an original track, linking to /s/<slug>
 privacy.html                the privacy & rights page (/privacy), a draft for legal review
-middleware.js               the access gate (Vercel only)
-src/analytics.js            Vercel Web Analytics (inject()); every page loads it
+functions/_middleware.js    the access gate and the song view's routes (Cloudflare Pages only)
 public/fonts/               the self-hosted fonts: fonts.css, woff2 files, OFL licences
 src/app.js                  the whole UI: state, rendering, audio engine, event handlers
 src/data.js                 every Supabase call; app.js never uses the client directly
@@ -100,7 +99,7 @@ Planned: real sign-up and profiles. Supabase lets an anonymous user be upgraded 
 
 - Match the existing style in `app.js`: `var`, function declarations, string-built HTML, `esc()` on every user-provided string that goes into markup or attributes.
 - UI copy is plain, sentence case, and speaks from the user's side ("Send a take", "Let it in"). Errors say what happened and what to do.
-- Keep the visual design as is unless asked; it's the original author's. Colours are CSS custom properties on `:root`. The light theme is cream (`#FCFBF4` background), the fonts are Bricolage Grotesque (headings, never all caps) and DM Sans (body). The fonts (and Fredoka, used on the homepage and /privacy) are self-hosted in `public/fonts/` (`fonts.css`, woff2 files fetched from Google Fonts, their OFL licences), so pages make no requests to Google for them; every page and the access gate link `/fonts/fonts.css`, and `middleware.js` lets `/fonts/` through without the cookie.
+- Keep the visual design as is unless asked; it's the original author's. Colours are CSS custom properties on `:root`. The light theme is cream (`#FCFBF4` background), the fonts are Bricolage Grotesque (headings, never all caps) and DM Sans (body). The fonts (and Fredoka, used on the homepage and /privacy) are self-hosted in `public/fonts/` (`fonts.css`, woff2 files fetched from Google Fonts, their OFL licences), so pages make no requests to Google for them; every page and the access gate link `/fonts/fonts.css`, and `functions/_middleware.js` lets `/fonts/` through without the cookie.
 - Left out on purpose, don't bring back without asking: the prototype-only controls ("Signals", "View as", "Empty the session", the fake "Let the line-up vote" button), the concept's "Add your instrument" band, and the voting UI.
 - The product is called **Stakkato** (formerly Stackato). Its logos are `public/stakkato-logo.svg` and `public/stakkato-logo-on-dark.svg`; every header carries both as `img.logo` (the dark one also `.on-dark`) and `src/dark.css` shows the one for the theme. Internal ids keep the old spelling on purpose (the `stackato:*` storage keys, the access cookie and its hash prefix), so settings and gate passes survive the rename.
 - Per-browser settings live in local storage under `stackato:*`: `stackato:theme`, `stackato:mic` (input), `stackato:amp` (the amp picked for recording; only offered for guitar, lead and bass, `AMP_ROLES` in app.js) and `stackato:monitor` ("Hear yourself"); the name for the credits under `riffraff:name`.
@@ -126,7 +125,7 @@ Layout rule: one main (orange) action per block. Secondary actions on a take (pl
 
 There's no automated test suite yet. What earlier changes were checked with, and works in a cloud session:
 
-- `npm run build` must pass (Vercel runs the same).
+- `npm run build` must pass (Cloudflare Pages runs the same).
 - Headless Chromium through Playwright (installed globally; `PLAYWRIGHT_BROWSERS_PATH` is set) against `npm run dev` or `npx vite preview`. Without `.env.local` the pages load but can't reach Supabase; earlier PRs drove the UI against an in-memory stand-in for `data.js` / Supabase.
 - Audio code (amps, recording maths) can be checked offline in Chromium with an `OfflineAudioContext`: render a synthetic signal and look at levels, NaNs and spectra.
 - Database permissions: try the RPCs as real users inside rolled-back transactions (`begin; set local role authenticated; set local request.jwt.claims = '...'; ... rollback;`).
@@ -144,23 +143,27 @@ Before shipping a change, run through this with two browsers (or a normal and a 
 
 ## After pushing a branch
 
-Always end by telling the user the Vercel preview URL for the branch.
+Always end by telling the user the Cloudflare Pages preview URL for the branch.
+Cloudflare Pages (project `stakkato`) builds every pushed branch. There is no
+Cloudflare connector in these sessions, so the URL is worked out, not looked up.
 
-- If the Vercel MCP tools are available, find the latest deployment for the branch,
-  wait until it is ready, and report two URLs: the branch URL, taken from the
-  deployment's `alias` list (it always points at the branch's latest build), and
-  the deployment's own URL (pinned to that commit). If the build fails, read the
-  build log, fix the problem, push again, and report the new URLs.
-- Otherwise, report the branch URL:
-  https://<project>-git-<branch-slug>-<team>.vercel.app
-  where <branch-slug> is the branch name lowercased, with every character that is
-  not a letter or digit replaced by "-". Mention that it goes live once the build
-  finishes, usually in a minute or two.
-- The formula only works when the part before `.vercel.app` is at most 63
-  characters. Longer names get the branch part shortened and a hash added (e.g.
-  `riffraff-git-claude-wizardly-pas-5195e0-paceflo-projects`), which can't
-  be predicted. In that case say the formula URL may not resolve and point the
-  user to the branch's deployment in the Vercel dashboard instead.
+- Report the branch URL, which always points at the branch's latest build:
+  https://<branch-alias>.stakkato.pages.dev
+  where <branch-alias> is the branch name lowercased, with every character that
+  is not a letter, digit or "-" replaced by "-", cut to its first 28 characters,
+  and with leading and trailing "-" removed. For example
+  `claude/friendly-wright-qbggks` becomes `claude-friendly-wright-qbggk`.
+  Mention that it goes live once the build finishes, usually in a minute or two.
+- Long branch names are cut, not hashed, so the alias stays predictable. The
+  28-character rule comes from Cloudflare staff on the community forum, though,
+  not from the official docs. When the branch name is longer than 28 characters,
+  say the URL may not resolve and point the user to the branch's deployment in
+  the Cloudflare dashboard (Workers & Pages → stakkato → Deployments).
+  Two branches whose first 28 characters match share one alias.
+- The dashboard also shows each deployment's own URL,
+  https://<hash>.stakkato.pages.dev, pinned to that commit, and the build log
+  if a build fails. When the user reports a failed build, fix the problem, push
+  again and report the new URL.
 
 Then email the preview URL to the collaborator:
 
@@ -170,7 +173,7 @@ Then email the preview URL to the collaborator:
 - If it's set and the Gmail connector is available, send one short email to that
   address: subject `Riffraff preview: <branch>`, body with the preview URL(s),
   the branch name and a one-line summary of what changed. Send it only after the
-  preview URL is confirmed or reported, and once per push.
+  preview URL is reported, and once per push.
 - If the variable is unset or Gmail isn't connected, skip the email and tell the
   user it wasn't sent and why.
 
@@ -180,7 +183,7 @@ Then email the preview URL to the collaborator:
 
 - Every client downloads and decodes every take's full audio. Fine for a handful of takes; long sessions with many large WAVs will get heavy. Compressed previews or streaming would fix it.
 - If an upload succeeds but the row insert fails, the file stays in Storage as an orphan.
-- No cookie consent yet. Vercel Analytics sets no cookies, but most tags added in Google Tag Manager (GA4, ads pixels) do, and in the EU (Belgium) those need consent before they run: add a consent banner with Google Consent Mode before adding such tags. The /privacy cookies section still says there is no tracking and no banner; update it with the analytics setup.
+- No cookie consent yet. Cloudflare Web Analytics sets no cookies, but most tags added in Google Tag Manager (GA4, ads pixels) do, and in the EU (Belgium) those need consent before they run: add a consent banner with Google Consent Mode before adding such tags. The /privacy cookies section still says there is no tracking and no banner; update it with the analytics setup.
 - Anonymous sign-ins can be abused; turn on CAPTCHA (Supabase Auth settings) before promoting the app publicly.
 - Every session is listed at `/songs`, and anyone can read it and its audio. There's no private-session mode.
 - The host can replace the seed with a different length after takes exist; nothing stops that.

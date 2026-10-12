@@ -3646,7 +3646,7 @@ document.addEventListener('click', function (e) {
   }
   if (e.target.closest('#copy-link')) {
     if (!S.session) { flash('Drop a track first, then you get a link to share.'); return; }
-    var link = 'https://riffraff.vercel.app/s/' + S.session.slug;
+    var link = location.origin + '/s/' + S.session.slug;
     (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
       .then(function () { flash('Link copied. Anyone with it can add takes.'); },
             function () { flash('Share this link: ' + link); });
