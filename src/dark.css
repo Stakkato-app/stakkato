@@ -1,19 +1,26 @@
-/* Dark mode: the same design on a warm near-black. Every page reads these tokens; the
+/* Dark mode: the same design on a soft near-black. Every page reads these tokens; the
    rules below catch the few colours that are written out instead of using a token.
    The dark "bands" (start a jam, your own version, ...) keep a dark surface of their
    own, because their text is written for a dark background. */
 
 :root[data-theme="dark"]{
   color-scheme:dark;
-  --paper:#16141B;--tint:#201D26;--ink:#F3EFE4;--muted:#ABA4B5;--line:#3A3542;--line-soft:#2A2631;--wave:#6F6878;
-  --ember:#FF6B2C;--ember-ink:#FF8B57;--cyan:#37B5C4;--red:#F0645A;
-  --drums:#EE5A50;--guitar:#FF7A3A;--bass:#2FB2C2;--keys:#A182F2;--atmos:#A182F2;--wild:#EE5FA3;--lead:#DB8A45;--vocals:#71C450;
-  --band:#25212C;--hi:rgba(255,107,44,.14);
+  --bg:#111312;--paper:#1A1C1B;--tint:#222524;--ink:#F2F1EC;--muted:#A6A39C;
+  --line:#2F3231;--line-soft:#262928;--line-strong:#3D403F;--wave:#585C5A;
+  --action:#F2F1EC;--on-action:#121212;--action-hover:#FFFFFF;
+  --sound:#3DB28E;--sound-ink:#5FCBA8;--on-sound:#0C1411;--sound-soft:rgba(61,178,142,.16);--sound-faint:rgba(61,178,142,.07);
+  --seed:#F2F1EC;--part:#93A6C9;--part-faint:rgba(147,166,201,.06);--live:#FF5A52;--red:#F0645A;
+  --wait-bg:rgba(229,181,59,.16);--wait-ink:#E8BD4F;
+  --drums:#FF6A5E;--guitar:#FF8E45;--bass:#6E9BFF;--keys:#AE8BFF;--atmos:#AE8BFF;--wild:#FF6FAE;--lead:#E5B53B;--vocals:#9BD45A;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 14px 34px -20px rgba(0,0,0,.7);
+  --shadow-pop:0 12px 32px -12px rgba(0,0,0,.7);
+  --scrim:rgba(0,0,0,.6);
+  --band:#1E2120;
 }
 
 /* the toggle in the header */
-.theme-tgl{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:2px solid var(--line);
-  border-radius:50%;background:transparent;color:var(--ink);cursor:pointer;flex:none}
+.theme-tgl{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;border:1px solid var(--line-strong);
+  border-radius:50%;background:var(--paper);color:var(--ink);cursor:pointer;flex:none}
 .theme-tgl:hover{border-color:var(--ink)}
 [data-theme-toggle]{display:inline-flex}
 
@@ -24,31 +31,10 @@
 :root[data-theme="dark"] .nudge,
 :root[data-theme="dark"] .owncta,
 :root[data-theme="dark"] .how-lead,
-:root[data-theme="dark"] .cm-pop{--paper:#FCFBF4;--ink:#1C1922;--tint:#F4F1E5;background:var(--band);color:#FCFBF4;border:1px solid var(--line)}
+:root[data-theme="dark"] .cm-pop{--paper:#FFFFFF;--ink:#121212;--tint:#F3F2EE;--muted:#5C5A55;--line:#E6E4DE;background:var(--band);color:#FFFFFF;border:1px solid #2F3231}
 
-/* light tints written out in the page styles */
-:root[data-theme="dark"] .replies{background:#1A1820}
-:root[data-theme="dark"] .rep.hl > .rbody{background:var(--hi);box-shadow:0 0 0 6px var(--hi)}
-:root[data-theme="dark"] .became,
-:root[data-theme="dark"] .rec-warn,
-:root[data-theme="dark"] .thread .tp.last > .tp-row{background:var(--hi)}
-:root[data-theme="dark"] .dawtabs.modes .mode-own[aria-selected="false"]:hover,
-:root[data-theme="dark"] .gate .g-foot .btn:hover:not(:disabled),
-:root[data-theme="dark"] .db-rec:hover:not(:disabled){background:var(--hi)}
-:root[data-theme="dark"] .role-creator{background:rgba(255,107,44,.16)}
-:root[data-theme="dark"] .role-musician{background:rgba(47,178,194,.16)}
-:root[data-theme="dark"] .ext-line .old{background:rgba(255,107,44,.35)}
-:root[data-theme="dark"] .btn-ink:hover,
-:root[data-theme="dark"] .btn-ink:hover:not(:disabled){background:#FFFFFF;border-color:#FFFFFF}
-:root[data-theme="dark"] .a-lane,
-:root[data-theme="dark"] .rec-lane,
-:root[data-theme="dark"] .rec-lane-x{background:repeating-linear-gradient(135deg,#1E1B24 0 10px,#24212B 10px 20px)}
 :root[data-theme="dark"] .menu-pop{color-scheme:dark}
-:root[data-theme="dark"] .track.addrow .t-head{background:#1E1B24}
-:root[data-theme="dark"] .scrim{background:rgba(0,0,0,.6)}
-:root[data-theme="dark"] .shot{box-shadow:0 18px 40px -22px rgba(0,0,0,.8)}
-:root[data-theme="dark"] .demobar{background:#0E0D12;color:#F3EFE4}
-:root[data-theme="dark"] .crumbs{background:var(--tint);border-bottom-color:var(--line)}
+:root[data-theme="dark"] .demobar{background:#0B0C0C;color:#F2F1EC}
 /* every header carries both logos; the theme picks one */
 img.logo.on-dark,
 :root[data-theme="dark"] img.logo:not(.on-dark){display:none}

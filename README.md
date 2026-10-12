@@ -1,4 +1,4 @@
-# Riffraff
+# Stakkato
 
 Make a song with strangers. One person drops a seed track, anyone with the link sends a take on top of it, the seed's owner decides who joins, and everyone can build their own version from every take.
 

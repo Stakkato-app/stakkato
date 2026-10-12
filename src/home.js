@@ -20,7 +20,7 @@ import { renderAmp } from './amp.js';
 var NAME_KEY = 'riffraff:name';    /* shared with the song view */
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
 
-var LAYERS = { seed:{ label:'original track', c:'var(--ember)' }, part:{ label:'new part', c:'var(--cyan)' } };
+var LAYERS = { seed:{ label:'original track', c:'var(--seed)' }, part:{ label:'new part', c:'var(--part)' } };
 ROLES.forEach(function (r) { LAYERS[r.id] = { label:r.label.toLowerCase(), c:'var(' + r.color + ')' }; });
 function lay(id) { return LAYERS[id] || LAYERS.wild; }
 
@@ -179,7 +179,7 @@ function commentForm(r, pid) {
   return '<form class="cbox" id="c-form" data-cform="' + key(r, pid) + '">' +
     '<textarea id="c-text" maxlength="500" placeholder="Say something to ' + esc(to) + '" aria-label="Your comment">' + esc(S.cmt.text) + '</textarea>' +
     '<div class="crow">' + who + '<span class="grow"></span>' +
-      '<button class="btn btn-sm" type="button" data-ccancel="1">Cancel</button><button class="btn btn-sm btn-ember" type="submit" id="c-go">Post comment</button></div>' +
+      '<button class="btn btn-sm" type="button" data-ccancel="1">Cancel</button><button class="btn btn-sm btn-main" type="submit" id="c-go">Post comment</button></div>' +
     '<p class="err" id="c-err"></p>' +
     (acct ? '' : '<span class="cnote">No account needed. Leave your name empty to post as Guest.</span>') + '</form>';
 }
@@ -390,7 +390,7 @@ function drawWaves() {
   var css = getComputedStyle(document.documentElement);
   [].forEach.call(document.querySelectorAll('canvas[data-wave]'), function (cv) {
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of);
-    waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(lit ? '--ink' : '--wave').trim());
+    waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(lit ? '--sound' : '--wave').trim());
   });
 }
 
@@ -422,7 +422,7 @@ function partHtml(r, p, depth) {
     (p.text ? '<p class="rtext">' + esc(p.text) + '</p>' : '') +
     '<div class="ra' + (on ? ' on' : '') + '"><button class="play' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="Play the new part">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas><div class="with">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
-    '<div class="rsub">' + (r.open && kept ? '<button class="ghost ember" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
+    '<div class="rsub">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
       mixLink('Open in mix view', r, p.id) + commentBtn(r, p.id) + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
   return html + kidsHtml(r, p, depth);
 }
@@ -442,7 +442,7 @@ function replyHtml(r, p, depth) {
       (p.stems && p.stems.length ? '<div class="mixlanes">' + stemsOf(p).map(function (x) { return '<canvas data-wave="' + r.id + ':' + x.id + '" data-of="' + key(r, p.id) + '" data-layer="' + x.layer + '"></canvas>'; }).join('') + '</div>'
         : '<canvas data-wave="' + r.id + ':' + p.id + '" data-of="' + key(r, p.id) + '" data-layer="' + p.layer + '"></canvas>') +
       '<div class="with">on top of ' + chainChips(r, chainOf(r, p.id).slice(0, -stemsOf(p).length)) + '</div></div>' : '') +
-    '<div class="rsub">' + (p.layer && r.open ? '<button class="ghost ember" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
+    '<div class="rsub">' + (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
       (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="ghost song-pick" type="button" data-letin="' + p.id + '">&#9734; Add to song</button>' : '') +
       (p.layer ? mixLink('Open in mix view', r, p.id) : '') + commentBtn(r, p.id, p.layer ? 'Comment' : 'Reply') +
       (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
@@ -479,11 +479,11 @@ function riffHtml(r) {
       '<span>' + ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' +
       (song.length ? '<button class="ghost songplay" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '')
       : '<span>Nobody played along yet. Be the first.</span>') + '</div>' +
-    '<div class="racts">' + (r.open ? '<button class="btn btn-sm btn-ember" type="button" data-reply="' + r.id + '">+ Play along</button>' : '') +
+    '<div class="racts">' + (r.open ? '<button class="btn btn-sm btn-main" type="button" data-reply="' + r.id + '">+ Play along</button>' : '') +
       mixLink('Open in mix view', r, null) + commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
       '<span class="grow"></span>' + voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
   if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
-    (r.mix ? '<button class="btn btn-sm btn-ember" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
+    (r.mix ? '<button class="btn btn-sm btn-sound" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
   html += threadBar(r, open);
   if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
@@ -525,7 +525,7 @@ function openReply(rid, pid) {
       return '<div class="md-lane"><span class="md-name"><i style="background:' + lay(p.layer).c + '"></i><span><b>' + esc(p.by) + '</b>' + chipLabel(p) + '</span></span>' +
         '<canvas data-md="' + i + '"></canvas><button class="md-m" type="button" data-mdmute="' + i + '" aria-pressed="false" aria-label="Mute">M</button></div>';
     }).join('') +
-    '<div class="md-lane you"><span class="md-name"><i style="background:var(--ember)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-empty" id="md-empty">Your take lands here</div><span></span></div>' +
+    '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-empty" id="md-empty">Your take lands here</div><span></span></div>' +
     '<div class="md-head" id="md-head" hidden></div></div>';
   el('r-layer').innerHTML = ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('');
   el('r-layer').value = ROLES.map(function (x) { return x.id; }).filter(function (l) { return used.indexOf(l) < 0; })[0] || 'vocals';
@@ -594,7 +594,7 @@ el('r-file').addEventListener('change', function () {
     }
     R.file = f; R.buf = b;
     var slot = el('md-empty'); if (slot) slot.outerHTML = '<canvas id="md-mine"></canvas>';
-    waveShape(el('md-mine'), b, getComputedStyle(document.documentElement).getPropertyValue('--ember').trim());
+    waveShape(el('md-mine'), b, getComputedStyle(document.documentElement).getPropertyValue('--sound').trim());
   }).catch(function () { el('r-err').textContent = 'That file could not be read. Try a wav or mp3.'; });
 });
 el('r-go').addEventListener('click', function () {

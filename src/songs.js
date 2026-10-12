@@ -38,7 +38,7 @@ function row(s) {
   if (s.music_key) facts.push(esc(s.music_key));
   if (s.time_sig) facts.push(esc(s.time_sig));
   return '<a class="song" href="/s/' + encodeURIComponent(s.slug) + '">' +
-    (r ? ico(r.icon, col(r)) : ico('seed', 'var(--ember)')) +
+    (r ? ico(r.icon, col(r)) : ico('seed', 'var(--seed)')) +
     '<div class="song-main">' +
       '<b>' + esc(name(s)) + '</b>' +
       '<small>' + (s.seed && s.seed.author_name ? 'by ' + esc(s.seed.author_name) + ' · ' : '') +
