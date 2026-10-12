@@ -2,7 +2,7 @@
 
 Make a song with strangers. One person drops a seed track, anyone with the link sends a take on top of it, the seed's owner decides who joins, and everyone can build their own version from every take.
 
-Built with Vite and plain JavaScript, backed by Supabase (database, audio storage, realtime, anonymous auth), hosted on Vercel.
+Built with Vite and plain JavaScript, backed by Supabase (database, audio storage, realtime, anonymous auth), hosted on Cloudflare Pages.
 
 ## How it works
 
@@ -57,18 +57,16 @@ git push -u origin main
 
 (Or, with the GitHub CLI: `gh repo create riffraff --private --source=. --push`.)
 
-### 4. Deploy on Vercel
+### 4. Deploy on Cloudflare Pages
 
-1. In Vercel, **Add New Project** and import the GitHub repo. The Vite preset is detected automatically (build `npm run build`, output `dist`).
-2. Add the Supabase values as environment variables, in one of two ways:
-   - Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` by hand under **Settings, Environment Variables**, or
-   - Install the **Supabase integration** from the Vercel Marketplace and connect your project. It adds `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, which this app also reads.
-3. Deploy. Every push to `main` redeploys; pull requests get preview URLs.
-4. In Supabase, under **Authentication, URL Configuration**, set the Site URL to your Vercel domain. Anonymous sign-in doesn't need it, but email or OAuth login will.
+1. In the Cloudflare dashboard, **Workers & Pages, Create, Pages, Connect to Git**, and pick the GitHub repo. Framework preset **Vite** (build command `npm run build`, output directory `dist`), root directory left empty so Cloudflare finds `functions/`. The Node version comes from `.node-version`.
+2. Under **Settings, Variables and Secrets**, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (or `VITE_SUPABASE_PUBLISHABLE_KEY`) for Production and Preview. Vite builds them into the pages, so redeploy after changing them.
+3. Deploy. Every push to `main` redeploys production; every other branch gets a preview at `https://<branch>.<project>.pages.dev`.
+4. In Supabase, under **Authentication, URL Configuration**, set the Site URL to your domain. Anonymous sign-in doesn't need it, but email or OAuth login will.
 
 ## Access gate
 
-Until it's public, every page asks for an access password first (`middleware.js`, Vercel only). Set it in Vercel under **Settings, Environment Variables** as `ACCESS_PASSWORD`, for Production and Preview, and redeploy; until then the gate accepts the password we gave friends (stored in `middleware.js` only as a hash). Changing it sends everyone back to the gate. Local `npm run dev` is not gated.
+Until it's public, every page asks for an access password first (`functions/_middleware.js`, a Cloudflare Pages Function). Set it in the Pages project under **Settings, Variables and Secrets** as `ACCESS_PASSWORD` (type Secret), for Production and Preview, and redeploy; until then the gate accepts the password we gave friends (stored in `functions/_middleware.js` only as a hash). Changing it sends everyone back to the gate. Local `npm run dev` is not gated.
 
 ## Accounts
 
