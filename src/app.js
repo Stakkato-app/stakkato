@@ -33,11 +33,6 @@ function vizMarkup(n) {
   for (var i = 0; i < n; i++) out += '<i style="height:14%"></i>';
   return out;
 }
-function statics(n) {
-  var out = '';
-  for (var i = 0; i < n; i++) out += '<i style="height:' + ((Math.random()*80+15)|0) + '%"></i>';
-  return out;
-}
 function fmt(sec){ sec = Math.round(sec || 0); return Math.floor(sec/60) + ':' + ('0'+(sec%60)).slice(-2); }
 function clockMs(sec) {
   sec = Math.max(0, sec || 0);
@@ -142,6 +137,7 @@ function blank() {
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
            pitches:[], parts:[], trialPitch:null, countIn:2, recRole:null,
            comments:[], cmAvailable:true, cmDraft:null, cmOpen:null,
+           words:[], tVotes:{}, myTVote:{}, tFilter:'all', wAt:null, wErr:'',
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
            meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
@@ -340,32 +336,129 @@ function stacksBar() {
     '<span class="m-ico">+</span><span class="m-txt"><b>Compose the song</b><small>pick takes from every branch</small></span></button>' : '') +
   '</div>';
 }
-/* ---------- the thread: the same takes, as replies ---------- */
-function threadPost(t) {
+/* ---------- the thread: takes and words, as replies at any depth ----------
+   Takes hang under the take they were played on (parentOf); written replies (thread_comments,
+   the same ones the homepage shows) hang under the take, the new part or the reply they answer,
+   or under the jam itself. The filters show the takes on their own, every written reply as a
+   list, or what waits for the creator. */
+function tFilter() { return S.tFilter || 'all'; }
+/* where a written reply hangs: 'w:<reply>', 't:<lead take>', 'p:<new part>' or 'jam' */
+function wordTarget(w) {
+  if (w.toWord) return S.words.some(function (x) { return x.id === w.toWord; }) ? 'w:' + w.toWord : 'jam';
+  var t = w.toTake && TAKES[w.toTake];
+  if (t && live(t) && t.roleId === 'part' && t.status === 'in') return 'p:' + t.dbId;
+  if (t && live(t) && threadTakes().indexOf(t) > -1) return 't:' + lead(t).dbId;
+  return 'jam';
+}
+/* a deleted reply only stays as a placeholder while someone answered it */
+function wordShown(w) { return !w.deleted || S.words.some(function (x) { return x.toWord === w.id && wordShown(x); }); }
+function wordKids(key) {
+  if (tFilter() === 'takes') return [];
+  return S.words.filter(function (w) { return wordTarget(w) === key && wordShown(w); })
+    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
+}
+function takeKids(t) {
+  return threadTakes().filter(function (k) { var p = parentOf(k); return isLead(k) && p && p.dbId === t.dbId; })
+    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
+}
+function countUnder(key) {
+  var ws = wordKids(key), n = ws.length;
+  ws.forEach(function (w) { n += countUnder('w:' + w.id); });
+  if (key.indexOf('t:') === 0) takeKids(TAKES[key.slice(2)]).forEach(function (k) { n += 1 + countUnder('t:' + k.dbId); });
+  return n;
+}
+/* thread votes, the same as on the homepage: everyone else's plus yours */
+function tVote(id, kind) {
+  var v = (S.myTVote || {})[id] || 0, n = ((S.tVotes || {})[id] || 0) + v;
+  return '<span class="vote" role="group" aria-label="Vote">' +
+    '<button type="button" class="up" data-tvote="' + id + '" data-kind="' + kind + '" data-dir="1" aria-pressed="' + (v === 1) + '" aria-label="Upvote">&#9650;</button>' +
+    '<b>' + n + '</b>' +
+    '<button type="button" class="down" data-tvote="' + id + '" data-kind="' + kind + '" data-dir="-1" aria-pressed="' + (v === -1) + '" aria-label="Downvote">&#9660;</button></span>';
+}
+function avaOf(name, color) {
+  return '<span class="ava' + (color ? '' : ' words') + '"' + (color ? ' style="background:' + color + '"' : '') + ' aria-hidden="true">' + esc(String(name || '?').charAt(0).toUpperCase()) + '</span>';
+}
+function youOr(name, uid) { return me && uid === me.id ? 'You' : name; }
+function whenOf(iso) { return iso ? '<span class="muted">· ' + esc(agoOf(iso)) + '</span>' : ''; }
+function agoOf(iso) {
+  var m = Math.max(0, (Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return Math.round(m) + ' minute' + (Math.round(m) > 1 ? 's' : '') + ' ago';
+  var h = m / 60; if (h < 24) return Math.round(h) + ' hour' + (Math.round(h) > 1 ? 's' : '') + ' ago';
+  var d = h / 24; if (d < 2) return 'yesterday';
+  if (d < 7) return Math.round(d) + ' days ago';
+  if (d < 14) return 'last week';
+  return new Date(iso).toLocaleDateString(undefined, { day:'numeric', month:'short' });
+}
+/* the box to reply with words, under what it answers */
+function wordBox(at) {
+  if (S.wAt !== at) return '';
+  var acct = db.accountName(me);
+  return '<div class="wbox">' +
+    '<textarea id="w-text" maxlength="500" rows="2" placeholder="Say something" aria-label="Your reply"></textarea>' +
+    '<div class="wrow">' + (acct ? '<span class="tiny muted">Posting as <b>' + esc(acct) + '</b></span>'
+      : '<input type="text" id="w-name" maxlength="60" placeholder="Your name (optional)" aria-label="Your name (optional)" value="' + esc(savedName()) + '">') +
+      '<span class="grow"></span><button class="btn btn-sm" type="button" data-wcancel="1">Cancel</button>' +
+      '<button class="btn btn-sm btn-main" type="button" data-wpost="1">Post reply</button></div>' +
+    (S.wErr ? '<p class="rec-err">' + esc(S.wErr) + '</p>' : '') + '</div>';
+}
+function foldOf(key, n, open) {
+  return '<button class="fold' + (open ? ' open' : '') + '" type="button" data-ttoggle="' + key + '" aria-expanded="' + open + '">' +
+    (open ? 'Hide replies' : 'Show ' + n + (n > 1 ? ' replies' : ' reply')) + '</button>';
+}
+function kidsBlock(key, items, open) {
+  if (!items.length) return '';
+  var n = /^[tw]:/.test(key) ? countUnder(key) : items.length;
+  items.sort(function (a, b) { return String(a.at).localeCompare(String(b.at)); });
+  return foldOf(key, n, open) + (open ? '<div class="kids">' + items.map(function (x) { return x.html; }).join('') + '</div>' : '');
+}
+/* a written reply */
+function wordNode(w, flat) {
+  var key = 'w:' + w.id, kids = flat ? [] : wordKids(key).map(function (k) { return { at:k.created, html:wordNode(k) }; });
+  var open = !(S.tClosed || {})[key];
+  if (w.deleted) return '<div class="node gone" id="tw-' + w.id + '"><span class="ava words" aria-hidden="true"></span><div class="nbody"><p class="gone-txt">This reply was deleted.</p>' + kidsBlock(key, kids, open) + '</div></div>';
+  var mine = !!(me && w.authorId === me.id), admin = db.isAdmin(me), ctx = '';
+  if (flat) {
+    var tg = wordTarget(w), tt = tg.indexOf('t:') === 0 ? TAKES[tg.slice(2)] : null, ww = tg.indexOf('w:') === 0 ? S.words.filter(function (x) { return x.id === tg.slice(2); })[0] : null;
+    ctx = '<span class="muted">' + (tt ? 'on ' + esc(youOr(tt.by, tt.authorId)) + '’s ' + esc(groupOf(tt).map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + '))
+      : ww ? 'replying to ' + esc(youOr(ww.by, ww.authorId)) : tg.indexOf('p:') === 0 ? 'on the new part' : 'on the jam') + '</span>';
+  }
+  return '<div class="node" id="tw-' + w.id + '">' + avaOf(youOr(w.by, w.authorId)) + '<div class="nbody">' +
+    '<div class="meta"><b>' + esc(youOr(w.by, w.authorId)) + '</b>' + ctx + whenOf(w.created) + '</div>' +
+    '<p class="bubble">' + esc(w.body) + '</p>' +
+    '<div class="acts"><button class="tlink" type="button" data-wopen="word:' + w.id + '">Reply</button>' + tVote(w.id, 'comment') +
+      (isHost() && !mine ? '<button class="tlink" type="button" data-whide="' + w.id + '">Hide</button>' : '') +
+      (mine || admin ? '<button class="tlink del' + (S.wSure === w.id ? ' sure' : '') + '" type="button" data-wdel="' + w.id + '">' + (S.wSure === w.id ? 'Click again to delete' : 'Delete') + '</button>' : '') + '</div>' +
+    wordBox('word:' + w.id) + kidsBlock(key, kids, open) + '</div></div>';
+}
+/* a take: who added what, their words, the take you can hear, and what you can do with it */
+function takeNode(t, flat) {
   var r = role(t.roleId), cur = S.view !== 'build' && !S.override ? currentStack() : null, on = running && cur && cur.id === t.dbId;
   var under = onOf(t), here = !!herePath()[t.dbId], last = !!(S.stack && cur && cur.id === t.dbId);
-  var grp = groupOf(t), inSongAll = grp.every(function (g) { return S.members.indexOf(g) > -1; });
-  var kidsOf = threadTakes().filter(function (k) { var p = parentOf(k); return isLead(k) && p && p.dbId === t.dbId; })
-    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
-  var open = kidsOf.length && (here && !last || (S.tOpen || {})[t.dbId]), below = countBelow(t);
-  return '<div class="tp' + (here ? ' here' : '') + (last ? ' last' : '') + '" id="tp-' + t.dbId + '">' +
-    '<div class="tp-row" data-tsel="' + t.dbId + '">' +
-      '<button class="play sm' + (on && S.stack ? ' on' : '') + '" type="button" data-tplay="' + t.dbId + '" aria-label="Play ' + esc(t.by) + '’s take with everything under it">' + (on && S.stack ? I_PAUSE : I_PLAY) + '</button>' +
-      ico(r.icon, col(r)) +
-      '<div class="tp-body"><div class="tp-meta"><b>' + esc(t.by) + '</b> <span class="muted">added</span> ' +
-        grp.map(function (g) { var gr = role(g.roleId); return '<b style="color:' + col(gr) + '">' + esc(gr.label.toLowerCase()) + '</b>'; }).join(' + ') +
-        (inSongAll ? ' <em class="st-tag auth">In the song</em>' : '') + '</div>' +
-        (t.note ? '<p class="tp-note">' + esc(t.note) + '</p>' : '') +
-        '<div class="tp-on">on top of <span class="vchip">' + (seedInstr() ? ico(seedInstr().icon, col(seedInstr())) : '') + 'original track</span>' +
-          under.map(function (u) { var ur = role(u.roleId); return '<span class="vchip">' + ico(ur.icon, col(ur)) + esc(u.by) + '</span>'; }).join('') +
-          leftOut(t) + '</div>' +
-        (isOpen() ? '<div class="tp-acts"><button class="addlink" type="button" data-tstack="' + t.dbId + '">' + (last ? 'In the tracks above' : 'Play on this') + '</button>' +
-          (isHost() && !inSongAll ? '<button class="addlink" type="button" data-yesg="' + t.dbId + '">☆ Add to song</button>' : '') +
-          (kidsOf.length && !(here && !last) ? '<button class="addlink quiet" type="button" data-ttoggle="' + t.dbId + '">' + (open ? 'Hide replies' : below + (below > 1 ? ' replies' : ' reply') + ' ▾') + '</button>' : '') + '</div>' : '') +
-      '</div>' +
-    '</div>' +
-    (open ? '<div class="tp-kids">' + kidsOf.map(threadPost).join('') + '</div>' : '') +
-  '</div>';
+  var grp = groupOf(t), inSongAll = grp.every(function (g) { return S.members.indexOf(g) > -1; }), waiting = grp.some(function (g) { return g.status === 'waiting'; });
+  var key = 't:' + t.dbId, kids = flat ? [] : takeKids(t).map(function (k) { return { at:k.created, html:takeNode(k) }; })
+    .concat(wordKids(key).map(function (w) { return { at:w.created, html:wordNode(w) }; }));
+  var open = !!kids.length && (here && !last || !!(S.tOpen || {})[t.dbId]);
+  var boss = isHost() && isOpen();
+  return '<div class="node tn' + (here ? ' here' : '') + (last ? ' last' : '') + '" id="tp-' + t.dbId + '">' + avaOf(t.by, col(r)) + '<div class="nbody">' +
+    '<div class="meta"><b>' + esc(youOr(t.by, t.authorId)) + '</b><span class="muted">added</span>' +
+      grp.map(function (g) { var gr = role(g.roleId); return '<b class="lyr" style="color:' + col(gr) + '">' + esc(gr.label.toLowerCase()) + '</b>'; }).join(' + ') +
+      (inSongAll ? '<span class="badge">In the song</span>' : waiting ? '<span class="badge wait">To review</span>' : '') +
+      (last ? '<span class="badge ink">In the tracks above</span>' : '') + whenOf(t.created) + '</div>' +
+    (t.note ? '<p class="bubble">' + esc(t.note) + '</p>' : '') +
+    '<div class="twell' + (on && S.stack ? ' on' : '') + '" data-tsel="' + t.dbId + '">' +
+      '<div class="take-row"><button class="play sm' + (on && S.stack ? ' on' : '') + '" type="button" data-tplay="' + t.dbId + '" aria-label="Play ' + esc(t.by) + '’s take with everything under it">' + (on && S.stack ? I_PAUSE : I_PLAY) + '</button>' +
+        '<div class="twaves">' + grp.map(function (g) { return '<canvas data-tw="' + g.dbId + '" data-c="' + role(g.roleId).color + '"></canvas>'; }).join('') + '</div></div>' +
+      '<div class="chain">on top of <span class="chip"><i style="background:' + (seedInstr() ? col(seedInstr()) : 'var(--seed)') + '"></i>' + (isHost() ? 'your' : esc(S.seed.by || 'the') + '’s') + ' original track</span>' +
+        under.map(function (u) { var ur = role(u.roleId); return '<span class="chip"><i style="background:' + col(ur) + '"></i>' + esc(youOr(u.by, u.authorId)) + '’s ' + esc(ur.label.toLowerCase()) + '</span>'; }).join('') +
+        leftOut(t) + '</div></div>' +
+    '<div class="acts">' +
+      (boss && !inSongAll ? '<button class="btn btn-sm btn-main" type="button" data-yesg="' + t.dbId + '">Add to song</button>' : '') +
+      (boss && waiting && !inSongAll ? '<button class="btn btn-sm" type="button" data-nog="' + t.dbId + '">Pass</button>' : '') +
+      (isOpen() ? (last ? '' : '<button class="tlink" type="button" data-tstack="' + t.dbId + '">Play on this</button>') +
+        '<button class="tlink" type="button" data-treply="' + t.dbId + '">Reply with audio</button>' : '') +
+      '<button class="tlink" type="button" data-wopen="take:' + t.dbId + '">Reply</button>' + tVote(t.dbId, 'take') + '</div>' +
+    wordBox('take:' + t.dbId) + kidsBlock('t:' + t.dbId, kids, open) + '</div></div>';
 }
 /* the takes on the thread path of the stack you hear (none for a stack that was put together) */
 function herePath() {
@@ -384,45 +477,44 @@ function onNode(key) {
   return threadTakes().filter(function (k) { return isLead(k) && !parentOf(k) && onKey(k) === key; })
     .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
 }
+/* updates in the thread: the creator made the song or extended it, someone made a stack */
 function updatePost(o) {
   var cur = S.view !== 'build' && !S.override ? currentStack() : null, last = !!(cur && cur.id === o.id), on = running && last;
-  var kids = o.key ? onNode(o.key) : [], hp = herePath(), inner = kids.some(function (k) { return hp[k.dbId]; });
-  var open = kids.length && (last || inner || (S.tOpen || {})[o.id]);
-  return '<div class="tp tp-up' + (last ? ' here last' : inner ? ' here' : '') + '" id="tp-' + o.id + '">' +
-    '<div class="tp-row"' + (o.stack ? ' data-tsel="' + o.id + '"' : o.part ? ' data-tpart="' + o.part + '"' : '') + '>' +
+  var takes = o.key ? onNode(o.key) : [], hp = herePath(), inner = takes.some(function (k) { return hp[k.dbId]; });
+  var kids = takes.map(function (k) { return { at:k.created, html:takeNode(k) }; })
+    .concat(o.part ? wordKids('p:' + o.part).map(function (w) { return { at:w.created, html:wordNode(w) }; }) : []);
+  var open = !!kids.length && (last || inner || !!(S.tOpen || {})[o.id]);
+  return '<div class="node tn upd' + (last ? ' here last' : inner ? ' here' : '') + '" id="tp-' + o.id + '"><span class="ava upd-ava" aria-hidden="true">' + o.icon + '</span><div class="nbody">' +
+    '<div class="meta"><b>' + esc(o.by) + '</b><span class="muted">' + o.what + '</span>' + (o.tag || '') + whenOf(o.at) + '</div>' +
+    (o.note ? '<p class="bubble">' + o.note + '</p>' : '') +
+    '<div class="twell"' + (o.stack ? ' data-tsel="' + o.id + '"' : o.part ? ' data-tpart="' + o.part + '"' : '') + '><div class="take-row">' +
       '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (o.stack ? 'data-tplay="' + o.id + '"' : o.part ? 'data-tpart="' + o.part + '"' : 'data-playmain="1"') + ' aria-label="Play">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
-      '<span class="tp-badge" aria-hidden="true">' + o.icon + '</span>' +
-      '<div class="tp-body"><div class="tp-meta"><b>' + esc(o.by) + '</b> <span class="muted">' + o.what + '</span>' + (o.tag || '') + '</div>' +
-        (o.note ? '<p class="tp-note">' + o.note + '</p>' : '') +
-        (o.takes ? '<div class="tp-on">' + o.takes.map(function (u) { var ur = role(u.roleId); return '<span class="vchip">' + ico(ur.icon, col(ur)) + esc(u.by) + '</span>'; }).join('') + '</div>' : '') +
-        (isOpen() ? '<div class="tp-acts"><button class="addlink" type="button" data-treply="' + o.reply + '">+ Reply with audio</button>' +
-          (o.stack ? (last ? '<span class="tp-in">In the tracks above</span>' : '<button class="addlink quiet" type="button" data-tstack="' + o.id + '">Show in the tracks</button>') : '') +
-          (o.part ? '<button class="addlink quiet" type="button" data-tpart="' + o.part + '">Show in the tracks</button>' : '') +
-          (kids.length && !last && !inner ? '<button class="addlink quiet" type="button" data-ttoggle="' + o.id + '">' + (open ? 'Hide replies' : kids.length + (kids.length > 1 ? ' replies' : ' reply') + ' ▾') + '</button>' : '') + '</div>' : '') +
-      '</div></div>' +
-    (open ? '<div class="tp-kids">' + kids.map(threadPost).join('') + '</div>' : '') +
-  '</div>';
+      (o.takes ? '<div class="chain flat">' + o.takes.map(function (u) { var ur = role(u.roleId); return '<span class="chip"><i style="background:' + col(ur) + '"></i>' + esc(youOr(u.by, u.authorId)) + '’s ' + esc(ur.label.toLowerCase()) + '</span>'; }).join('') + '</div>'
+        : '<span class="tiny muted">' + (o.part ? 'Plays where it sits in the song' : '') + '</span>') + '</div></div>' +
+    '<div class="acts">' + (isOpen() ? '<button class="tlink" type="button" data-treply="' + o.reply + '">Reply with audio</button>' : '') +
+      (o.stack ? (last ? '' : '<button class="tlink" type="button" data-tstack="' + o.id + '">Show in the tracks</button>') : '') +
+      (o.part ? '<button class="tlink" type="button" data-tpart="' + o.part + '">Show in the tracks</button><button class="tlink" type="button" data-wopen="part:' + o.part + '">Reply</button>' : '') + '</div>' +
+    (o.part ? wordBox('part:' + o.part) : '') + kidsBlock(o.id, kids, open) + '</div></div>';
 }
 function threadUpdates() {
-  var host = S.session ? S.session.host_id : null, list = [];
+  var list = [];
   S.parts.forEach(function (p) {
-    list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, by:S.seed.by || 'The author', icon:'&#8596;',
+    list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, at:p.joinedAt || p.created, by:S.seed.by || 'The author', icon:'&#8596;',
       what:'extended the track', note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long. Play on it, it’s part of the song now.',
       reply:'part:' + p.id, part:p.id }) });
   });
   var made = S.members.filter(onKeptSection);
-  if (made.length) list.push({ at:made.reduce(function (m, t) { return String(t.joinedAt) > m ? String(t.joinedAt) : m; }, ''), html:updatePost({ id:'main', key:keyOf(made), stack:true, by:S.seed.by || 'The author', icon:'&#9733;',
-    what:'made the Author’s creation', tag:' <em class="st-tag auth">Plays first</em>', takes:made, reply:'main' }) });
+  if (made.length) {
+    var at = made.reduce(function (m, t) { return String(t.joinedAt) > m ? String(t.joinedAt) : m; }, '');
+    list.push({ at:at, html:updatePost({ id:'main', at:at, key:keyOf(made), stack:true, by:S.seed.by || 'The author', icon:'&#9733;',
+      what:'made the Author’s creation', tag:'<span class="badge ink">Plays first</span>', takes:made, reply:'main' }) });
+  }
   (S.versions || []).forEach(function (v) {
     var tk = byIds(v.picks).filter(live); if (!tk.length) return;
-    list.push({ at:v.created || '', html:updatePost({ id:'v-' + v.id, key:keyOf(tk), stack:true, by:v.by, icon:'&#9776;',
+    list.push({ at:v.created || '', html:updatePost({ id:'v-' + v.id, at:v.created, key:keyOf(tk), stack:true, by:v.by, icon:'&#9776;',
       what:'made a stack: <b>' + esc(v.name) + '</b>', takes:tk, reply:'v-' + v.id }) });
   });
   return list;
-}
-function countBelow(t) {
-  var ks = threadTakes().filter(function (k) { var p = parentOf(k); return p && p.dbId === t.dbId; });
-  return ks.reduce(function (n, k) { return n + 1 + countBelow(k); }, 0);
 }
 /* tracks of the branch that were muted when the take was played: "without Tom's drums" */
 function leftOut(t) {
@@ -430,23 +522,96 @@ function leftOut(t) {
   var on = t.on || [], miss = pathOf(par).filter(function (x) { return on.indexOf(x.dbId) < 0; });
   return miss.length ? ' <span class="tp-without">without ' + miss.map(function (x) { return esc(x.by) + '’s ' + esc(role(x.roleId).label.toLowerCase()); }).join(', ') + '</span>' : '';
 }
+function reviewLeads() {
+  return threadTakes().filter(function (t) { return isLead(t) && groupOf(t).some(function (g) { return g.status === 'waiting'; }); })
+    .sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
+}
+function liveWords() { return S.words.filter(function (w) { return !w.deleted; }); }
+function renderTFilter() {
+  var box = el('tfilter'); if (!box) return;
+  var nT = threadTakes().filter(isLead).length, nW = liveWords().length, nR = isOpen() ? reviewLeads().length : 0, f = tFilter();
+  var tabs = [['all', 'All', nT + nW], ['takes', 'Takes', nT], ['words', 'Words', nW]].concat(nR || f === 'review' ? [['review', 'To review', nR]] : []);
+  box.innerHTML = tabs.map(function (x) {
+    return '<button type="button" role="tab" data-tfilter="' + x[0] + '" aria-selected="' + (f === x[0]) + '">' + x[1] + ' <span>' + x[2] + '</span></button>';
+  }).join('');
+}
 function threadHtml() {
-  var nodeKeys = {};
-  if (S.members.filter(onKeptSection).length) nodeKeys[keyOf(S.members.filter(onKeptSection))] = 1;
-  (S.versions || []).forEach(function (v) { nodeKeys[keyOf(byIds(v.picks).filter(live))] = 1; });
-  var roots = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; }).map(function (t) { return { at:String(t.created), html:threadPost(t) }; })
-    .concat(threadUpdates()).sort(function (a, b) { return String(a.at).localeCompare(String(b.at)); });
-  var si = seedInstr();
+  var f = tFilter(), si = seedInstr();
   var seedHere = S.stack === '__seed' && !S.override && S.view !== 'build';
-  return '<div class="tp tp-op' + (seedHere ? ' here last' : '') + '"><div class="tp-row" data-tsel="seed">' +
-      '<button class="play sm' + (seedHere && running ? ' on' : '') + '" type="button" data-tplay="seed" aria-label="Play the original track on its own">' + (seedHere && running ? I_PAUSE : I_PLAY) + '</button>' +
-      (si ? ico(si.icon, col(si)) : '') +
-      '<div class="tp-body"><div class="tp-meta"><b>' + esc(S.seed.by || 'The creator') + '</b> <span class="muted">started the jam</span></div>' +
-        '<p class="tp-note">' + esc(projName()) + '</p>' +
-        (isOpen() ? '<div class="tp-acts"><button class="addlink" type="button" data-treply="seed">+ Reply with audio</button>' +
-          (seedHere ? '<span class="tp-in">In the tracks above</span>' : '<button class="addlink quiet" type="button" data-tstack="seed">Play on this</button>') + '</div>' : '') +
-      '</div></div></div>' +
-    (roots.length ? roots.map(function (r) { return r.html; }).join('') : '<p class="tiny muted">Nobody played along yet.</p>');
+  var op = '<div class="t-op' + (seedHere ? ' here' : '') + '">' + avaOf(S.seed.by || 'C', si ? col(si) : 'var(--seed)') +
+    '<div class="t-op-txt"><b>' + esc(isHost() ? 'You' : S.seed.by || 'The creator') + '</b> <span class="muted">started the jam' + (S.session ? ' · ' + esc(agoOf(S.session.created_at)) : '') + '</span>' +
+      '<small>' + esc(projName()) + (si ? ' · ' + esc(si.label.toLowerCase()) : '') + '</small></div>' +
+    '<div class="t-op-acts">' + (seedHere ? '<span class="badge ink">In the tracks above</span>' : '<button class="tlink" type="button" data-tstack="seed">Play on this</button>') +
+      '<button class="tlink" type="button" data-wopen="jam">Reply</button>' +
+      (isOpen() ? '<button class="btn btn-sm" type="button" data-treply="seed">+ Reply with audio</button>' : '') + '</div></div>' + wordBox('jam');
+  var body;
+  if (f === 'words') {
+    var ws = liveWords().slice().sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
+    body = ws.length ? ws.map(function (w) { return wordNode(w, true); }).join('') : '<p class="tiny muted">No written replies yet. Say something with “Reply”.</p>';
+  } else if (f === 'review') {
+    var rv = reviewLeads();
+    body = rv.length ? rv.map(function (t) { return takeNode(t, true); }).join('') : '<p class="tiny muted">Nothing waits for the creator right now.</p>';
+  } else {
+    var nodeKeys = nodeKeySet();
+    var roots = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; }).map(function (t) { return { at:String(t.created), html:takeNode(t) }; })
+      .concat(threadUpdates()).concat(wordKids('jam').map(function (w) { return { at:String(w.created), html:wordNode(w) }; }))
+      .sort(function (a, b) { return String(a.at).localeCompare(String(b.at)); });
+    body = roots.length ? roots.map(function (r) { return r.html; }).join('') : '<p class="tiny muted">Nobody played along yet.</p>';
+  }
+  return op + '<div class="t-list">' + body + '</div>';
+}
+/* the small waveforms of the takes in the thread */
+function drawThreadWaves() {
+  [].forEach.call(document.querySelectorAll('canvas[data-tw]'), function (c) {
+    var t = TAKES[c.dataset.tw]; if (!t || !t.buf) return;
+    if (!t.mm) t.mm = minMaxOf(t.buf, 2400);
+    var dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (!w || !h) return;
+    c.width = w * dpr; c.height = h * dpr;
+    var g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+    /* in its instrument's colour, green while its stack plays */
+    g.fillStyle = cvar(c.closest('.twell.on') ? '--sound' : c.dataset.c || '--wave');
+    waveShape(g, t.mm, 0, w, h);
+  });
+}
+/* replying with words from the song view: the same written replies as on the homepage */
+function openWords(at) {
+  if (S.wAt === at) { S.wAt = null; renderBoards(); return; }
+  if (!S.session) return;
+  S.wAt = at; S.wErr = '';
+  if (at.indexOf('take:') === 0) { S.tOpen = S.tOpen || {}; }
+  renderBoards();
+  var b = el('w-text'); if (b) b.focus();
+}
+function postWords() {
+  var body = ((el('w-text') && el('w-text').value) || '').trim();
+  if (!body) { S.wErr = 'Write something first.'; renderBoards(); if (el('w-text')) el('w-text').focus(); return; }
+  if (!me) { S.wErr = 'Still connecting, try again in a second.'; renderBoards(); return; }
+  var typed = ((el('w-name') && el('w-name').value) || '').trim();
+  var name = (db.accountName(me) || typed || 'Guest').slice(0, 60);
+  if (typed && !db.accountName(me)) rememberName(typed);
+  var at = S.wAt, kind = at.split(':')[0], id = at.slice(kind.length + 1);
+  var row = { session_id:S.session.id, author_id:me.id, author_name:name, body:body.slice(0, 500),
+    reply_to_take:kind === 'take' || kind === 'part' ? id : null, reply_to_comment:kind === 'word' ? id : null };
+  var btn = document.querySelector('[data-wpost]'); if (btn) btn.disabled = true;
+  db.addThreadComment(row).then(function (w) {
+    S.wAt = null; S.wErr = '';
+    if (kind === 'take') { S.tOpen = S.tOpen || {}; S.tOpen[id] = true; }
+    if (kind === 'word') { S.tClosed = S.tClosed || {}; S.tClosed['w:' + id] = false; }
+    if (S.tFilter === 'takes' || S.tFilter === 'review') S.tFilter = 'all';
+    return refresh().then(function () {
+      var n = el('tw-' + w.id); if (n) { n.scrollIntoView({ behavior:'smooth', block:'center' }); n.classList.add('hl'); }
+      flash('Your reply is posted. Everyone sees it here and on the homepage.');
+    });
+  }).catch(function (x) { if (btn) btn.disabled = false; S.wErr = (x && x.message) || 'That didn’t work, try again.'; renderBoards(); });
+}
+function tVoteCast(id, kind, dir) {
+  if (!S.session || !me) return;
+  S.myTVote = S.myTVote || {};
+  var before = S.myTVote[id] || 0, value = before === dir ? 0 : dir;
+  S.myTVote[id] = value; renderBoards();
+  db.voteInThread({ targetId:id, targetKind:kind, sessionId:S.session.id, voterId:me.id, value:value })
+    .catch(function (x) { S.myTVote[id] = before; renderBoards(); oops(x); });
 }
 function picked(id) {
   return S.build.picks.indexOf(id) > -1 || S.versions.some(function (v) { return v.picks.indexOf(id) > -1; });
@@ -647,6 +812,15 @@ function applySnapshot(sess, snap) {
     return { id:c.id, by:c.author_name, authorId:c.author_id, body:c.body, at:c.at_sec, created:c.created_at };
   });
   if (S.cmOpen && !S.comments.some(function (c) { return c.id === S.cmOpen; })) S.cmOpen = null;
+  /* the thread's written replies and their votes (shared with the homepage) */
+  S.words = (snap.words || []).map(function (c) {
+    return { id:c.id, by:c.author_name, authorId:c.author_id, body:c.body, created:c.created_at, toTake:c.reply_to_take || null, toWord:c.reply_to_comment || null, deleted:!!c.deleted_at };
+  });
+  S.tVotes = {}; S.myTVote = {};
+  (snap.tvotes || []).forEach(function (v) {
+    if (me && v.voter_id === me.id) S.myTVote[v.target_id] = v.value;
+    else S.tVotes[v.target_id] = (S.tVotes[v.target_id] || 0) + v.value;
+  });
 
   S.reactions = { banger:0, mess:0, again:0 }; S.reacted = {};
   snap.reactions.forEach(function (r) {
@@ -1829,19 +2003,21 @@ var STEPS = {
 };
 function renderHow() {
   var s = STEPS[asCreator() ? 'creator' : 'musician'];
-  var steps = s.steps.map(function (x, i) {
-    return '<div class="step"><span class="n">0' + (i + 1) + '</span><b>' + x[0] + '</b><p>' + x[1] + '</p></div>';
-  }).join('');
   el('intro-p').textContent = s.lead;
-  el('howsteps').innerHTML = steps;
-  el('howtop').innerHTML = '<div class="how-lead"><h2>Make a <span class="hi">song</span> with <span class="hi">strangers</span></h2><p>' + s.lead + '</p></div>' + steps;
+  el('howsum').innerHTML = '<b class="how-lbl">How it works</b>' + s.steps.map(function (x, i) {
+    return '<span class="how-t"><i>' + (i + 1) + '</i>' + x[0] + '</span>';
+  }).join('');
+  el('howsteps').innerHTML = s.steps.map(function (x, i) {
+    return '<div class="step"><span class="n">' + (i + 1) + '</span><b>' + x[0] + '</b><p>' + x[1] + '</p></div>';
+  }).join('');
   document.body.classList.toggle('has-track', hasSeed());
-  /* the four steps up top only on your first visit to a session; after that they fold away */
+  /* the steps are open on an empty session and on your first visit to one; after that they fold
+     away (people can open and close them themselves) */
   var seen = false;
   try { seen = localStorage.getItem('stackato:seen-how') === '1'; } catch (e) {}
-  document.body.classList.toggle('seen-how', seen);
-  /* "How it works" stays open: people can fold it themselves */
-  if (hasSeed() && S.session && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
+  var want = hasSeed() && !!S.session;
+  if (S.howFor !== want) { S.howFor = want; el('howbox').open = !want || !seen; }
+  if (want && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
 }
 function renderInstruments() {
   var box = el('instruments');
@@ -2048,13 +2224,16 @@ function renderCrumbs() {
   nav.hidden = !(S.session && hasSeed());
   if (nav.hidden) return;
   var href = '/?open=' + encodeURIComponent(S.session.id), tk = S.stack && TAKES[S.stack];
-  el('crumb-jam').textContent = (S.seed.by ? S.seed.by + '’s jam: ' : 'The jam: ') + projName();
-  el('crumb-jam').href = href;
-  el('crumb-back').href = href + (tk && tk.dbId && tk.roleId !== 'seed' ? '&tid=' + encodeURIComponent(tk.dbId) : '');
+  el('crumb-jam').textContent = S.seed.by ? (isHost() ? 'Your jam' : S.seed.by + '’s jam') : 'The jam';
+  el('crumb-jam').title = 'Back to the thread of ' + projName();
+  el('crumb-jam').href = href + (tk && tk.dbId && tk.roleId !== 'seed' ? '&tid=' + encodeURIComponent(tk.dbId) : '');
 }
 function renderSeed() {
   var s = S.seed, host = isHost(), loading = loadingCount(), ri = seedInstr();
   renderCrumbs();
+  el('session-info').hidden = !el('crumbs').hidden;
+  el('creator-badge').hidden = !(S.session && host);
+  el('songtop').classList.toggle('empty', !hasSeed());
   el('session-name').textContent = S.session ? projName() : 'New session';
   el('session-sub').textContent = (hasSeed() ? 'track loaded, ' + fmt(s.len) : 'no track yet') +
     (loading ? ', loading ' + loading + ' take(s)' : '') + (S.session && !isOpen() ? ', released' : '');
@@ -2064,14 +2243,10 @@ function renderSeed() {
 
   if (hasSeed()) {
     el('seedpanel').innerHTML =
-      '<button class="play' + (only === 'seed' ? ' on' : '') + '" type="button" data-prev="seed" aria-label="Play the original track"' + (s.buf ? '' : ' disabled') + '>' +
-        (only === 'seed' ? I_PAUSE : I_PLAY) + '</button>' +
-      '<div><div class="kicker">The original track' + (ri ? ', ' + ri.label.toLowerCase() : '') + '</div>' +
-      '<div class="who">' + (host ? 'Your track' : esc(s.by) + '’s track') + ', ' + fmt(s.len) + (s.buf ? '' : ' <span class="tiny muted">loading</span>') + '</div>' +
-      seedWave() + '</div>' +
-      '<div class="seed-side"><div class="facts" id="facts"></div>' +
-      (host && isOpen() ? '<button class="btn btn-sm' + (S.metaOpen ? ' on' : '') + '" type="button" data-metaedit="1" aria-expanded="' + !!S.metaOpen + '">' +
-        (S.metaOpen ? 'Done' : 'Edit') + '</button>' : '') + '</div>';
+      '<div class="seed-head"><span class="kicker">The original track' + (ri ? ' · ' + ri.label.toLowerCase() : '') + '</span>' +
+        '<span class="tiny muted">by ' + (host ? 'you' : esc(s.by)) + (s.buf ? '' : ', loading') + '</span></div>' +
+      '<div class="seed-well"><button class="play' + (only === 'seed' ? ' on' : '') + '" type="button" data-prev="seed" aria-label="Play the original track"' + (s.buf ? '' : ' disabled') + '>' +
+        (only === 'seed' ? I_PAUSE : I_PLAY) + '</button>' + seedWave() + '</div>';
   } else if (asCreator()) {
     el('seedpanel').innerHTML = '<div class="dropbig">' + I_UP +
       '<h2>Drop an audio track</h2>' +
@@ -2101,11 +2276,16 @@ function renderSeed() {
 
   if (hasSeed()) {
     var m = S.meta;
+    var bars = s.len && m.bpm ? Math.max(1, Math.round(s.len / barSeconds())) : 0;
     el('facts').innerHTML =
-      '<div><b>' + (m.bpm || '?') + '</b><small>bpm</small></div>' +
-      '<div><b>' + (m.key || '?') + '</b><small>key</small></div>' +
-      '<div><b>' + m.time + '</b><small>time</small></div>' +
-      '<div><b>' + fmt(s.len) + '</b><small>length</small></div>';
+      '<div class="stat"><b>' + (m.bpm || '?') + '</b><small>bpm</small></div>' +
+      '<div class="stat"><b>' + esc(m.key || '?') + '</b><small>key</small></div>' +
+      '<div class="stat"><b>' + esc(m.time) + '</b><small>time</small></div>' +
+      '<div class="stat"><b>' + fmt(s.len) + '</b><small>' + (bars ? bars + (bars > 1 ? ' bars' : ' bar') : 'length') + '</small></div>' +
+      (host && isOpen() ? '<button class="btn btn-sm' + (S.metaOpen ? ' on' : '') + '" type="button" data-metaedit="1" aria-expanded="' + !!S.metaOpen + '">' +
+        (S.metaOpen ? 'Done' : 'Edit') + '</button>' : '');
+  } else {
+    el('facts').innerHTML = '';
     bindViz(); drawViz(running || Object.keys(sources).length > 0);
   }
 
@@ -2676,7 +2856,7 @@ function renderVersionLists() {
   if (el('fan-sub')) el('fan-sub').textContent = S.versions.length
     ? S.versions.length + ' version(s) from the room, sorted by hearts. The stack stays on top.'
     : 'Nobody has built their own version yet. Switch to "Your version" above the tracks to make one.';
-  if (el('play-raw')) el('play-raw').innerHTML = (running && !S.override) ? 'Stop' : I_PLAY + ' Play the song';
+  if (el('play-raw')) { var pr = running && !S.override; el('play-raw').innerHTML = pr ? I_PAUSE : I_PLAY; el('play-raw').setAttribute('aria-label', pr ? 'Stop the song' : 'Play the song'); el('play-raw').classList.toggle('on', pr); }
 }
 function playVersion(v) {
   if (S.override && S.override.id === v.id && running) { stopAll(); return; }
@@ -2700,10 +2880,16 @@ function drawWave(t) {
   var d = duration() || t.len, st = startOf(t);
   var x0 = Math.round(st / d * w), x1 = Math.round((st + t.len) / d * w), cw = Math.max(1, x1 - x0);
   var hearing = running && audible(t) && (!only || only === t.id);
-  g.fillStyle = cvar(hearing ? '--sound' : '--wave');
-  g.globalAlpha = ctl(t).mute ? .35 : 1;
+  /* every clip in its instrument's colour (the original track in its own, new parts in slate):
+     a soft tinted box with the waveform in it, full strength while you hear it */
+  var si = seedInstr(), c0 = cvar(t.id === 'seed' ? (si ? si.color : '--seed') : t.roleId === 'part' ? '--part' : ((role(t.roleId) || {}).color || '--wave'));
+  g.fillStyle = c0; g.globalAlpha = .12;
+  if (g.roundRect) { g.beginPath(); g.roundRect(x0, 3, cw, h - 6, 12); g.fill(); } else g.fillRect(x0, 3, cw, h - 6);
+  g.globalAlpha = ctl(t).mute ? .3 : hearing ? 1 : .62;
   var e = envOf(t);
-  waveShape(g, t.mm, x0, cw, h, function (f) { return envAt(f * t.len, t.len, e); });
+  g.save(); g.translate(0, 6);
+  waveShape(g, t.mm, x0 + 4, Math.max(1, cw - 8), h - 12, function (f) { return envAt(f * t.len, t.len, e); });
+  g.restore();
   g.globalAlpha = .9;
   g.strokeStyle = cvar('--ink'); g.lineWidth = 1.25;
   if (e.fi > 0.01) { g.beginPath(); g.moveTo(x0, h - 3); g.lineTo(x0 + e.fi / t.len * cw, 3); g.stroke(); }
@@ -2783,6 +2969,7 @@ function renderBoards() {
   /* every instrument keeps its card: it shows people straight away what they can add */
   if (el('applyboard')) el('applyboard').innerHTML = ROLES.map(layerCard).join('');
   if (el('thread')) el('thread').innerHTML = threadHtml();
+  renderTFilter(); drawThreadWaves();
   var nAll = threadTakes().length;
   if (el('layer-toggle')) el('layer-toggle').innerHTML = nAll ? '<button class="btn btn-sm" type="button" data-showlayers="1" aria-expanded="' + !!S.showLayers + '">' +
     (S.showLayers ? 'Hide the takes' : 'Show the takes already in this session (' + nAll + ')') + '</button>' : '';
@@ -2794,12 +2981,23 @@ function renderBoards() {
   if (el('apply-sub')) el('apply-sub').textContent = 'Pick what you play. You play along on the song above.';
 }
 function renderArchive() { /* the unused takes are listed in the "make your own version" block (ocTakes) */ }
+/* next to the thread: what the creator decides, or what a reply is */
+function renderThreadSide() {
+  var box = el('thread-side'); if (!box) return;
+  if (!hasSeed() || !S.session) { box.innerHTML = ''; return; }
+  box.innerHTML = isHost()
+    ? '<div class="side-card"><b class="side-h">You decide</b><p class="tiny muted">Takes marked <span class="badge wait">To review</span> wait for you. ' +
+        'Add one to the song or pass; passed takes stay in the thread and anyone can still play on them.</p></div>'
+    : '<div class="side-card"><b class="side-h">Your take is a reply</b><p class="tiny muted">Play on any take in the thread: yours plays on top of everything above it. ' +
+        'Reply with words too, under a take or under someone’s words. The creator decides what goes in the song.</p></div>';
+}
 function renderLock() {
-  el('lock-status').innerHTML = S.members.length + ' take(s) in the stack, ' + S.applicants.length + ' to review' +
-    (hasSeed() ? '' : ', <strong>no track yet</strong>') +
-    (S.session && !isOpen() ? ', <strong>song released</strong>' : '');
+  var nIn = S.members.length;
+  el('lock-status').innerHTML = '<b>' + nIn + (nIn === 1 ? ' take' : ' takes') + ' in the stack</b> <span class="muted">· ' + S.applicants.length + ' to review' +
+    (hasSeed() ? '' : ', no track yet') + (S.session && !isOpen() ? ', song released' : '') + '</span>';
   var btn = el('lock-btn');
   btn.style.display = isHost() && isOpen() ? '' : 'none';
+  el('lock-note').hidden = !(isHost() && isOpen());
   btn.disabled = !(hasSeed() && S.members.length);
 }
 
@@ -2870,7 +3068,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['draft-note', 'draft-name', 'ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name', 'seed-bpm', 'seed-time'];
+var KEEP = ['w-text', 'w-name', 'draft-note', 'draft-name', 'ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name', 'seed-bpm', 'seed-time'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -2885,7 +3083,7 @@ function keepInputs(fn) {
 /* canvases are drawn in the theme's colours: redraw everything when it changes */
 window.addEventListener('stackato:theme', function () { render(); });
 function render() {
-  keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderArchive(); renderLock(); renderVersionLists(); });
+  keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderThreadSide(); renderArchive(); renderLock(); renderVersionLists(); });
   if (S.menu) placeMenus();
 }
 function renderAll() {
@@ -2908,42 +3106,38 @@ function renderRelease() {
   if (document.activeElement !== tf) tf.value = S.title;
   tf.readOnly = !host;
 
-  el('rel-song').textContent = S.title || 'The song';
   var nMus = {}; list.forEach(function (t) { nMus[t.by || ''] = 1; });
+  var nm = Object.keys(nMus).length, pr = running && !S.override;
+  el('rel-sub').textContent = (S.session && !isOpen() ? 'Released. ' : 'Not released yet. ') + nm + (nm === 1 ? ' musician is' : ' musicians are') + ' on the song.';
   el('raw-box').innerHTML =
-    '<div class="rel-wave" id="rel-wave-box"><canvas id="rel-wave"></canvas></div>' +
-    '<div class="rawrow">' +
-      '<button class="btn btn-sound" type="button" id="play-raw">' + (running && !S.override ? 'Stop' : I_PLAY + ' Play the song') + '</button>' +
-      '<span class="rel-time" id="rel-time">' + clockMs(running && !S.override ? position() : 0) + ' / ' + clockMs(duration()) + '</span>' +
-      '<span class="tiny muted">' + Object.keys(nMus).length + ' musicians, ' + list.length + ' tracks</span></div>' +
-    '<button class="btn btn-sm" type="button" id="dl-all2">' + I_DL + ' Download the stems</button>';
+    '<div class="rel-well"><button class="play rel-big' + (pr ? ' on' : '') + '" type="button" id="play-raw" aria-label="' + (pr ? 'Stop the song' : 'Play the song') + '">' + (pr ? I_PAUSE : I_PLAY) + '</button>' +
+      '<div class="rel-wave" id="rel-wave-box"><canvas id="rel-wave"></canvas></div>' +
+      '<span class="rel-time" id="rel-time">' + clockMs(pr ? position() : 0) + ' / ' + clockMs(duration()) + '</span></div>' +
+    '<div class="rel-row"><span class="tiny muted">The song: every take in the stack, ' + list.length + ' tracks, mixed by the creator.</span>' +
+      '<button class="btn btn-sm" type="button" id="dl-all2">' + I_DL + ' Stems</button></div>';
   drawRelWave();
 
-  el('mix-box').innerHTML = S.mix
-    ? '<div class="rawrow"><button class="btn btn-sound btn-sm" type="button" id="play-mix">' + I_PLAY + ' Play the Mix</button>' +
-      '<div><b>' + esc(S.mix.by) + '</b><div class="tiny muted">' + esc(S.mix.fileName) + '</div></div></div>' +
-      '<p class="tiny muted">Sits next to the song, it does not replace it.</p>'
-    : isOpen()
-      ? '<p class="tiny muted">Anyone can add a Mix once the creator releases the song.</p>'
-      : '<div class="dropzone" id="mixzone"><b>Upload a Mix</b>' +
-        '<span class="tiny muted">optional, anyone can do it</span>' +
-        '<input type="file" id="mix-file" accept="audio/*" aria-label="Upload a Mix"></div>' +
-        '<label class="field"><span class="tiny muted">Who mixed it</span>' +
-        '<input type="text" id="mix-by" placeholder="your name" value="' + esc(savedName()) + '"></label>';
+  el('mix-box').innerHTML = '<span class="rel-ico" aria-hidden="true">' + ico('prod', 'var(--paper)') + '</span>' +
+    '<div class="rel-mix-txt"><h2>The Mix <span class="muted">· optional</span></h2>' +
+    (S.mix
+      ? '<p class="tiny muted">A polished mix of the same song, by <b>' + esc(S.mix.by) + '</b>. It sits next to the song, it does not replace it.</p></div>' +
+        '<button class="btn btn-sound" type="button" id="play-mix">' + I_PLAY + ' Play the Mix</button>'
+      : isOpen()
+        ? '<p class="tiny muted">A polished mix of the same song. Anyone can attach one once the creator releases it.</p></div>'
+        : '<p class="tiny muted">A polished mix of the same song. Anyone can attach one now it’s released.</p>' +
+          '<label class="field mix-who"><span class="tiny muted">Who mixed it</span><input type="text" id="mix-by" placeholder="your name" value="' + esc(savedName()) + '"></label></div>' +
+          '<label class="btn btn-main mix-up" id="mixzone">Upload a mix<input type="file" id="mix-file" accept="audio/*" aria-label="Upload a Mix"></label>');
 
+  function credit(name, color, what) {
+    return '<div class="credit"><span class="ava" style="background:' + color + '" aria-hidden="true">' + esc(String(name || '?').charAt(0).toUpperCase()) + '</span>' +
+      '<div><b>' + esc(name) + '</b><small style="color:' + color + '">' + esc(what) + '</small></div></div>';
+  }
+  var si = seedInstr();
   el('credits').innerHTML =
-    (hasSeed() ? '<div class="credit">' + ico('seed', 'var(--seed)') + '<div><b>' + esc(host ? 'you' : S.seed.by) + '</b><small>original track' + (seedInstr() ? ', ' + seedInstr().label.toLowerCase() : '') + '</small></div></div>' : '') +
-    partTakes().map(function (p) {
-      return '<div class="credit">' + ico('part', 'var(--part)') +
-        '<div><b>' + esc(p.by) + '</b><small>new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the track</small></div></div>';
-    }).join('') +
-    S.members.filter(onKeptSection).map(function (m) {
-      var r = role(m.roleId);
-      return '<div class="credit">' + ico(r.icon, col(r)) +
-        '<div><b>' + esc(m.by) + '</b><small>' + r.label.toLowerCase() + '</small></div></div>';
-    }).join('') +
-    (S.mix ? '<div class="credit">' + ico('prod', 'var(--part)') +
-      '<div><b>' + esc(S.mix.by) + '</b><small>mix</small></div></div>' : '');
+    (hasSeed() ? credit(host ? 'You' : S.seed.by, si ? col(si) : 'var(--seed)', (si ? si.label + ' · ' : '') + 'original track') : '') +
+    partTakes().map(function (p) { return credit(p.by, 'var(--part)', 'New part ' + (p.pos === 'before' ? 'before' : 'after') + ' the track'); }).join('') +
+    S.members.filter(onKeptSection).map(function (m) { var r = role(m.roleId); return credit(m.by, col(r), r.label); }).join('') +
+    (S.mix ? credit(S.mix.by, 'var(--part)', 'Mix') : '');
 
   renderVersionLists();
 
@@ -3337,7 +3531,38 @@ document.addEventListener('click', function (e) {
   if (e.target.closest('[data-draftclear]')) { S.drafts = []; S.draftBase = null; stopAll(true); renderDaw(); return; }
   if (e.target.closest('[data-draftpost]')) { postDraft(); return; }
   var tt = e.target.closest('[data-ttoggle]');
-  if (tt) { S.tOpen = S.tOpen || {}; S.tOpen[tt.dataset.ttoggle] = !S.tOpen[tt.dataset.ttoggle]; renderBoards(); return; }
+  if (tt) {
+    var tk = tt.dataset.ttoggle;
+    if (tk.indexOf('w:') === 0) { S.tClosed = S.tClosed || {}; S.tClosed[tk] = !S.tClosed[tk]; }
+    else { S.tOpen = S.tOpen || {}; tk = tk.indexOf('t:') === 0 ? tk.slice(2) : tk; S.tOpen[tk] = !S.tOpen[tk]; }
+    renderBoards(); return;
+  }
+  var tf = e.target.closest('[data-tfilter]');
+  if (tf) { S.tFilter = tf.dataset.tfilter; renderBoards(); return; }
+  var wo = e.target.closest('[data-wopen]');
+  if (wo) { openWords(wo.dataset.wopen); return; }
+  if (e.target.closest('[data-wcancel]')) { S.wAt = null; S.wErr = ''; renderBoards(); return; }
+  if (e.target.closest('[data-wpost]')) { postWords(); return; }
+  var wh = e.target.closest('[data-whide]');
+  if (wh) { wh.disabled = true; db.hideThreadComment(wh.dataset.whide).then(function () { flash('Hidden. Nobody sees that reply any more.'); return refresh(); }).catch(function (x) { wh.disabled = false; oops(x); }); return; }
+  var wd = e.target.closest('[data-wdel]');
+  if (wd) {
+    var wid = wd.dataset.wdel;
+    if (S.wSure !== wid) { S.wSure = wid; renderBoards(); setTimeout(function () { if (S.wSure === wid) { S.wSure = null; renderBoards(); } }, 4000); return; }
+    S.wSure = null;
+    db.deleteThreadComment(wid).then(function () { flash('Deleted. Replies to it stay in the thread.'); return refresh(); }).catch(oops);
+    return;
+  }
+  var tv = e.target.closest('[data-tvote]');
+  if (tv) { tVoteCast(tv.dataset.tvote, tv.dataset.kind, +tv.dataset.dir); return; }
+  var ng = e.target.closest('[data-nog]');
+  if (ng) {
+    var nt = TAKES[ng.dataset.nog]; if (!nt || !isHost()) return;
+    ng.disabled = true;
+    Promise.all(groupOf(nt).filter(function (g) { return g.status === 'waiting'; }).map(function (g) { return db.veto(g.dbId); }))
+      .then(function () { flash('Passed. It stays in the thread, and anyone can still play on it.'); return refresh(); }, function (x) { ng.disabled = false; oops(x); });
+    return;
+  }
   if (e.target.closest('[data-showlayers]')) { S.showLayers = !S.showLayers; renderBoards(); return; }
   var ns = e.target.closest('[data-newsong]');
   if (ns) { location.href = '/#start'; return; }
@@ -3760,8 +3985,6 @@ el('lock-btn').addEventListener('click', function () {
   });
 });
 
-el('strip-1').innerHTML = statics(80);
-el('strip-2').innerHTML = statics(80);
 render();
 
 /* ---------- boot ---------- */

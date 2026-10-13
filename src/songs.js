@@ -12,11 +12,6 @@ var SONGS = null, filter = 'all', failed = '';
 
 function el(id){ return document.getElementById(id); }
 function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function statics(n) {
-  var out = '';
-  for (var i = 0; i < n; i++) out += '<i style="height:' + ((Math.random()*80+15)|0) + '%"></i>';
-  return out;
-}
 function day(iso) {
   return new Date(iso).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' });
 }
@@ -30,25 +25,21 @@ function layers(s) {
   return n ? n + ' layer' + (n > 1 ? 's' : '') + ' in' : 'no layers yet';
 }
 
-function row(s) {
+function card(s) {
   var r = s.seed_role ? role(s.seed_role) : null;
   var open = s.status === 'open';
   var facts = [];
   if (s.bpm) facts.push(s.bpm + ' BPM');
   if (s.music_key) facts.push(esc(s.music_key));
   if (s.time_sig) facts.push(esc(s.time_sig));
-  return '<a class="song" href="/s/' + encodeURIComponent(s.slug) + '">' +
-    (r ? ico(r.icon, col(r)) : ico('seed', 'var(--seed)')) +
-    '<div class="song-main">' +
-      '<b>' + esc(name(s)) + '</b>' +
-      '<small>' + (s.seed && s.seed.author_name ? 'by ' + esc(s.seed.author_name) + ' · ' : '') +
-        (r ? esc(r.label.toLowerCase()) + ' · ' : '') + layers(s) + '</small>' +
-    '</div>' +
-    '<div class="song-facts">' + facts.join(' · ') + '</div>' +
-    '<div class="song-when">' +
-      '<span class="song-state' + (open ? ' open' : '') + '">' + (open ? 'Open' : 'Released') + '</span>' +
-      '<small>' + (open ? 'started ' + day(s.created_at) : 'released ' + day(s.released_at || s.created_at)) + '</small>' +
-    '</div>' +
+  return '<a class="songcard" href="/s/' + encodeURIComponent(s.slug) + '">' +
+    '<div class="sc-top"><span class="sc-ico" style="background:' + (r ? col(r) : 'var(--sound)') + '" aria-hidden="true">' + ico(r ? r.icon : 'seed', '#FFFFFF') + '</span>' +
+      '<div class="sc-name"><b>' + esc(name(s)) + '</b>' +
+        '<small>' + (s.seed && s.seed.author_name ? 'by ' + esc(s.seed.author_name) : 'by someone') + (r ? ' · ' + esc(r.label.toLowerCase()) : '') + '</small></div></div>' +
+    (facts.length ? '<div class="sc-facts">' + facts.map(function (f) { return '<span>' + f + '</span>'; }).join('') + '</div>' : '') +
+    '<div class="sc-foot"><span class="song-state' + (open ? ' open' : '') + '">' + (open ? 'Open' : 'Released') + '</span>' +
+      '<span class="muted">' + (open ? 'started ' + day(s.created_at) : 'released ' + day(s.released_at || s.created_at)) + '</span>' +
+      '<span class="grow"></span><span class="muted">' + layers(s) + '</span></div>' +
   '</a>';
 }
 
@@ -62,14 +53,13 @@ function render() {
   var open = SONGS.filter(function (s) { return s.status === 'open'; }).length;
   el('songs-count').textContent = SONGS.length + ' song' + (SONGS.length === 1 ? '' : 's') + ', ' + open + ' open';
   var list = SONGS.filter(function (s) { return filter === 'all' || s.status === filter; });
-  box.innerHTML = list.length ? list.map(row).join('') :
+  box.innerHTML = list.length ? list.map(card).join('') :
     '<p class="song-empty">' + (SONGS.length ? 'No songs here yet.' : 'No songs yet. <a href="/new">Drop a track</a> to start the first one.') + '</p>';
 }
 
 document.querySelectorAll('.songfilter [data-filter]').forEach(function (b) {
   b.addEventListener('click', function () { filter = b.dataset.filter; render(); });
 });
-el('strip').innerHTML = statics(80);
 
 if (!configured) {
   failed = 'Supabase is not configured. Copy .env.example to .env.local and fill it in.';

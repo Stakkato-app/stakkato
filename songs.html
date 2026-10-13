@@ -23,30 +23,33 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     <a class="brand" href="/" aria-label="Stakkato, home">
       <img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311">
     </a>
-    <div class="session">All songs<br><span id="songs-count">loading</span></div>
-    <span data-theme-toggle style="margin-left:auto"></span>
-    <a class="btn btn-sm" href="/new">Start a new song</a>
+    <nav class="topnav" aria-label="Main"><a href="/">Jams</a><a class="on" href="/songs" aria-current="page">Songs</a></nav>
+    <div class="hdr-acts">
+      <span data-theme-toggle></span>
+      <a class="btn btn-main btn-sm" href="/#start">Start a jam</a>
+    </div>
   </div>
 </header>
 
 <main>
   <div class="wrap">
-    <div class="head" style="margin-top:4px">
+    <div class="songs-head">
       <div>
-        <div class="kicker">On Stakkato</div>
-        <h2>All songs</h2>
+        <div class="kicker">Every song with an original track</div>
+        <h1>All songs</h1>
       </div>
-      <p>Every song anyone has started, newest first. Open one to listen, add a layer or build your own version.</p>
+      <span class="muted" id="songs-count">loading</span>
+      <div class="seg songfilter" role="tablist" aria-label="Which songs">
+        <button type="button" role="tab" data-filter="all" aria-selected="true">All</button>
+        <button type="button" role="tab" data-filter="open" aria-selected="false">Open</button>
+        <button type="button" role="tab" data-filter="released" aria-selected="false">Released</button>
+      </div>
     </div>
-    <div class="songfilter" role="tablist" aria-label="Which songs">
-      <button type="button" role="tab" data-filter="all" aria-selected="true">All</button>
-      <button type="button" role="tab" data-filter="open" aria-selected="false">Open for layers</button>
-      <button type="button" role="tab" data-filter="released" aria-selected="false">Released</button>
-    </div>
-    <div class="songlist" id="songs" aria-live="polite"></div>
-    <div class="strip" id="strip" aria-hidden="true"></div>
+    <div class="songgrid" id="songs" aria-live="polite"></div>
   </div>
 </main>
+
+<footer class="sitefoot"><div class="wrap"><a href="/" class="foot-logo"><img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311"></a><a href="/">All jams</a><a href="/privacy">Privacy &amp; rights</a></div></footer>
 
 <script type="module" src="/src/songs.js"></script>
 </body>
