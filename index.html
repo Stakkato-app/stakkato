@@ -219,15 +219,6 @@ html{scroll-behavior:smooth}
 .vote .down[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
 .mixlink{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
 /* a jam nobody played along on yet: one row */
-.riff.compact .crow-main{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:16px;align-items:center;padding:16px 20px}
-.riff.compact .play{width:44px;height:44px}
-.riff.compact h2{font-size:19px;margin-top:2px}
-.riff.compact .rwho{font-size:13.5px}
-.riff.compact .rtext{font-size:14px;color:var(--muted);margin-top:2px}
-.cnone{font-size:14px}
-.cacts{display:flex;align-items:center;gap:10px}
-.riff.compact .cbox{margin:0 20px 16px}
-@media (max-width:760px){ .riff.compact .crow-main{grid-template-columns:auto minmax(0,1fr)} .cnone{grid-column:2} .cacts{grid-column:1 / -1;justify-content:flex-end} }
 
 /* the thread: replies at any depth; the curve shows what a reply answers */
 .replies{background:var(--tint);padding:18px 24px 24px;display:flex;flex-direction:column;gap:18px}
@@ -247,7 +238,10 @@ html{scroll-behavior:smooth}
 .chain .chip{border:0;background:var(--paper);padding:2px 10px;font-size:12.5px;font-weight:600;color:var(--ink)}
 .acts{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;margin-top:8px}
 .acts .vote{margin-left:2px}
-.node.hl > .nbody > .meta,.node.hl > .nbody > .bubble,.node.hl > .nbody > .take{outline:2px solid var(--sound);outline-offset:4px;border-radius:12px}
+/* a post you just made (or opened from a link) lights up softly, then fades by itself */
+.node.hl > .nbody > .bubble,.node.hl > .nbody > .take{animation:hlfade 2.4s ease-out 1 both}
+@keyframes hlfade{0%,35%{box-shadow:0 0 0 6px var(--sound-soft)}100%{box-shadow:0 0 0 6px transparent}}
+@media (prefers-reduced-motion:reduce){ .node.hl > .nbody > .bubble,.node.hl > .nbody > .take{animation:none} }
 .kids{position:relative;margin:12px 0 0 -29px;padding-left:46px;display:flex;flex-direction:column;gap:16px}
 .kids::before{content:"";position:absolute;left:16px;top:-6px;bottom:22px;width:2px;background:var(--line-strong);border-radius:1px}
 .kids > .node::before{content:"";position:absolute;left:-30px;top:-4px;width:24px;height:22px;border-left:2px solid var(--line-strong);border-bottom:2px solid var(--line-strong);border-bottom-left-radius:16px}

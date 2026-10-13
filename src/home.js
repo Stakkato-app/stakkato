@@ -478,20 +478,7 @@ function threadBar(r, open) {
 function riffMeta(r) {
   return esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + (r.dur ? ' · ' + mmss(r.dur) : '');
 }
-/* a jam nobody played along on yet: one row, so the ones with a conversation stand out */
-function compactHtml(r) {
-  var on = S.playing === key(r);
-  return '<article class="riff compact' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '">' +
-    '<div class="crow-main"><button class="play' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<div class="cmeta"><div class="rwho"><b>' + esc(r.host ? 'You' : r.by) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') + ' <span class="muted">· ' + riffMeta(r) + '</span></div>' +
-        '<h2>' + esc(r.title) + '</h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') + '</div>' +
-      '<span class="muted cnone">Nobody played along yet. Be the first.</span>' +
-      '<div class="cacts">' + commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
-        (r.open ? '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' : '') + '</div></div>' +
-    commentForm(r, null) + '</article>';
-}
 function riffHtml(r) {
-  if (!r.posts.length && !r.song) return compactHtml(r);
   var on = S.playing === key(r), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
   var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
@@ -506,7 +493,7 @@ function riffHtml(r) {
       commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
       '<span class="grow"></span>' +
       (ps.length ? '<span class="played"><span class="faces">' + ps.slice(0, 5).map(function (p) { return ava(p.mine ? 'You' : p.by, p.layer, true); }).join('') + '</span>' +
-        ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' : '') +
+        ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' : '<span class="played">Nobody played along yet. Be the first.</span>') +
       voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
   if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
     (r.mix ? '<button class="btn btn-sm btn-sound" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';

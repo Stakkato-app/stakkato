@@ -1180,7 +1180,10 @@ body.has-track #intro{display:none}
 .fold:hover{background:var(--line-soft)}
 .fold.open{color:var(--muted)}
 .gone-txt{font-size:14px;color:var(--muted);font-style:italic;min-height:34px;display:flex;align-items:center}
-.node.hl > .nbody > .bubble{box-shadow:0 0 0 2px var(--sound)}
+/* a reply you just posted lights up softly, then fades by itself */
+.node.hl > .nbody > .bubble,.node.hl > .nbody > .twell{animation:hlfade 2.4s ease-out 1 both}
+@keyframes hlfade{0%,35%{box-shadow:0 0 0 6px var(--sound-soft)}100%{box-shadow:0 0 0 6px transparent}}
+@media (prefers-reduced-motion:reduce){ .node.hl > .nbody > .bubble,.node.hl > .nbody > .twell{animation:none} }
 .wbox{margin-top:10px;display:grid;gap:8px;padding:10px;background:var(--tint);border-radius:16px}
 .wbox textarea{font:inherit;font-size:15px;color:var(--ink);min-height:64px;resize:vertical;border:1px solid var(--line-strong);border-radius:12px;background:var(--paper);padding:8px 12px}
 .wbox input{flex:1 1 180px;min-width:0;min-height:36px;border:1px solid var(--line-strong);border-radius:99px;background:var(--paper);padding:4px 12px;font:inherit;font-size:14px;color:var(--ink)}
