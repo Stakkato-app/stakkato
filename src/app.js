@@ -2765,10 +2765,10 @@ function addRowInner(building) {
       '<select class="rec-role" id="daw-rec-role" aria-label="Which layer your take is for">' +
         ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rid ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') +
       '</select>';
-    lane = '<div class="a-lane"><span>' + (building
+    lane = '<div class="a-lane"><span><span class="a-long">' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
         : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
-      ' <em>Wear headphones.</em></span>' +
+      ' </span><em>Wear headphones.</em></span>' +
       '<button class="btn btn-main" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
       micPicker() + ampPicker(rid) + monPicker() + err + '</div>';
