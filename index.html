@@ -62,7 +62,7 @@ button,input,select{font:inherit;color:inherit}
 .dot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block}
 .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:99px;padding:0 6px;background:var(--paper);white-space:nowrap;font-size:12px}
 header.top{border-bottom:1px solid var(--line);background:var(--paper);position:sticky;top:0;z-index:30}
-header.top .in{display:flex;align-items:center;gap:18px;min-height:62px;padding:10px 40px;max-width:1760px;margin:0 auto}
+header.top .in{display:flex;align-items:center;gap:18px;min-height:62px;padding:10px var(--side);max-width:1760px;margin:0 auto}
 header.top img{height:26px;width:auto}
 header.top nav{display:flex;gap:4px;padding:4px;background:var(--tint);border-radius:99px;font-size:15px;font-weight:700}
 header.top nav a{color:var(--muted);text-decoration:none;padding:6px 16px;border-radius:99px}
@@ -70,7 +70,9 @@ header.top nav a.on{color:var(--ink);background:var(--paper);box-shadow:0 1px 2p
 header.top .hdr-acts{margin-left:auto;display:flex;align-items:center;gap:10px}
 header.top .hdr-acts .ghost{font-size:14px}
 @media (max-width:640px){ header.top .in{flex-wrap:wrap;gap:10px 14px;padding:10px 16px} header.top .hdr-acts{width:100%;margin-left:0} header.top .hdr-acts .btn-main{margin-left:auto} }
-.wide{max-width:1760px;margin:0 auto;padding-inline:40px}
+/* the side margin of every block on the page: grows with the screen */
+:root{--side:clamp(40px,6vw,112px)}
+.wide{max-width:1760px;margin:0 auto;padding-inline:var(--side)}
 /* the pitch: one card, the line on the left and the three steps on the right */
 .hero{margin-top:12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,540px);gap:clamp(28px,5vw,64px);align-items:center;
   background:var(--paper);border:1px solid var(--line);border-radius:32px;box-shadow:var(--shadow);padding:clamp(28px,4vw,56px)}
