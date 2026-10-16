@@ -501,18 +501,6 @@ function riffHtml(r) {
   if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
 }
-/* the sidebar: the latest jam that became a song */
-function renderSideSong() {
-  var box = el('side-song'); if (!box) return;
-  var r = RIFFS.filter(function (x) { return x.song; })[0];
-  box.hidden = !r;
-  if (!r) { box.innerHTML = ''; return; }
-  var k = r.mix ? r.id + ':mix' : r.id + ':song', on = S.playing === k;
-  box.innerHTML = '<div class="kicker">Became a song</div>' +
-    '<div class="side-song"><button class="play' + (on ? ' on' : '') + '" type="button" ' + (r.mix ? 'data-playmix' : 'data-playsong') + '="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.song.name)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<div><div class="t">' + esc(r.song.name) + '</div><div class="s">Released · ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song</div></div></div>' +
-    '<a href="/songs">All songs →</a>';
-}
 function render() {
   var list = RIFFS.slice();
   if (S.tab === 'hot') list.sort(function (a, b) { return players(b).length - players(a).length || score(b.likes, b.id) - score(a.likes, a.id); });
@@ -523,7 +511,6 @@ function render() {
     : list.length ? list.map(riffHtml).join('')
     : '<p class="empty">' + (S.tab === 'songs' ? 'No songs yet.' : 'No jams yet. <a href="#start">Start the first one.</a>') + '</p>';
   [].forEach.call(document.querySelectorAll('#tabs [data-tab]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tab === S.tab)); });
-  renderSideSong();
   /* every clip loads for its waveform; replies load once their thread is open */
   list.forEach(function (r) {
     load(r, { isRiff:true, url:r.url });
@@ -536,7 +523,12 @@ function render() {
 var R = { rid:null, pid:null, file:null, buf:null };
 var MD = null;
 function openScrim(id) { el(id).classList.add('on'); }
-function closeScrims() { if (S.playing === 'reply') { stop(); mdIdle(); render(); } [].forEach.call(document.querySelectorAll('.scrim'), function (s) { s.classList.remove('on'); }); }
+function closeScrims() {
+  if (S.playing === 'reply') { stop(); mdIdle(); render(); }
+  var fromStart = el('start-scrim').classList.contains('on');
+  [].forEach.call(document.querySelectorAll('.scrim'), function (s) { s.classList.remove('on'); });
+  if (fromStart && startFrom && startFrom.focus && document.contains(startFrom)) startFrom.focus();
+}
 function wantLen(c) { return c[0].dur || 0; }
 function openReply(rid, pid) {
   var r = riff(rid); R = { rid:rid, pid:pid || null, file:null, buf:null };
@@ -655,19 +647,49 @@ el('r-go').addEventListener('click', function () {
 var UP = { file:null, buf:null, an:null };
 el('up-layer').innerHTML = ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('');
 el('up-layer').value = 'guitar';
+/* "Start a jam" is the band under the feed, and the same band in a pop-up for the buttons at
+   the top. Both instrument rows show (and set) the same choice: the upload form's layer. */
+(function () {
+  var pop = el('start').cloneNode(true);
+  pop.id = 'start-pop'; pop.classList.add('start-pop');
+  pop.setAttribute('aria-labelledby', 'start-pop-h');
+  pop.querySelector('h2').id = 'start-pop-h';
+  pop.insertAdjacentHTML('afterbegin', '<button class="pop-x" type="button" data-close="start-scrim" aria-label="Close">&times;</button>');
+  el('start-scrim').appendChild(pop);
+})();
 function renderInsts() {
-  el('inst-row').innerHTML = ROLES.map(function (x) {
+  var html = ROLES.map(function (x) {
     return '<button class="inst" type="button" data-inst="' + x.id + '" aria-pressed="' + (el('up-layer').value === x.id) + '">' +
       '<i style="background:var(' + x.color + ')" aria-hidden="true"></i>' + esc(x.label) + '</button>';
   }).join('');
+  [].forEach.call(document.querySelectorAll('[data-insts]'), function (row) { row.innerHTML = html; });
 }
 renderInsts();
 el('up-layer').addEventListener('change', renderInsts);
-el('inst-row').addEventListener('click', function (e) {
+document.addEventListener('click', function (e) {
   var b = e.target.closest('[data-inst]'); if (!b) return;
+  var where = b.closest('#start-scrim') ? '#start-scrim' : '#start';
   el('up-layer').value = b.dataset.inst; renderInsts();
+  /* re-rendering replaced the button: keep the focus on the same instrument */
+  var same = document.querySelector(where + ' [data-inst="' + b.dataset.inst + '"]');
+  if (same) same.focus();
   if (el('picked').hidden) toast(role(b.dataset.inst).label + ' it is. Upload your clip, or record it in the song view.');
 });
+var startFrom = null;
+function openStart() {
+  startFrom = document.activeElement;
+  openScrim('start-scrim');
+  var x = document.querySelector('#start-scrim .inst[aria-pressed="true"]') || document.querySelector('#start-scrim .pop-x');
+  if (x) setTimeout(function () { x.focus(); }, 30);
+}
+/* arriving on /#start opens the pop-up at the top of the page */
+function startFromHash() {
+  if (location.hash !== '#start') return;
+  history.replaceState(null, '', location.pathname + location.search);
+  window.scrollTo(0, 0);
+  openStart();
+}
+window.addEventListener('hashchange', startFromHash);
 function takeFile(f) {
   if (!f) return;
   el('up-err').textContent = '';
@@ -736,10 +758,11 @@ el('up-go').addEventListener('click', function () {
 
 /* ---------- clicks ---------- */
 document.addEventListener('click', function (e) {
-  var b = e.target.closest('a[href="#start"], a[href="#feed"]');
-  if (b) { e.preventDefault(); el(b.getAttribute('href').slice(1)).scrollIntoView({ behavior:'smooth', block:'start' }); return; }
+  var b = e.target.closest('a[href="#start"], a[href="/#start"]');
+  if (b) { e.preventDefault(); openStart(); return; }
+  if ((b = e.target.closest('a[href="#feed"]'))) { e.preventDefault(); el('feed').scrollIntoView({ behavior:'smooth', block:'start' }); return; }
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
-  if ((b = e.target.closest('[data-upopen]'))) { openScrim('up-scrim'); return; }
+  if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
   if ((b = e.target.closest('[data-reply]'))) { openReply(b.dataset.reply, b.dataset.post); return; }
@@ -812,6 +835,7 @@ el('auth-form').addEventListener('submit', function (e) {
 
 /* ---------- start ---------- */
 render();
+startFromHash();
 if (configured) {
   db.currentUser().then(function (u) { me = u; renderAuth(); return reload(); }).catch(function (e) { console.error(e); reload(); });
   db.onAuthChange(function (u, ev) {

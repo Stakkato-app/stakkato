@@ -65,7 +65,7 @@ function gatePage(next, error, status) {
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:var(--bg);color:var(--ink);font:16px/1.5 'Figtree',system-ui,sans-serif}
 main{width:min(420px,100%);display:grid;gap:18px}
 img{height:30px;width:auto}
-h1{margin:0;font:700 26px/1.1 'Unbounded',system-ui,sans-serif;letter-spacing:-.02em}
+h1{margin:0;font:800 26px/1.1 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em}
 p{margin:0;color:var(--muted)}
 form{display:grid;gap:10px;border:1px solid var(--line);border-radius:18px;padding:20px;background:var(--paper);box-shadow:0 1px 2px rgba(18,18,18,.04),0 14px 34px -20px rgba(18,18,18,.22)}
 label{font-size:13.5px;font-weight:700}

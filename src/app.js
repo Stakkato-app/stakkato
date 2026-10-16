@@ -1065,6 +1065,7 @@ function stopAll(keep) {
 }
 function play(from, soloId) {
   if (REC.state === 'recording' || REC.state === 'asking') return;
+  if (REC.pv) recStopPlayers();
   var list = tracks();
   if (!list.length) return;
   stopAll(true);
@@ -1423,8 +1424,11 @@ function downloadClick() {
 /* ---------- recorder: plays the chosen tracks and the click, cuts the take to bar 1 ---------- */
 var REC = { state:'idle', buf:null, file:null, stream:null, nodes:[], timer:0, player:[] };
 function recStopPlayers() {
+  /* stopping a draft take's preview keeps where it was, so play goes on from there */
+  if (REC.pv) { REC.pvAt = recPvPos(); REC.pv = null; cancelAnimationFrame(REC.pvRaf); }
   REC.player.forEach(function (s) { try { s.stop(); } catch (e) {} });
   REC.player = [];
+  recPvButton();
 }
 function recCleanup() {
   clearTimeout(REC.timer); clearInterval(REC.tick);
@@ -1434,7 +1438,7 @@ function recCleanup() {
   if (REC.stream) REC.stream.getTracks().forEach(function (tr) { tr.stop(); });
   REC.stream = null;
 }
-function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.warn = ''; REC.info = ''; REC.partial = 0; REC.peaks = null; }
+function recReset() { recCleanup(); REC.state = 'idle'; REC.buf = null; REC.file = null; REC.err = ''; REC.warn = ''; REC.info = ''; REC.partial = 0; REC.peaks = null; REC.pvAt = 0; }
 function recBacking() {
   return hearable().filter(function (t) { return REC.hear[t.id] !== false && (REC.where !== 'daw' || audible(t)); });
 }
@@ -1444,8 +1448,8 @@ function hearable() {
   return [S.seed].concat(layers.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
 }
 /* play backing so that the chosen section starts at audio time T */
-function playBacking(list, T, into) {
-  var a = ac(), s0 = (section(M.sec) || section('core')).start;
+function playBacking(list, T, into, from) {
+  var a = ac(), s0 = (section(M.sec) || section('core')).start + (from || 0);
   list.forEach(function (t) {
     var rel = startOf(t) - s0, off = rel < 0 ? -rel : 0;
     if (off >= t.len) return;
@@ -1670,7 +1674,7 @@ function recFinish() {
       (amped || AMP_ROLES.indexOf(recRoleId()) < 0 ? '' : ' If it is a dry guitar on purpose, pick an amp for it.');
   var buf = a.createBuffer(1, out.length, sr);
   buf.copyToChannel(out, 0);
-  REC.buf = buf; REC.peakOf = minMaxOf(buf, 64).peak;
+  REC.buf = buf; REC.peakOf = minMaxOf(buf, 64).peak; REC.pvAt = 0;
   REC.file = new File([encodeWav(buf)], REC.where === 'seed' ? 'recorded track.wav' : 'recorded take.wav', { type:'audio/wav' });
   /* a first track recorded on the session page waits to start the session, like a chosen file */
   if (REC.where === 'seed') S.seedRecMeta = { bpm:S.meta.bpm, time:S.meta.time };
@@ -1815,19 +1819,83 @@ function drawRecLane() {
       var bar2 = Math.max(1, (pk[Math.floor(x / cw * n)] || 0) * (h - 6));
       g.fillRect(x0 + x, mid - bar2 / 2, 1, bar2);
     }
+    /* where the preview is, or where it paused */
+    var pos = recPvPos();
+    if (REC.pv || pos > 0) {
+      g.globalAlpha = 1; g.fillStyle = cvar('--sound');
+      g.fillRect(Math.round(laneX(s0 + pos) * w) - 1, 0, 2, h);
+    }
   }
   g.globalAlpha = 1;
 }
-function recListen(withBacking) {
+function recListen(withBacking, from) {
   recStopPlayers();
-  if (!REC.buf) return;
+  if (!REC.buf) return null;
+  from = Math.max(0, Math.min(from || 0, REC.buf.duration - .05));
   var a = ac(); a.resume();
   var at = a.currentTime + 0.05;
   var s = a.createBufferSource();
-  s.buffer = REC.buf; s.connect(ampInto(recAmpFor(recRoleId()), REC.peakOf || 0, master, REC.nodes)); s.start(at);
+  s.buffer = REC.buf; s.connect(ampInto(recAmpFor(recRoleId()), REC.peakOf || 0, master, REC.nodes)); s.start(at, from);
   REC.player.push(s);
-  if (withBacking && M.mode !== 'extend') playBacking(recBacking(), at, REC.player);
+  if (withBacking && M.mode !== 'extend') playBacking(recBacking(), at, REC.player, from);
+  return { s:s, at:at, from:from };
 }
+/* The draft take on the grey track: play/pause it with the rest, and click (or drag over) its
+   waveform to hear it from that moment. REC.pv is the running preview, REC.pvAt where it paused. */
+function recPvPos() {
+  if (!REC.pv) return REC.pvAt || 0;
+  return Math.max(0, Math.min(REC.buf ? REC.buf.duration : 0, REC.pv.from + ac().currentTime - REC.pv.at));
+}
+function recPvPlay(from) {
+  if (running) stopAll(true);
+  var p = recListen(true, from);
+  if (!p) return;
+  var pv = REC.pv = { at:p.at, from:p.from };
+  p.s.onended = function () {
+    if (REC.pv !== pv) return;
+    REC.pv = null; REC.pvAt = 0; cancelAnimationFrame(REC.pvRaf);
+    recPvButton(); drawRecLane();
+  };
+  recPvButton(); recPvTick();
+}
+function recPvTick() {
+  cancelAnimationFrame(REC.pvRaf);
+  if (!REC.pv) return;
+  drawRecLane();
+  REC.pvRaf = requestAnimationFrame(recPvTick);
+}
+function recPvBtnInner() { return REC.pv ? I_PAUSE + ' Pause' : I_PLAY + ' Play'; }
+function recPvButton() {
+  var b = el('rec-pp');
+  if (!b) return;
+  b.innerHTML = recPvBtnInner();
+  b.setAttribute('aria-label', REC.pv ? 'Pause your take' : 'Play your take with the rest');
+  b.classList.toggle('on', !!REC.pv);
+}
+var recSeek = null;
+function recSeekTo(e) {
+  var r = recSeek.rect, d = duration() || target() || 1;
+  var sec = (e.clientX - r.left) / (r.width || 1) * d - startOf(S.seed);
+  REC.pvAt = Math.max(0, Math.min(REC.buf.duration - .05, sec));
+  drawRecLane();
+}
+document.addEventListener('pointerdown', function (e) {
+  var c = e.target.closest && e.target.closest('#rec-canvas');
+  if (!c || REC.state !== 'done' || REC.where !== 'daw' || !REC.buf) return;
+  e.preventDefault();
+  recStopPlayers();
+  recSeek = { rect:c.getBoundingClientRect() };
+  try { c.setPointerCapture(e.pointerId); } catch (x) {}
+  recSeekTo(e);
+});
+document.addEventListener('pointermove', function (e) { if (recSeek) recSeekTo(e); });
+function recSeekEnd() {
+  if (!recSeek) return;
+  recSeek = null;
+  if (REC.state === 'done' && REC.buf) recPvPlay(REC.pvAt);
+}
+document.addEventListener('pointerup', recSeekEnd);
+document.addEventListener('pointercancel', recSeekEnd);
 function renderRecStatus() {
   var st = el('rec-status'), meter = el('rec-meter');
   if (!st || REC.state !== 'recording') return;
@@ -2687,7 +2755,7 @@ function addRowInner(building) {
       (REC.partial ? clockMs(REC.partial) + ' played, rest silent' : clockMs(REC.buf.duration)) + '</span></div></div>';
     lane = '<canvas id="rec-canvas"></canvas><div class="rec-float">' +
       '<button class="btn btn-sm btn-main" type="button" data-draftkeep="1">Keep it as a track</button>' +
-      '<button class="btn btn-sm" type="button" data-rec="listenmix">Hear it with the rest</button>' +
+      '<button class="btn btn-sm btn-sound' + (REC.pv ? ' on' : '') + '" id="rec-pp" type="button" data-recpp="1" aria-label="' + (REC.pv ? 'Pause your take' : 'Play your take with the rest') + '" title="Hear it with the rest. Click the waveform to hear it from there.">' + recPvBtnInner() + '</button>' +
       '<button class="btn btn-sm" type="button" data-dawrec="1">Record again</button>' +
       '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>' +
       (REC.warn ? '<p class="rec-warn lane-warn">' + esc(REC.warn) + '</p>' : '');
@@ -2697,15 +2765,15 @@ function addRowInner(building) {
       '<select class="rec-role" id="daw-rec-role" aria-label="Which layer your take is for">' +
         ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rid ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') +
       '</select>';
-    lane = '<div class="a-lane"><span>' + (building
+    lane = '<div class="a-lane"><span><span class="a-long">' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
         : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
-      ' <em>Wear headphones.</em></span>' +
+      ' </span><em>Wear headphones.</em></span>' +
       '<button class="btn btn-main" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
       micPicker() + ampPicker(rid) + monPicker() + err + '</div>';
   }
-  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
+  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' ? ' done' : '') + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
@@ -3638,6 +3706,7 @@ document.addEventListener('click', function (e) {
     else if (what === 'listenmix') recListen(true);
     return;
   }
+  if (e.target.closest('[data-recpp]')) { if (REC.pv) recStopPlayers(); else recPvPlay(REC.pvAt); return; }
   if (e.target.closest('#dl-click')) { downloadClick(); return; }
   if (e.target.closest('[data-mixtgl]')) { toggleTransport(); return; }
   var tp = e.target.closest('[data-trypitch]');
