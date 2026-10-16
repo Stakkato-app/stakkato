@@ -36,7 +36,7 @@
   --shadow:0 1px 2px rgba(18,18,18,.04),0 14px 34px -20px rgba(18,18,18,.22);
   --shadow-pop:0 12px 32px -12px rgba(18,18,18,.3);
   --scrim:rgba(18,18,18,.45);
-  --disp:'Unbounded',system-ui,sans-serif;
+  --disp:'Bricolage Grotesque',system-ui,sans-serif;
   --body:'Figtree',system-ui,sans-serif;
 }
 /* the dark band (a comment on the timeline): the same in both modes */
@@ -45,7 +45,7 @@
 :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5}
-h1,h2,h3{margin:0;font-family:var(--disp);font-weight:700;line-height:1.08;letter-spacing:-.02em}
+h1,h2,h3{margin:0;font-family:var(--disp);font-weight:800;line-height:1.08;letter-spacing:-.02em}
 p{margin:0}
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:3px solid var(--sound-ink);outline-offset:2px}
@@ -754,6 +754,8 @@ a.btn{text-decoration:none}
 .a-lane .rec-err{flex-basis:100%;color:var(--red);font-weight:600}
 .rec-lane{position:relative;min-height:96px;background:repeating-linear-gradient(135deg,var(--tint) 0 10px,var(--bg) 10px 20px)}
 .rec-lane canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* a take you just recorded: click or drag on its waveform to hear it from there */
+.rec-lane.done canvas{cursor:pointer;touch-action:none}
 .rec-float{position:absolute;top:8px;right:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 16px)}
 .addrow.rec-on .t-head{background:var(--tint);box-shadow:inset 3px 0 0 var(--live)}
 .addrow .rec-status{font-size:15px}
