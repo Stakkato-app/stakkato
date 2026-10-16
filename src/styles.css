@@ -1140,10 +1140,12 @@ body.has-track #intro{display:none}
 .rec-lane{border-radius:16px;margin:8px 14px 12px}
 /* phones: the empty grey track fits its box. Only "Wear headphones." stays of the text, buttons and pickers take the full width */
 @media (max-width:600px){
-  .a-lane{margin:8px;padding:12px 10px;gap:8px}
+  .track.addrow{grid-template-columns:var(--headw) minmax(0,1fr)}
+  .a-lane{margin:8px;padding:12px 10px;gap:8px;min-width:0}
   .a-lane .a-long{display:none}
-  .a-lane .btn{flex:1 1 100%;min-width:0}
+  .a-lane .btn{flex:1 1 100%;min-width:0;white-space:normal;padding-inline:10px}
   .a-lane label.mini{flex:1 1 100%;min-width:0;justify-content:center}
+  .a-lane .rec-opt{min-width:0}
   .a-lane label.mini select{min-width:0;max-width:100%;flex:1}
   .rec-lane{margin:8px}
 }
