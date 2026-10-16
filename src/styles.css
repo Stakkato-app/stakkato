@@ -864,6 +864,12 @@ a.btn{text-decoration:none}
 .rec-lane.has-warn canvas{height:96px;bottom:auto}
 .rec-lane .lane-warn{position:absolute;left:8px;right:8px;top:104px;margin:0;max-width:760px}
 @media (max-width:600px){ .rec-lane.has-warn{min-height:300px} .rec-lane.has-warn .rec-float{top:auto;bottom:8px} }
+/* a take you just recorded: the waveform keeps the whole lane free to click on, the buttons and any warning sit under it */
+.rec-lane.done,.rec-lane.done.has-warn{display:flex;flex-direction:column;min-height:0}
+.rec-lane.done canvas,.rec-lane.done.has-warn canvas{position:relative;inset:auto;flex:none;height:80px}
+.rec-lane.done .rec-float,.rec-lane.done.has-warn .rec-float{position:static;max-width:none;justify-content:flex-start;padding:0 8px 8px}
+.rec-lane.done .lane-warn{position:static;margin:0 8px 8px}
+@media (max-width:600px){ .rec-lane.done canvas,.rec-lane.done.has-warn canvas{height:72px} .rec-lane.done .rec-float .btn-main{flex-basis:100%} }
 
 /* ---------- calmer page: one main action per block, the rest in "⋯" menus ---------- */
 .menu-wrap{position:relative;display:inline-flex;flex:none}
