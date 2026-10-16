@@ -14,7 +14,6 @@ import { configured } from './supabase.js';
 import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
-import { ico } from './icons.js';
 import { renderAmp } from './amp.js';
 
 var NAME_KEY = 'riffraff:name';    /* shared with the song view */
@@ -390,19 +389,25 @@ function drawWaves() {
   var css = getComputedStyle(document.documentElement);
   [].forEach.call(document.querySelectorAll('canvas[data-wave]'), function (cv) {
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of);
-    waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(lit ? '--sound' : '--wave').trim());
+    /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
+    var tone = lit ? '--sound' : cv.closest('.take') && cv.dataset.layer ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
+    waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(tone).trim());
   });
 }
 
 /* ---------- rendering ---------- */
 function lyr(layer) { return '<b class="lyr" style="color:' + lay(layer).c + '">' + lay(layer).label + '</b>'; }
-function ava(name, layer, sm) { return '<span class="ava' + (sm ? ' sm' : '') + '" style="background:' + (layer ? lay(layer).c : 'var(--muted)') + '">' + esc(String(name).charAt(0).toUpperCase()) + '</span>'; }
+/* a take's avatar wears its instrument's colour; written replies get an outlined one */
+function ava(name, layer, sm) {
+  return '<span class="ava' + (sm ? ' sm' : '') + (layer ? '' : ' words') + '"' + (layer ? ' style="background:' + lay(layer).c + '"' : '') + ' aria-hidden="true">' +
+    esc(String(name).charAt(0).toUpperCase()) + '</span>';
+}
 /* folding: every level of replies opens and closes on its own */
 function folded(k) { return !S.fold[k]; }
 function countDesc(r, id) { return kids(r, id).reduce(function (n, k) { return n + 1 + countDesc(r, k.id); }, 0); }
 function foldBtn(r, id) {
   var n = countDesc(r, id), k = r.id + ':' + id;
-  return '<button class="fold' + (folded(k) ? '' : ' open') + '" type="button" data-fold="' + k + '" aria-expanded="' + !folded(k) + '">' + (folded(k) ? '&#9656; Show ' + n + (n > 1 ? ' replies' : ' reply') : '&#9662; Hide replies') + '</button>';
+  return '<button class="fold' + (folded(k) ? '' : ' open') + '" type="button" data-fold="' + k + '" aria-expanded="' + !folded(k) + '">' + (folded(k) ? 'Show ' + n + (n > 1 ? ' replies' : ' reply') : 'Hide replies') + '</button>';
 }
 function kidsHtml(r, p, depth) {
   var ks = kids(r, p.id);
@@ -414,39 +419,43 @@ function openTo(r, p) {
   var x = p;
   while (x && x.parent) { S.fold[r.id + ':' + x.parent] = true; x = postOf(r, x.parent); }
 }
+function metaTime(p) { return '<span class="muted">· ' + esc(p.time) + '</span>'; }
+/* a reply in the thread: an avatar, then who and what, the words, the take, what you can do, and its own replies */
+function node(r, p, cls, aside, body, depth) {
+  return '<div class="node' + (cls ? ' ' + cls : '') + '" id="post-' + r.id + '-' + p.id + '">' + aside +
+    '<div class="nbody">' + body + kidsHtml(r, p, depth) + '</div></div>';
+}
 function partHtml(r, p, depth) {
   var on = S.playing === key(r, p.id), kept = p.status === 'in';
-  var html = '<div class="rep upd" id="post-' + r.id + '-' + p.id + '">' + ava(p.mine ? 'You' : p.by, null, true) +
-    '<div class="rbody"><div class="rmeta"><b>' + esc(p.mine ? 'You' : p.by) + '</b> <span class="act">' + (kept ? 'extended the jam' : 'pitched a new part') + '</span>' +
-      '<span class="time">' + esc(p.time) + '</span></div>' +
-    (p.text ? '<p class="rtext">' + esc(p.text) + '</p>' : '') +
-    '<div class="ra' + (on ? ' on' : '') + '"><button class="play' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="Play the new part">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas><div class="with">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
-    '<div class="rsub">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
-      mixLink('Open in mix view', r, p.id) + commentBtn(r, p.id) + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
-  return html + kidsHtml(r, p, depth);
+  return node(r, p, 'upd', '<span class="ava upd-ava" aria-hidden="true">&#8596;</span>',
+    '<div class="meta"><b>' + esc(p.mine ? 'You' : p.by) + '</b><span class="muted">' + (kept ? 'extended the jam' : 'pitched a new part') + '</span>' + metaTime(p) + '</div>' +
+    (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
+    '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
+    '<div class="acts">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
+      mixLink('Open in mix view', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 function goneHtml(r, p, depth) {
-  return '<div class="rep gone" id="post-' + r.id + '-' + p.id + '"><span class="ava sm" style="background:var(--line)"></span>' +
-    '<div class="rbody"><p class="rtext muted">' + (p.isComment ? 'This comment was deleted.' : 'This take was deleted. The replies played on it stay.') + '</p></div></div>' + kidsHtml(r, p, depth);
+  return node(r, p, 'gone', '<span class="ava words" aria-hidden="true"></span>',
+    '<p class="gone-txt">' + (p.isComment ? 'This reply was deleted.' : 'This take was deleted. The replies played on it stay.') + '</p>', depth);
 }
 function replyHtml(r, p, depth) {
   if (p.deleted) return goneHtml(r, p, depth);
   if (p.kind === 'part') return partHtml(r, p, depth);
   var on = S.playing === key(r, p.id);
-  var html = '<div class="rep" id="post-' + r.id + '-' + p.id + '">' + ava(p.mine ? 'You' : p.by, p.layer, true) +
-    '<div class="rbody"><div class="rmeta"><b>' + esc(p.mine ? 'You' : p.by) + '</b> <span class="act">' + (p.layer ? 'added ' + stemsOf(p).map(function (x) { return lyr(x.layer); }).join(' + ') : 'replied') + '</span>' +
-      (p.inSong ? '<span class="songtag">In the song</span>' : '') + '<span class="time">' + esc(p.time) + '</span></div>' +
-    (p.text ? '<p class="rtext">' + esc(p.text) + '</p>' : '') +
-    (p.layer ? '<div class="ra' + (on ? ' on' : '') + '"><button class="play' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play with everything above it') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+  return node(r, p, '', ava(p.mine ? 'You' : p.by, p.layer),
+    '<div class="meta"><b>' + esc(p.mine ? 'You' : p.by) + '</b>' + (p.layer ? '<span class="muted">added</span>' + stemsOf(p).map(function (x) { return lyr(x.layer); }).join(' + ') : '') +
+      (p.inSong ? '<span class="songtag">In the song</span>' : '') + metaTime(p) + '</div>' +
+    (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
+    (p.layer ? '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play with everything above it') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       (p.stems && p.stems.length ? '<div class="mixlanes">' + stemsOf(p).map(function (x) { return '<canvas data-wave="' + r.id + ':' + x.id + '" data-of="' + key(r, p.id) + '" data-layer="' + x.layer + '"></canvas>'; }).join('') + '</div>'
-        : '<canvas data-wave="' + r.id + ':' + p.id + '" data-of="' + key(r, p.id) + '" data-layer="' + p.layer + '"></canvas>') +
-      '<div class="with">on top of ' + chainChips(r, chainOf(r, p.id).slice(0, -stemsOf(p).length)) + '</div></div>' : '') +
-    '<div class="rsub">' + (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
-      (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="ghost song-pick" type="button" data-letin="' + p.id + '">&#9734; Add to song</button>' : '') +
-      (p.layer ? mixLink('Open in mix view', r, p.id) : '') + commentBtn(r, p.id, p.layer ? 'Comment' : 'Reply') +
-      (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id) + '</div></div>';
-  return html + kidsHtml(r, p, depth);
+        : '<canvas data-wave="' + r.id + ':' + p.id + '" data-of="' + key(r, p.id) + '" data-layer="' + p.layer + '"></canvas>') + '</div>' +
+      '<div class="chain">on top of ' + chainChips(r, chainOf(r, p.id).slice(0, -stemsOf(p).length)) + '</div></div>' : '') +
+    '<div class="acts">' +
+      (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
+      (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
+      commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Open in mix view', r, p.id) : '') +
+      (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 /* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
    replied, what kind of replies there are and the latest one, so it reads as "there's a
@@ -466,27 +475,43 @@ function threadBar(r, open) {
       (lastTxt && !open ? '<small>Latest: ' + esc(lastTxt) + '</small>' : '') + '</span>' +
     '<span class="tb-go">' + (open ? 'Hide the thread <i aria-hidden="true">&#9652;</i>' : 'Show the thread <i aria-hidden="true">&#9662;</i>') + '</span></button>';
 }
+function riffMeta(r) {
+  return esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + (r.dur ? ' · ' + mmss(r.dur) : '');
+}
 function riffHtml(r) {
-  var on = S.playing === key(r), ps = players(r), n = livePosts(r).length, open = !!S.expanded[r.id], song = songOf(r);
+  var on = S.playing === key(r), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
-  var html = '<article class="riff' + (r.host ? ' mine' : '') + (open && n ? ' wide-open' : '') + '" id="riff-' + r.id + '">' +
+  var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + esc(r.by) + (r.host ? ' (you)' : '') + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
-      '<small>' + esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + '</small></div></div>' +
-    '<div class="rtitle"><h2>' + esc(r.title) + (r.song ? '<span class="tag">Became a song</span>' : '') + '</h2>' + (r.text ? '<p>' + esc(r.text) + '</p>' : '') + '</div>' +
-    '<div class="player"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas></div>' +
-    '<div class="stats">' + (ps.length ? '<span class="faces">' + ps.slice(0, 5).map(function (p) { return ava(p.mine ? 'You' : p.by, p.layer, true); }).join('') + '</span>' +
-      '<span>' + ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' +
-      (song.length ? '<button class="ghost songplay" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '')
-      : '<span>Nobody played along yet. Be the first.</span>') + '</div>' +
-    '<div class="racts">' + (r.open ? '<button class="btn btn-sm btn-main" type="button" data-reply="' + r.id + '">+ Play along</button>' : '') +
-      mixLink('Open in mix view', r, null) + commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
-      '<span class="grow"></span>' + voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
+      '<small>' + riffMeta(r) + '</small></div></div>' +
+    '<h2 class="rtitle">' + esc(r.title) + (r.song ? '<span class="tag">Became a song</span>' : '') + '</h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
+    '<div class="well"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas><span class="wtime">' + mmss(r.dur) + '</span></div>' +
+    '<div class="racts">' + (r.open ? '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' : '') +
+      '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in mix view</a>' +
+      (song.length ? '<button class="btn btn-soft" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '') +
+      commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
+      '<span class="grow"></span>' +
+      (ps.length ? '<span class="played"><span class="faces">' + ps.slice(0, 5).map(function (p) { return ava(p.mine ? 'You' : p.by, p.layer, true); }).join('') + '</span>' +
+        ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' : '<span class="played">Nobody played along yet. Be the first.</span>') +
+      voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
   if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
     (r.mix ? '<button class="btn btn-sm btn-sound" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
-  html += threadBar(r, open);
+  html += '</div>' + threadBar(r, open);
   if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
+}
+/* the sidebar: the latest jam that became a song */
+function renderSideSong() {
+  var box = el('side-song'); if (!box) return;
+  var r = RIFFS.filter(function (x) { return x.song; })[0];
+  box.hidden = !r;
+  if (!r) { box.innerHTML = ''; return; }
+  var k = r.mix ? r.id + ':mix' : r.id + ':song', on = S.playing === k;
+  box.innerHTML = '<div class="kicker">Became a song</div>' +
+    '<div class="side-song"><button class="play' + (on ? ' on' : '') + '" type="button" ' + (r.mix ? 'data-playmix' : 'data-playsong') + '="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.song.name)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      '<div><div class="t">' + esc(r.song.name) + '</div><div class="s">Released · ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song</div></div></div>' +
+    '<a href="/songs">All songs →</a>';
 }
 function render() {
   var list = RIFFS.slice();
@@ -498,6 +523,7 @@ function render() {
     : list.length ? list.map(riffHtml).join('')
     : '<p class="empty">' + (S.tab === 'songs' ? 'No songs yet.' : 'No jams yet. <a href="#start">Start the first one.</a>') + '</p>';
   [].forEach.call(document.querySelectorAll('#tabs [data-tab]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tab === S.tab)); });
+  renderSideSong();
   /* every clip loads for its waveform; replies load once their thread is open */
   list.forEach(function (r) {
     load(r, { isRiff:true, url:r.url });
@@ -630,9 +656,9 @@ var UP = { file:null, buf:null, an:null };
 el('up-layer').innerHTML = ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('');
 el('up-layer').value = 'guitar';
 function renderInsts() {
-  el('inst-row').innerHTML = ROLES.filter(function (x) { return x.id !== 'wild'; }).map(function (x) {
+  el('inst-row').innerHTML = ROLES.map(function (x) {
     return '<button class="inst" type="button" data-inst="' + x.id + '" aria-pressed="' + (el('up-layer').value === x.id) + '">' +
-      '<span class="ic" style="color:var(' + x.color + ')">' + ico(x.icon, 'var(' + x.color + ')') + '</span>' + esc(x.label) + '</button>';
+      '<i style="background:var(' + x.color + ')" aria-hidden="true"></i>' + esc(x.label) + '</button>';
   }).join('');
 }
 renderInsts();
@@ -757,7 +783,6 @@ function renderAuth() {
   (slot ? slot.insertAdjacentHTML.bind(slot, 'afterend') : acts.insertAdjacentHTML.bind(acts, 'afterbegin'))(name
     ? '<span class="hdr-user"><i>' + esc(name.charAt(0).toUpperCase()) + '</i>' + esc(name) + '</span><button class="ghost" type="button" data-signout="1">Sign out</button>'
     : '<button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn hdr-signup" type="button" disabled title="Sign-up opens soon">Sign up</button>');
-  [].forEach.call(document.querySelectorAll('.hero-cta'), function (w) { w.hidden = !!name; });
   if (name) ['up-name-in', 'r-name'].forEach(function (id) { if (el(id)) el(id).value = name; });
 }
 document.addEventListener('click', function (e) {

@@ -27,10 +27,6 @@
 /* bands that are dark in both modes */
 /* inside them the light-mode paper and ink come back, so they look as they do in light mode */
 :root[data-theme="dark"] .startband,
-:root[data-theme="dark"] .collab-row.everyone,
-:root[data-theme="dark"] .nudge,
-:root[data-theme="dark"] .owncta,
-:root[data-theme="dark"] .how-lead,
 :root[data-theme="dark"] .cm-pop{--paper:#FFFFFF;--ink:#121212;--tint:#F3F2EE;--muted:#5C5A55;--line:#E6E4DE;background:var(--band);color:#FFFFFF;border:1px solid #2F3231}
 
 :root[data-theme="dark"] .menu-pop{color-scheme:dark}

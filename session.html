@@ -18,19 +18,20 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 <link rel="stylesheet" href="/fonts/fonts.css">
 </head>
 <body>
-<nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" hidden><a href="/">Jams</a><span aria-hidden="true">›</span><a class="crumb-jam" id="crumb-jam" href="/">The jam</a><span aria-hidden="true">›</span><b>The song</b><a class="crumb-back crumb-jam" id="crumb-back" href="/">← Back to the thread</a></nav>
 <header>
   <div class="wrap bar">
     <a class="brand" href="#top" aria-label="Stakkato, back to top">
       <img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311">
       <img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311">
     </a>
-    <div class="session"><span id="session-name">New session</span><br><span id="session-sub">no track yet</span></div>
+    <nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" hidden><a href="/">Jams</a><span aria-hidden="true">›</span><a class="crumb-jam" id="crumb-jam" href="/">The jam</a><span aria-hidden="true">›</span><b>The song</b></nav>
+    <div class="session" id="session-info"><span id="session-name">New session</span><br><span id="session-sub">no track yet</span></div>
     <div class="phases" role="tablist" aria-label="Phase">
       <button class="phase" role="tab" aria-selected="true" data-phase="open"><span>1</span>Build the song</button>
       <button class="phase" role="tab" aria-selected="false" data-phase="released"><span>2</span>Release the song</button>
     </div>
     <div class="hdr-acts">
+      <span class="badge ink creator-badge" id="creator-badge" hidden>You’re the creator</span>
       <span data-theme-toggle></span>
       <button class="btn btn-sm" id="copy-link" type="button">Invite people</button>
       <details class="hdr-more">
@@ -54,15 +55,19 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         <h1>Make a <span class="hi">song</span> with <span class="hi">strangers</span></h1>
         <p id="intro-p"></p>
       </div>
-      <div class="how full" id="howtop"></div>
 
-      <div class="projtitle" id="projtitle" style="display:none"></div>
-      <div class="seed empty" id="seedpanel"></div>
+      <div class="songtop" id="songtop">
+        <div class="st-main" id="st-main">
+          <div class="projtitle" id="projtitle" style="display:none"></div>
+          <div class="facts" id="facts"></div>
+        </div>
+        <div class="seed empty" id="seedpanel"></div>
+      </div>
       <div class="metabar" id="metabar"></div>
 
-      <details class="howbox" id="howbox" open>
-        <summary>How it works</summary>
-        <div class="how steps-only" id="howsteps"></div>
+      <details class="howbox" id="howbox">
+        <summary id="howsum">How it works</summary>
+        <div class="how" id="howsteps"></div>
       </details>
 
       <div class="head" id="mix-head">
@@ -77,14 +82,19 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       <div class="pitches" id="pitches" style="display:none"></div>
       <div class="picker" id="picker" style="display:none"></div>
 
-      <div class="head" id="thread-head">
-        <div>
-          <div class="kicker">Everything people played</div>
-          <h2>The thread</h2>
+      <div class="threadsec">
+        <div class="thread-main">
+          <div class="head" id="thread-head">
+            <div>
+              <div class="kicker">Replies</div>
+              <h2>The thread</h2>
+            </div>
+            <div class="seg" id="tfilter" role="tablist" aria-label="Show in the thread"></div>
+          </div>
+          <div class="thread" id="thread"></div>
         </div>
-        <p>Pick a take to hear it in the second tab above, with everything it was played on. Record there to play on it.</p>
+        <aside class="thread-side" id="thread-side"></aside>
       </div>
-      <div class="thread" id="thread"></div>
 
     </div>
 
@@ -94,31 +104,33 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 
       <div class="lockbar">
         <div class="status" id="lock-status"></div>
-        <button class="btn btn-main" id="lock-btn" type="button" style="margin-left:auto">Release the song</button>
+        <span class="tiny muted lock-note" id="lock-note">Releasing closes the song. After that, anyone can attach a mix.</span>
+        <button class="btn btn-main" id="lock-btn" type="button">Release the song</button>
       </div>
 
-      <div class="strip" id="strip-1" aria-hidden="true"></div>
     </div>
   </section>
 
   <section class="stage" id="stage-released">
     <div class="wrap">
       <div class="release">
-        <div style="grid-column:1 / -1">
-          <div class="kicker" id="rel-kicker">Released</div>
+        <div class="rel-copy">
+          <span class="kicker rel-kicker" id="rel-kicker">Released</span>
           <input class="titlefield" id="song-title" value="Untitled" aria-label="Song title">
+          <p class="muted rel-sub" id="rel-sub"></p>
         </div>
+        <div class="rel-play" id="raw-box"></div>
       </div>
 
-      <div class="versions">
-        <article class="panel version">
-          <div class="p-head"><h3 id="rel-song">The song</h3><span class="tiny muted">Every take in the song, mixed by the creator.</span></div>
-          <div class="up" id="raw-box"></div>
-        </article>
-
-        <article class="panel version">
-          <div class="p-head"><h3>The Mix (optional)</h3><span class="tiny muted">A polished mix of the same song.</span></div>
-          <div class="up" id="mix-box"></div>
+      <div class="rel-cards">
+        <article class="side-card rel-mix" id="mix-box" aria-label="The Mix"></article>
+        <article class="side-card rel-react" aria-label="Reactions">
+          <span class="kicker">How did it land?</span>
+          <div class="reactions">
+            <button class="react" type="button" data-react="banger">Absolute banger <span>0</span></button>
+            <button class="react" type="button" data-react="mess">Beautiful mess <span>0</span></button>
+            <button class="react" type="button" data-react="again">Run it back <span>0</span></button>
+          </div>
         </article>
       </div>
 
@@ -130,20 +142,12 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         <p>Everyone who became part of the song.</p>
       </div>
       <div class="credits" id="credits"></div>
-
-
-
-      <div class="reactions">
-        <button class="btn btn-sm" type="button" data-react="banger">Absolute banger <span>0</span></button>
-        <button class="btn btn-sm" type="button" data-react="mess">Beautiful mess <span>0</span></button>
-        <button class="btn btn-sm" type="button" data-react="again">Run it back <span>0</span></button>
-      </div>
-
-      <div class="strip" id="strip-2" aria-hidden="true"></div>
     </div>
   </section>
 
 </main>
+
+<footer class="sitefoot"><div class="wrap"><a href="/" class="foot-logo"><img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311"></a><a href="/">All jams</a><a href="/songs">All songs</a><a href="/privacy">Privacy &amp; rights</a></div></footer>
 
 <div class="toast" id="proto-hint" role="status" aria-live="polite"></div>
 

@@ -68,14 +68,16 @@ export async function loadSessionById(id) {
 }
 
 export async function loadSnapshot(sessionId) {
-  const [takes, votes, versions, likes, reactions, comments, stackLikes] = await Promise.all([
+  const [takes, votes, versions, likes, reactions, comments, stackLikes, words, tvotes] = await Promise.all([
     supabase.from('takes').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('votes').select('take_id, voter_id, value').eq('session_id', sessionId),
     supabase.from('versions').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('version_likes').select('version_id, user_id').eq('session_id', sessionId),
     supabase.from('reactions').select('user_id, kind').eq('session_id', sessionId),
     supabase.from('comments').select('*').eq('session_id', sessionId).order('created_at'),
-    supabase.from('stack_likes').select('stack_key, user_id').eq('session_id', sessionId)
+    supabase.from('stack_likes').select('stack_key, user_id').eq('session_id', sessionId),
+    supabase.from('thread_comments').select('*').eq('session_id', sessionId).eq('hidden', false).order('created_at'),
+    supabase.from('thread_votes').select('target_id, voter_id, value').eq('session_id', sessionId)
   ]);
   /* comments come from a later migration; until it is applied the page works without them */
   if (comments.error) console.warn('Timeline comments are not available:', comments.error.message);
@@ -86,7 +88,10 @@ export async function loadSnapshot(sessionId) {
     likes: check(likes),
     reactions: check(reactions),
     comments: comments.error ? null : comments.data,
-    stackLikes: stackLikes.error ? [] : stackLikes.data
+    stackLikes: stackLikes.error ? [] : stackLikes.data,
+    /* the thread's written replies and votes, shared with the homepage */
+    words: words.error ? [] : words.data,
+    tvotes: tvotes.error ? [] : tvotes.data
   };
 }
 
@@ -146,6 +151,11 @@ export async function deleteThreadTake(takeId, storagePath) {
 
 export async function deleteThreadComment(commentId) {
   return check(await supabase.rpc('delete_thread_comment', { p_comment: commentId }));
+}
+
+/* the creator hides a written reply in their jam's thread; the row stays */
+export async function hideThreadComment(commentId) {
+  return check(await supabase.rpc('hide_thread_comment', { p_comment: commentId }));
 }
 
 export async function addThreadComment(row) {
@@ -292,5 +302,11 @@ export function subscribe(sessionId, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: bySession }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'stack_likes', filter: bySession }, onChange)
     .subscribe();
-  return () => { supabase.removeChannel(channel); supabase.removeChannel(notes); };
+  /* the thread's written replies and votes on a third channel: until the thread_realtime
+     migration adds them to the realtime publication, the other two channels keep working */
+  const words = supabase.channel(`words:${sessionId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'thread_comments', filter: bySession }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'thread_votes', filter: bySession }, onChange)
+    .subscribe();
+  return () => { supabase.removeChannel(channel); supabase.removeChannel(notes); supabase.removeChannel(words); };
 }
