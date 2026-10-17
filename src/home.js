@@ -3,22 +3,21 @@
    A jam is a session with an original track. Its thread holds the audio replies (takes;
    takes.reply_to says which take a reply was played on top of) and the written replies
    (thread_comments), and anyone can up- or downvote the jam, a take or a comment
-   (thread_votes). Reading needs no sign-in. The first write (a comment, a vote, a take,
-   a new jam) signs the visitor in anonymously, like the song view does; an account is
-   optional. Playing a take plays it with everything above it in its thread.
+   (thread_votes). Reading needs no sign-in; every write (a comment, a vote, a take, a new
+   jam) asks for an account first (src/auth.js) and carries on once there is one. Playing a take plays it with everything above it in its thread.
 
    The markup is built from strings like in app.js; render() redraws the whole list. */
 
 import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
+import { requireAccount, onAccount, postingAs, setToast } from './auth.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
-var NAME_KEY = 'riffraff:name';    /* shared with the project */
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
 
 var LAYERS = { seed:{ label:'original track', c:'var(--seed)' }, part:{ label:'new part', c:'var(--part)' } };
@@ -26,16 +25,13 @@ ROLES.forEach(function (r) { LAYERS[r.id] = { label:r.label.toLowerCase(), c:'va
 function lay(id) { return LAYERS[id] || LAYERS.wild; }
 
 var RIFFS = [];
-var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'', name:'' }, loaded:false, failed:null, sure:null };
+var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'' }, loaded:false, failed:null, sure:null };
 var KIND = {};                     /* target id -> { kind, sid } for votes */
-var me = null;                     /* the signed-in Supabase user (anonymous or an account), or null */
+var me = null;                     /* the signed-in account (src/auth.js), or null */
 var AC = null, BUF = {}, SRC = [];
 
 function el(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-function savedName() { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } }
-function rememberName(n) { try { if (n) localStorage.setItem(NAME_KEY, n); } catch (e) {} }
-function myName() { return db.accountName(me) || savedName(); }
 function extOf(name) { return (name && name.indexOf('.') > -1) ? name.split('.').pop().toLowerCase() : 'wav'; }
 function typeFor(file) {
   if (file.type) return file.type;
@@ -57,10 +53,16 @@ var toastT = 0;
 function toast(m) { var t = el('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('on'); }, 4500); }
 function oops(e) { console.error(e); toast((e && e.message) || 'Something went wrong. Try again.'); }
 
-/* sign in anonymously on the first write, so reading the feed creates no users */
-function ensureMe() {
-  if (me) return Promise.resolve(me);
-  return db.ensureUser().then(function (u) { me = u; return u; });
+/* every write needs an account with a name; this asks for one (sign up or sign in) and
+   resolves once it's there, so the action carries on. why: a key of auth.js's reasons */
+function ensureMe(why) {
+  return requireAccount(why).then(function (u) { me = u; return u; });
+}
+function jamCard(r, why) {
+  var a = { play:'Sign up to play along', reply:'Sign up to reply' }[why];
+  var b = { play:'Every take carries your name and shows up on your profile. It takes a minute, and you can listen without an account.',
+            reply:'Every reply carries your name. It takes a minute, and you can read and listen without an account.' }[why];
+  return { heading:a, text:b, jam:{ title:r.title, meta:['by ' + r.by, r.bpm ? r.bpm + ' BPM' : '', r.key || ''].filter(Boolean).join(' · ') } };
 }
 
 /* ---------- data -> the feed ---------- */
@@ -161,49 +163,48 @@ function voteHtml(k, base) {
 }
 function vote(k, dir) {
   var t = KIND[k]; if (!t) return;
-  var before = S.vote[k] || 0, value = before === dir ? 0 : dir;
-  S.vote[k] = value; render();
-  ensureMe().then(function (u) {
-    return db.voteInThread({ targetId:k, targetKind:t.kind, sessionId:t.sid, voterId:u.id, value:value });
-  }).catch(function (e) { S.vote[k] = before; render(); oops(e); });
+  ensureMe('vote').then(function (u) {
+    var before = S.vote[k] || 0, value = before === dir ? 0 : dir;
+    S.vote[k] = value; render();
+    return db.voteInThread({ targetId:k, targetKind:t.kind, sessionId:t.sid, voterId:u.id, value:value })
+      .catch(function (e) { S.vote[k] = before; render(); oops(e); });
+  });
 }
 
-/* ---------- comments: reply with words only, no account needed ---------- */
+/* ---------- comments: reply with words only ---------- */
 function commentBtn(r, pid, label) {
   return '<button class="ghost" type="button" data-comment="' + r.id + '" data-post="' + (pid || '') + '">' + (label || 'Comment') + '</button>';
 }
 function commentForm(r, pid) {
   if (S.cmt.at !== key(r, pid)) return '';
-  var p = pid ? postOf(r, pid) : null, to = !p ? r.by : p.mine ? 'yourself' : p.by, acct = db.accountName(me);
-  var who = acct ? '<span class="cnote">Posting as <b>' + esc(acct) + '</b></span>'
-    : '<input type="text" id="c-name" maxlength="60" placeholder="Your name (optional)" aria-label="Your name (optional)" value="' + esc(S.cmt.name) + '">';
+  var p = pid ? postOf(r, pid) : null, to = !p ? r.by : p.mine ? 'yourself' : p.by;
   return '<form class="cbox" id="c-form" data-cform="' + key(r, pid) + '">' +
     '<textarea id="c-text" maxlength="500" placeholder="Say something to ' + esc(to) + '" aria-label="Your comment">' + esc(S.cmt.text) + '</textarea>' +
-    '<div class="crow">' + who + '<span class="grow"></span>' +
+    '<div class="crow">' + postingAs() + '<span class="grow"></span>' +
       '<button class="btn btn-sm" type="button" data-ccancel="1">Cancel</button><button class="btn btn-sm btn-main" type="submit" id="c-go">Post comment</button></div>' +
-    '<p class="err" id="c-err"></p>' +
-    (acct ? '' : '<span class="cnote">No account needed. Leave your name empty to post as Guest.</span>') + '</form>';
+    '<p class="err" id="c-err"></p></form>';
 }
 function openComment(rid, pid) {
   var r = riff(rid), k = key(r, pid || null);
   if (S.cmt.at === k) { S.cmt.at = null; render(); return; }
-  S.cmt = { at:k, text:'', name:S.cmt.name || savedName() };
-  if (pid) { S.expanded[rid] = true; openTo(r, postOf(r, pid)); }
-  render();
-  var t = el('c-text'); if (t) t.focus();
+  ensureMe(jamCard(r, 'reply')).then(function () {
+    S.cmt = { at:k, text:'' };
+    if (pid) { S.expanded[rid] = true; openTo(r, postOf(r, pid)); }
+    render();
+    var t = el('c-text'); if (t) t.focus();
+  });
 }
 function postComment() {
   var text = el('c-text').value.trim();
   if (!text) { el('c-err').textContent = 'Write something first.'; el('c-text').focus(); return; }
   var parts = S.cmt.at.split(':'), r = riff(parts[0]), pid = parts[1] === 'riff' ? null : parts[1], p = pid ? postOf(r, pid) : null;
-  var name = (db.accountName(me) || S.cmt.name.trim() || 'Guest').slice(0, 60);
   el('c-go').disabled = true;
-  ensureMe().then(function (u) {
-    if (!db.accountName(u) && S.cmt.name.trim()) rememberName(S.cmt.name.trim());
+  ensureMe('reply').then(function (u) {
+    /* the database writes the account's name over author_name */
     return db.addThreadComment({ session_id:r.id, reply_to_take:p && !p.isComment ? p.id : null, reply_to_comment:p && p.isComment ? p.id : null,
-      author_id:u.id, author_name:name, body:text });
+      author_id:u.id, author_name:db.accountName(u), body:text });
   }).then(function (row) {
-    S.cmt = { at:null, text:'', name:S.cmt.name };
+    S.cmt = { at:null, text:'' };
     S.expanded[r.id] = true; if (pid) S.fold[r.id + ':' + pid] = true;
     return reload().then(function () {
       var n = el('post-' + r.id + '-' + row.id); if (n) { n.scrollIntoView({ behavior:'smooth', block:'center' }); n.classList.add('hl'); }
@@ -213,7 +214,6 @@ function postComment() {
 }
 document.addEventListener('input', function (e) {
   if (e.target.id === 'c-text') S.cmt.text = e.target.value;
-  if (e.target.id === 'c-name') S.cmt.name = e.target.value;
 });
 document.addEventListener('submit', function (e) { if (e.target.id === 'c-form') { e.preventDefault(); postComment(); } });
 document.addEventListener('keydown', function (e) {
@@ -535,6 +535,9 @@ function closeScrims() {
 }
 function wantLen(c) { return c[0].dur || 0; }
 function openReply(rid, pid) {
+  ensureMe(jamCard(riff(rid), 'play')).then(function () { replyPop(rid, pid); });
+}
+function replyPop(rid, pid) {
   var r = riff(rid); R = { rid:rid, pid:pid || null, file:null, buf:null, src:'file' };
   rcReset(); RC.click = !!r.bpm; RC.countIn = r.bpm ? 1 : 0;
   var c = chainOf(r, pid), used = c.map(function (p) { return p.layer; });
@@ -553,7 +556,7 @@ function openReply(rid, pid) {
   el('r-layer').value = ROLES.map(function (x) { return x.id; }).filter(function (l) { return used.indexOf(l) < 0; })[0] || 'vocals';
   el('r-err').textContent = ''; el('r-text').value = ''; el('r-file').value = '';
   el('r-len').textContent = MD.dur ? 'Make it ' + mmss(MD.dur) + ' long (' + MD.dur.toFixed(1) + ' s), the length of what you play on.' : '';
-  if (!el('r-name').value) el('r-name').value = myName();
+  el('r-as').innerHTML = postingAs();
   el('r-go').disabled = false;
   setRSrc('file');
   openScrim('reply-scrim'); mdYou(); mdDraw(); el('r-layer').focus();
@@ -835,19 +838,16 @@ el('r-file').addEventListener('change', function () {
   }).catch(function () { el('r-err').textContent = 'That file could not be read. Try a wav or mp3.'; });
 });
 el('r-go').addEventListener('click', function () {
-  var who = el('r-name').value.trim();
   var m = mine();
   if (!m) { el('r-err').textContent = el('r-err').textContent || (R.src === 'rec' ? 'Record your take first, or upload a file.' : 'Pick your take first, an audio file of the right length.'); return; }
-  if (!who) { el('r-err').textContent = 'Add your name first, it goes in the credits.'; el('r-name').focus(); return; }
   var r = riff(R.rid), pp = R.pid ? postOf(r, R.pid) : null, file = m.file, buf = m.buf, ampId = m.amp;
   var section = !pp ? null : pp.kind === 'part' ? pp.id : pp.section || null;
   var replyTo = pp && pp.kind !== 'part' ? pp.id : null;
   el('r-go').disabled = true; el('r-err').textContent = 'Uploading…';
-  ensureMe().then(function (u) {
-    rememberName(who);
+  ensureMe('play').then(function (u) {
     var path = r.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(file.name), type = typeFor(file);
     return db.uploadAudio(path, file, type).then(function () {
-      var row = { session_id:r.id, author_id:u.id, author_name:who.slice(0, 60), role_id:el('r-layer').value, note:el('r-text').value.trim(),
+      var row = { session_id:r.id, author_id:u.id, author_name:db.accountName(u), role_id:el('r-layer').value, note:el('r-text').value.trim(),
         status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, section_id:section, reply_to:replyTo,
         on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) };
       if (ampId) row.amp = ampId;
@@ -925,7 +925,7 @@ function takeFile(f) {
     el('dropzone').hidden = true; el('picked').hidden = false;
     el('up-name').textContent = f.name + ' · ' + b.duration.toFixed(1) + ' s';
     if (!el('up-title').value) el('up-title').value = f.name.replace(/\.[^.]+$/, '');
-    if (!el('up-name-in').value) el('up-name-in').value = myName();
+    el('up-as').innerHTML = postingAs();
     waveShape(el('up-wave'), b, getComputedStyle(document.documentElement).getPropertyValue('--wave').trim());
     el('up-bpm').value = ''; el('up-bpm').placeholder = 'detecting…';
     analyse(f).then(function (an) {
@@ -945,18 +945,16 @@ el('dropzone').addEventListener('drop', function (e) { takeFile(e.dataTransfer.f
 el('up-file').addEventListener('change', function () { takeFile(el('up-file').files[0]); });
 el('up-change').addEventListener('click', function () { el('picked').hidden = true; el('dropzone').hidden = false; el('up-file').value = ''; el('up-file').click(); });
 el('up-go').addEventListener('click', function () {
-  var title = el('up-title').value.trim(), who = el('up-name-in').value.trim(), f = UP.file, b = UP.buf, an = UP.an;
+  var title = el('up-title').value.trim(), f = UP.file, b = UP.buf, an = UP.an;
   if (!title) { el('up-err').textContent = 'Give your jam a name.'; el('up-title').focus(); return; }
-  if (!who) { el('up-err').textContent = 'Add your name first, it goes in the credits.'; el('up-name-in').focus(); return; }
   var bpm = +el('up-bpm').value || null, sess = null;
-  el('up-go').disabled = true; el('up-err').textContent = 'Uploading…';
-  ensureMe().then(function (u) {
-    rememberName(who);
+  ensureMe('start').then(function (u) {
+    el('up-go').disabled = true; el('up-err').textContent = 'Uploading…';
     return db.createSession(u.id).then(function (s) {
       sess = s;
       var path = s.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(f.name), type = typeFor(f);
       return db.uploadAudio(path, f, type).then(function () {
-        return db.insertTake({ session_id:s.id, author_id:u.id, author_name:who.slice(0, 60), role_id:'seed', note:el('up-text').value.trim(), status:'seed',
+        return db.insertTake({ session_id:s.id, author_id:u.id, author_name:db.accountName(u), role_id:'seed', note:el('up-text').value.trim(), status:'seed',
           storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration,
           an_bpm:an && an.tempo ? an.tempo.bpm : null, an_key:an && an.key ? an.key.key : null });
       });
@@ -1012,62 +1010,14 @@ document.addEventListener('keydown', function (e) { if (e.key === 'Escape') clos
 window.addEventListener('resize', drawWaves);
 window.addEventListener('stackato:theme', drawWaves);
 
-/* ---------- sign in (email accounts are real; sign-up and Google are stubbed) ---------- */
-var AUTH = { tab:'in' };
-function authTab(t) {
-  AUTH.tab = t;
-  [].forEach.call(document.querySelectorAll('.auth-tabs [data-authtab]'), function (b) { b.setAttribute('aria-selected', String(b.dataset.authtab === t)); });
-  el('auth-title').textContent = t === 'up' ? 'Join Stakkato' : 'Welcome back';
-  el('auth-sub').textContent = t === 'up' ? 'Keep your name on every take, and hear it when someone plays on yours.' : 'Sign in to keep playing where you left off.';
-  el('auth-name-f').hidden = t !== 'up';
-  el('auth-go').textContent = t === 'up' ? 'Create my account' : 'Sign in';
-  el('auth-pass').setAttribute('autocomplete', t === 'up' ? 'new-password' : 'current-password');
-  el('auth-switch').innerHTML = t === 'up' ? 'Already have an account? <button class="ghost" type="button" data-authtab="in">Sign in</button>'
-    : 'Sign-up opens soon. <button class="ghost" type="button" data-authforgot="1">Forgot your password?</button>';
-  el('auth-err').textContent = '';
-}
-function renderAuth() {
-  var name = db.accountName(me), acts = document.querySelector('header.top .hdr-acts');
-  [].forEach.call(acts.querySelectorAll('[data-auth], .hdr-user, .hdr-signup, [data-signout]'), function (x) { x.remove(); });
-  var slot = acts.querySelector('[data-theme-toggle]');
-  (slot ? slot.insertAdjacentHTML.bind(slot, 'afterend') : acts.insertAdjacentHTML.bind(acts, 'afterbegin'))(name
-    ? '<span class="hdr-user"><i>' + esc(name.charAt(0).toUpperCase()) + '</i>' + esc(name) + '</span><button class="ghost" type="button" data-signout="1">Sign out</button>'
-    : '<button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn hdr-signup" type="button" disabled title="Sign-up opens soon">Sign up</button>');
-  if (name) ['up-name-in', 'r-name'].forEach(function (id) { if (el(id)) el(id).value = name; });
-}
-document.addEventListener('click', function (e) {
-  var b = e.target.closest('[data-auth]');
-  if (b) { authTab('in'); openScrim('auth-scrim'); setTimeout(function () { el(AUTH.tab === 'up' ? 'auth-name' : 'auth-mail').focus(); }, 30); return; }
-  if ((b = e.target.closest('[data-authtab]'))) { if (!b.disabled) authTab(b.dataset.authtab); return; }
-  if (e.target.closest('[data-authforgot]')) { el('auth-err').textContent = 'Resetting a password isn’t possible yet. Ask Yarne or Jurgen to reset it for you.'; return; }
-  if (e.target.closest('[data-authgo="google"]')) { el('auth-err').textContent = 'Signing in with Google is coming soon. Use your email and password for now.'; return; }
-  if (e.target.closest('[data-signout]')) {
-    db.signOut().then(function () { toast('You’re signed out. You can still vote and comment.'); }).catch(oops);
-  }
-});
-el('auth-form').addEventListener('submit', function (e) {
-  e.preventDefault();
-  var mail = el('auth-mail').value.trim(), pass = el('auth-pass').value;
-  if (AUTH.tab === 'up') { el('auth-err').textContent = 'Signing up isn’t open yet. Ask Yarne or Jurgen for an account, or keep playing without one.'; return; }
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { el('auth-err').textContent = 'That email doesn’t look right.'; el('auth-mail').focus(); return; }
-  if (!pass) { el('auth-err').textContent = 'Fill in your password.'; el('auth-pass').focus(); return; }
-  el('auth-go').disabled = true; el('auth-err').textContent = '';
-  db.signInWithEmail(mail, pass).then(function (u) {
-    el('auth-pass').value = ''; closeScrims();
-    toast('Welcome back, ' + db.accountName(u) + '.');
-  }).catch(function (x) {
-    el('auth-err').textContent = /invalid/i.test((x && x.message) || '') ? 'That email and password don’t match an account.' : ((x && x.message) || 'That didn’t work, try again.');
-  }).then(function () { el('auth-go').disabled = false; });
-});
-
 /* ---------- start ---------- */
 render();
 startFromHash();
-if (configured) {
-  db.currentUser().then(function (u) { me = u; renderAuth(); return reload(); }).catch(function (e) { console.error(e); reload(); });
-  db.onAuthChange(function (u, ev) {
-    if (ev === 'INITIAL_SESSION' || ev === 'TOKEN_REFRESHED') return;
-    var was = me && me.id; me = u; renderAuth();
-    if ((u && u.id) !== was) reload();
-  });
-} else { renderAuth(); reload(); }
+setToast(toast);
+var first = true;
+/* who is signed in decides your votes, "(you)" and what you can delete: load again when it changes */
+onAccount(function (u) {
+  var was = me && me.id; me = u;
+  ['up-as', 'r-as'].forEach(function (id) { if (el(id)) el(id).innerHTML = postingAs(); });
+  if (first || (u && u.id) !== was) { first = false; reload(); } else render();
+});

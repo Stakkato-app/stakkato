@@ -151,22 +151,7 @@ html{scroll-behavior:smooth}
 .up-modal .dropgrid{margin-top:0}
 .up-modal .droppanel{border:1px solid var(--line)}
 @media (max-width:760px){ .modal.up-modal{padding:16px} }
-.auth-modal{width:min(440px,100%);gap:12px}
-.auth-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.auth-tabs{display:inline-flex;gap:4px;background:var(--tint);border-radius:99px;padding:4px}
-.auth-tabs button{border:0;background:transparent;border-radius:99px;padding:6px 14px;font-family:var(--body);font-weight:700;font-size:14px;cursor:pointer;color:var(--muted)}
-.auth-tabs button[aria-selected="true"]{background:var(--ink);color:var(--paper)}
-.auth-sub{font-size:14px}
-.auth-google{width:100%;min-height:44px;background:var(--paper);border-color:var(--line-strong)}
-.auth-google .g{width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--paper);font-family:var(--body);font-weight:800;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
-.auth-or{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
-.auth-or::before,.auth-or::after{content:"";flex:1;height:1px;background:var(--line)}
 .field input[type=password]{min-height:44px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper);padding:8px 10px}
-.auth-go{width:100%;min-height:46px;font-size:16px}
-.auth-switch{font-size:13px;color:var(--muted);text-align:center}
-.auth-switch .ghost{font-size:13px;color:var(--ink);text-decoration:underline}
-.hdr-user{display:inline-flex;align-items:center;gap:8px;font-family:var(--body);font-weight:700;font-size:14px;background:var(--tint);border-radius:99px;padding:4px 14px 4px 4px}
-.hdr-user i{width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--paper);font-style:normal;display:flex;align-items:center;justify-content:center}
 .mixlanes{display:flex;flex-direction:column;gap:2px}
 .mixlanes canvas{width:100%;height:16px;display:block}
 .mixpick{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto}
@@ -366,8 +351,8 @@ html{scroll-behavior:smooth}
 .cbox input{flex:1 1 160px;min-width:0;min-height:36px;border:1px solid var(--line-strong);border-radius:99px;background:var(--paper);padding:4px 10px;font-size:14px}
 .cbox .grow{flex:1}
 .cbox .cnote{font-size:12px;color:var(--muted)}
-.auth-legal{font-size:12px;color:var(--muted);text-align:center}
-.auth-legal a{color:var(--ink)}
+.as-slot:empty{display:none}
+.cbox .acct-as{flex:1;min-width:0}
 .sitefoot{border-top:1px solid var(--line);margin-top:24px;padding:28px 0 36px;font-size:14px}
 .sitefoot .wide{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
 .sitefoot a{color:var(--muted);font-weight:600;text-decoration:none}
@@ -383,7 +368,6 @@ canvas[data-wave]{cursor:pointer}
 .shead{background:var(--ink);opacity:.55}
 .shead::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translate(-50%,-3px);font-size:11px;font-weight:700;line-height:1;padding:3px 6px;border-radius:6px;background:var(--ink);color:var(--paper);white-space:nowrap}
 .btn:disabled,.btn:disabled:hover{background:var(--tint);border-color:var(--line);color:var(--muted);opacity:1;cursor:not-allowed}
-.auth-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .ghost.del:hover{color:var(--red)}
 .ghost.del.sure{color:var(--red)}
 .field input[type=file]{font-size:14px}
@@ -395,7 +379,7 @@ header.top .brand{display:flex}
 <header class="top"><div class="in">
   <a href="/" class="brand"><img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311"></a>
   <nav><a class="on" href="#feed">Jams</a><a href="/songs">Songs</a></nav>
-  <div class="hdr-acts"><span data-theme-toggle></span><button class="ghost" type="button" data-auth="in">Sign in</button><button class="btn hdr-signup" type="button" disabled title="Sign-up opens soon">Sign up</button><a class="btn btn-main" href="#start">+ Start a jam</a></div>
+  <div class="hdr-acts"><span data-theme-toggle></span><a class="btn btn-main" href="#start">+ Start a jam</a></div>
 </div></header>
 
 <div class="wide">
@@ -453,7 +437,7 @@ header.top .brand{display:flex}
         <label>What is it<select id="up-layer"></select></label>
         <label>Tempo<input type="number" id="up-bpm" min="40" max="240" placeholder="detecting…"></label>
         <label class="full">Ask for something (optional)<input type="text" id="up-text" maxlength="200" placeholder="Who has drums for this?"></label>
-        <label class="full">Your name<input type="text" id="up-name-in" maxlength="40" placeholder="how you show up in the credits"></label>
+        <div class="full as-slot" id="up-as"></div>
       </div>
       <p class="err" id="up-err"></p>
       <button class="btn btn-main" type="button" id="up-go">Start the jam →</button>
@@ -481,30 +465,10 @@ header.top .brand{display:flex}
       <span class="muted r-len" id="r-len"></span></div>
     <div id="r-src-rec" hidden><div class="rc-box" id="r-rec"></div></div>
     <div class="field"><label for="r-text">Say something (optional)</label><input type="text" id="r-text" maxlength="280" placeholder="what you were going for"></div>
-    <div class="field"><label for="r-name">Your name</label><input type="text" id="r-name" maxlength="40" placeholder="how you show up in the credits"></div>
+    <div class="as-slot" id="r-as"></div>
     <p class="err" id="r-err"></p>
     <div class="foot"><button class="btn" type="button" data-close="reply-scrim">Cancel</button><button class="btn btn-main" type="button" id="r-go">Post my reply →</button></div>
   </div>
-</div>
-
-<div class="scrim" id="auth-scrim" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-  <form class="modal auth-modal" id="auth-form" novalidate>
-    <div class="auth-top"><div class="auth-tabs" role="tablist" aria-label="Sign up or sign in">
-      <button type="button" role="tab" data-authtab="up" aria-selected="false" disabled title="Sign-up opens soon">Sign up</button>
-      <button type="button" role="tab" data-authtab="in" aria-selected="true">Sign in</button></div>
-      <button class="ghost" type="button" data-close="auth-scrim" aria-label="Close">Close</button></div>
-    <h3 id="auth-title">Join Stakkato</h3>
-    <p class="muted auth-sub" id="auth-sub">Keep your name on every take, and hear it when someone plays on yours.</p>
-    <button class="btn auth-google" type="button" data-authgo="google"><span class="g" aria-hidden="true">G</span> Continue with Google</button>
-    <div class="auth-or"><span>or with your email</span></div>
-    <div class="field" id="auth-name-f"><label for="auth-name">Your name</label><input type="text" id="auth-name" maxlength="40" placeholder="how you show up in the credits" autocomplete="nickname"></div>
-    <div class="field"><label for="auth-mail">Email</label><input type="text" id="auth-mail" inputmode="email" placeholder="you@example.com" autocomplete="email"></div>
-    <div class="field"><label for="auth-pass">Password</label><input type="password" id="auth-pass" placeholder="at least 8 characters" autocomplete="new-password"></div>
-    <p class="err" id="auth-err"></p>
-    <button class="btn btn-main auth-go" type="submit" id="auth-go">Create my account</button>
-    <p class="auth-legal">You don’t need an account to vote or comment. Read how we handle your takes in <a href="/privacy">Privacy &amp; rights</a>.</p>
-    <p class="auth-switch" id="auth-switch">Already have an account? <button class="ghost" type="button" data-authtab="in">Sign in</button></p>
-  </form>
 </div>
 
 <footer class="sitefoot"><div class="wide"><a href="/" class="foot-logo"><img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311"></a><a href="/songs">All songs</a><a href="/privacy">Privacy &amp; rights</a></div></footer>

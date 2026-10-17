@@ -11,6 +11,15 @@
    /songs and /privacy from songs.html and privacy.html by itself, and sends /session.html
    to /session, so the song view is fetched as /session.
 
+   Links from Supabase's emails (/auth/confirm?token_hash=…&type=…, to confirm an email
+   or set a new password) come in without the cookie when they're opened on another
+   device. The gate checks such a link with Supabase (SUPABASE_URL and SUPABASE_ANON_KEY,
+   the same public values as the VITE_ ones): a real link sets the cookie and lands on
+   the site signed in (/?auth=confirmed), with the session in the hash for supabase-js to pick up; a
+   recovery link lands on /reset. A made-up or expired link gets the normal gate, so it
+   can't be used to skip the password. Without those two variables the link is left to
+   the browser (src/auth.js verifies it once the person is in).
+
    This runs on Cloudflare's servers; none of it reaches the browser. `npm run dev` /
    `preview` don't run this file (vite.config.js does the same routes there), so local
    development is not gated. The audio itself lives in Supabase Storage, which this gate
@@ -22,6 +31,8 @@ const OPEN = ['/stakkato-logo.svg', '/favicon.svg'];   /* the gate page itself s
 const OPEN_DIRS = ['/fonts/'];                          /* and its fonts (public/fonts) */
 const SONG_VIEW = /^\/(new|s\/[\w-]+)\/?$/;              /* paths answered by session.html */
 const MAX_AGE = 60 * 60 * 24 * 30;                      /* 30 days */
+const CONFIRM_PATH = '/auth/confirm';
+const LINK_TYPES = ['signup', 'email', 'recovery', 'invite', 'magiclink', 'email_change'];
 /* tokenFor() of the friends' password, used while ACCESS_PASSWORD isn't set */
 const DEFAULT_TOKEN = 'e46f9f2844ccd65da134600e3cdb010329779b507eff22f15b8027744ffa6907';
 
@@ -97,8 +108,58 @@ button:hover{background:#2E2E2E}
   });
 }
 
+function gateCookie(token) {
+  return `${COOKIE}=${token}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/* An email link: check it with Supabase (it works once), then come in signed in.
+   Returns null when the gate can't check links, so the browser does it. */
+async function confirmLink(context, url, token, hasCookie) {
+  const env = context.env;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
+  const tokenHash = url.searchParams.get('token_hash');
+  const type = url.searchParams.get('type');
+  let session = null;
+  if (tokenHash && LINK_TYPES.includes(type)) {
+    try {
+      const res = await fetch(env.SUPABASE_URL.replace(/\/$/, '') + '/auth/v1/verify', {
+        method: 'POST',
+        headers: { apikey: env.SUPABASE_ANON_KEY, 'content-type': 'application/json' },
+        body: JSON.stringify({ type, token_hash: tokenHash })
+      });
+      const body = res.ok ? await res.json() : null;
+      if (body && body.access_token && body.refresh_token) session = body;
+    } catch (e) { session = null; }
+  }
+  if (!session) {
+    /* expired, used or made up: in with the cookie, the page offers to send it again */
+    const expired = '/?auth=expired' + (type === 'recovery' ? '&type=recovery' : '');
+    if (hasCookie) return Response.redirect(new URL(expired, url), 303);
+    return gatePage(expired, null, 401);
+  }
+  const hash = new URLSearchParams({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    expires_in: String(session.expires_in || 3600),
+    expires_at: String(session.expires_at || Math.floor(Date.now() / 1000) + (session.expires_in || 3600)),
+    token_type: 'bearer',
+    type
+  });
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: (type === 'recovery' ? '/reset' : '/?auth=confirmed') + '#' + hash.toString(),
+      'set-cookie': gateCookie(token),
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer'
+    }
+  });
+}
+
 /* let the request through to the site, serving the song view for its paths */
 function pass(context, url) {
+  /* an email link the gate couldn't check: the homepage verifies it in the browser */
+  if (url.pathname === CONFIRM_PATH) return context.env.ASSETS.fetch(new Request(new URL('/' + url.search, url), context.request));
   if (SONG_VIEW.test(url.pathname)) return context.env.ASSETS.fetch(new Request(new URL('/session' + url.search, url), context.request));
   return context.next();
 }
@@ -121,13 +182,19 @@ export async function onRequest(context) {
       status: 303,
       headers: {
         location: next,
-        'set-cookie': `${COOKIE}=${token}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax`,
+        'set-cookie': gateCookie(token),
         'cache-control': 'no-store'
       }
     });
   }
 
-  if (OPEN.includes(url.pathname) || OPEN_DIRS.some((d) => url.pathname.startsWith(d)) || cookieOf(request, COOKIE) === token) return pass(context, url);
+  const hasCookie = cookieOf(request, COOKIE) === token;
+  if (url.pathname === CONFIRM_PATH && request.method === 'GET') {
+    const answer = await confirmLink(context, url, token, hasCookie);
+    if (answer) return answer;
+  }
+
+  if (OPEN.includes(url.pathname) || OPEN_DIRS.some((d) => url.pathname.startsWith(d)) || hasCookie) return pass(context, url);
 
   /* files (scripts, styles, audio) get a plain 401; pages get the gate */
   const wantsPage = request.method === 'GET' && (request.headers.get('accept') || '').includes('text/html');

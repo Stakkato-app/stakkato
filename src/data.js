@@ -9,32 +9,35 @@ function check(res) {
   return res.data;
 }
 
-/* ---------- identity ---------- */
+/* ---------- identity and accounts ----------
+   Reading needs no user. Every write needs an account with a name (has_account() in the
+   database), so nothing signs in anonymously any more. Accounts sign up with email and
+   password (the email link confirms them) or with Google; a Google account picks its name
+   once, afterwards. The name lives in profiles, never in the browser. */
 
-/* Everyone gets a Supabase user. First visit signs in anonymously; the id sticks in
-   this browser. Later, real accounts can be linked onto the same user. */
+/* the signed-in account, or null; an old anonymous session counts as signed out */
 export async function ensureUser() {
   const { data } = await supabase.auth.getSession();
-  if (data.session) return data.session.user;
-  const res = await supabase.auth.signInAnonymously();
+  const user = data.session ? data.session.user : null;
+  return user && !user.is_anonymous ? user : null;
+}
+export const currentUser = ensureUser;
+
+var NAMES = {};   // user id -> profile name, filled by loadProfile()
+
+export async function loadProfile(user) {
+  if (!user || user.is_anonymous) return null;
+  const res = await supabase.from('profiles').select('username').eq('id', user.id).maybeSingle();
   if (res.error) throw res.error;
-  return res.data.user;
+  NAMES[user.id] = (res.data && res.data.username) || null;
+  return NAMES[user.id];
 }
 
-/* ---------- accounts ----------
-   Signing in is optional: anonymous users can comment, vote and send takes. An account
-   signs in with email and password (accounts are made by hand for now). Signing up and
-   Google are stubbed in the UI until real support lands. */
-
-export function currentUser() {
-  return supabase.auth.getSession().then(function (r) { return r.data.session ? r.data.session.user : null; });
-}
-
-/* the name an account shows up with; null for anonymous users */
+/* the name an account shows up with; null for anonymous users and before a Google account picked one */
 export function accountName(user) {
   if (!user || user.is_anonymous) return null;
-  var m = user.user_metadata || {};
-  return m.username || (user.email ? user.email.split('@')[0] : null);
+  if (user.id in NAMES) return NAMES[user.id];
+  return (user.user_metadata || {}).username || null;
 }
 
 /* an admin can delete anyone's jams, takes and comments (role set server-side in app_metadata) */
@@ -42,10 +45,59 @@ export function isAdmin(user) {
   return !!(user && user.app_metadata && user.app_metadata.role === 'admin');
 }
 
+/* where the links in our emails send people back to (the gate checks them at /auth/confirm) */
+function home() { return location.origin; }
+
+export async function signUp(email, password, username) {
+  const res = await supabase.auth.signUp({ email, password, options: { data: { username }, emailRedirectTo: home() } });
+  if (res.error) throw res.error;
+  return res.data;
+}
+
 export async function signInWithEmail(email, password) {
   const res = await supabase.auth.signInWithPassword({ email, password });
   if (res.error) throw res.error;
   return res.data.user;
+}
+
+/* comes back to this page (without its #) signed in */
+export async function signInWithGoogle() {
+  const res = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.href.split('#')[0] } });
+  if (res.error) throw res.error;
+}
+
+export async function resendConfirmation(email) {
+  const res = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: home() } });
+  if (res.error) throw res.error;
+}
+
+export async function requestReset(email) {
+  const res = await supabase.auth.resetPasswordForEmail(email, { redirectTo: home() });
+  if (res.error) throw res.error;
+}
+
+export async function updatePassword(password) {
+  const res = await supabase.auth.updateUser({ password });
+  if (res.error) throw res.error;
+}
+
+/* an email link opened where the gate couldn't check it (npm run dev) */
+export async function verifyLink(tokenHash, type) {
+  const res = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+  if (res.error) throw res.error;
+  return res.data.user;
+}
+
+/* { ok, reason: invalid | reserved | taken, suggestions: [...] } */
+export async function usernameCheck(name, hints) {
+  return check(await supabase.rpc('username_check', { p_name: name, p_hints: hints || [] }));
+}
+
+export async function pickUsername(name) {
+  const picked = check(await supabase.rpc('pick_username', { p_name: name }));
+  const { data } = await supabase.auth.getSession();
+  if (data.session) NAMES[data.session.user.id] = picked;
+  return picked;
 }
 
 export async function signOut() {

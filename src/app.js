@@ -23,11 +23,11 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
+import { requireAccount, onAccount, postingAs, setToast } from './auth.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
-var NAME_KEY = 'riffraff:name';
 
 /* ---------- small helpers ---------- */
 function vizMarkup(n) {
@@ -117,8 +117,10 @@ function needsUpdate(e, file) {
     return new Error('This needs a database update that is not applied yet (' + file + '). Ask whoever runs the database to apply it, then try again.');
   return null;
 }
-function savedName() { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } }
-function rememberName(n) { try { if (n) localStorage.setItem(NAME_KEY, n); } catch (e) {} }
+/* the account's name, as the credits show it (the database fills it in from the profile too) */
+function myName() { return db.accountName(me) || ''; }
+/* every write needs an account: asks for one (sign up, sign in or pick a name), then resolves with the user */
+function need(why) { return requireAccount(why).then(function (u) { me = u; return u; }); }
 function extOf(name) { return (name && name.indexOf('.') > -1) ? name.split('.').pop().toLowerCase() : 'wav'; }
 function typeFor(file) {
   if (file.type) return file.type;
@@ -127,7 +129,7 @@ function typeFor(file) {
 }
 
 /* ---------- state ---------- */
-var me = null;           // the signed-in (usually anonymous) Supabase user
+var me = null;           // the signed-in user with an account, or null (listening needs none)
 var unwatch = null;      // realtime unsubscribe
 var TAKES = {};          // db id -> take object
 
@@ -395,11 +397,9 @@ function agoOf(iso) {
 /* the box to reply with words, under what it answers */
 function wordBox(at) {
   if (S.wAt !== at) return '';
-  var acct = db.accountName(me);
   return '<div class="wbox">' +
     '<textarea id="w-text" maxlength="500" rows="2" placeholder="Say something" aria-label="Your reply"></textarea>' +
-    '<div class="wrow">' + (acct ? '<span class="tiny muted">Posting as <b>' + esc(acct) + '</b></span>'
-      : '<input type="text" id="w-name" maxlength="60" placeholder="Your name (optional)" aria-label="Your name (optional)" value="' + esc(savedName()) + '">') +
+    '<div class="wrow">' + postingAs() +
       '<span class="grow"></span><button class="btn btn-sm" type="button" data-wcancel="1">Cancel</button>' +
       '<button class="btn btn-sm btn-main" type="button" data-wpost="1">Post reply</button></div>' +
     (S.wErr ? '<p class="rec-err">' + esc(S.wErr) + '</p>' : '') + '</div>';
@@ -588,10 +588,8 @@ function openWords(at) {
 function postWords() {
   var body = ((el('w-text') && el('w-text').value) || '').trim();
   if (!body) { S.wErr = 'Write something first.'; renderBoards(); if (el('w-text')) el('w-text').focus(); return; }
-  if (!me) { S.wErr = 'Still connecting, try again in a second.'; renderBoards(); return; }
-  var typed = ((el('w-name') && el('w-name').value) || '').trim();
-  var name = (db.accountName(me) || typed || 'Guest').slice(0, 60);
-  if (typed && !db.accountName(me)) rememberName(typed);
+  if (!me) { need('reply').then(postWords); return; }
+  var name = myName().slice(0, 60);
   var at = S.wAt, kind = at.split(':')[0], id = at.slice(kind.length + 1);
   var row = { session_id:S.session.id, author_id:me.id, author_name:name, body:body.slice(0, 500),
     reply_to_take:kind === 'take' || kind === 'part' ? id : null, reply_to_comment:kind === 'word' ? id : null };
@@ -608,7 +606,8 @@ function postWords() {
   }).catch(function (x) { if (btn) btn.disabled = false; S.wErr = (x && x.message) || 'That didn’t work, try again.'; renderBoards(); });
 }
 function tVoteCast(id, kind, dir) {
-  if (!S.session || !me) return;
+  if (!S.session) return;
+  if (!me) { need('vote').then(function () { tVoteCast(id, kind, dir); }); return; }
   S.myTVote = S.myTVote || {};
   var before = S.myTVote[id] || 0, value = before === dir ? 0 : dir;
   S.myTVote[id] = value; renderBoards();
@@ -1951,13 +1950,13 @@ function renderInstruments() {
 /* ---------- recording the first track right on the session page ----------
    The same recorder musicians use: a count-in and a click at the tempo you pick, then it
    records until you stop. The result waits on the drop panel like a chosen file, so you
-   still add your name and say what it is before the session starts. */
+   still say what it is before the session starts. */
 var SEED_TIMES = ['4/4','3/4','6/8','5/4','7/8','12/8'];
 function openSeedRec() {
   if (!canDropSeed() || el('scrim').classList.contains('on')) return;
   lastFocus = document.activeElement;
   var panelRole = (el('seed-role') && el('seed-role').value) || '';
-  el('sr-by').value = ((el('seed-by') && el('seed-by').value) || savedName() || '').trim();
+  el('sr-as').innerHTML = postingAs();
   el('sr-role').innerHTML = '<option value=""' + (panelRole ? '' : ' selected') + ' disabled>Pick one</option>' +
     '<option value="none"' + (panelRole === 'none' ? ' selected' : '') + '>Not one instrument</option>' +
     ROLES.map(function (r) { return '<option value="' + r.id + '"' + (r.id === panelRole ? ' selected' : '') + '>' + r.label + '</option>'; }).join('');
@@ -1971,7 +1970,7 @@ function openSeedRec() {
   recReset(); REC.where = 'seed'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
   renderSeedPop();
   el('sr-scrim').classList.add('on');
-  (el('sr-by').value ? el('sr-role') : el('sr-by')).focus();
+  el('sr-role').focus();
 }
 function closeSeedRec() {
   if (REC.state === 'recording' || REC.state === 'asking') recCancel();
@@ -1990,14 +1989,13 @@ function seedRecStart() {
   recReset(); REC.where = 'seed'; REC.hear = {}; REC.click = el('sr-click').checked;
   recStart();
 }
-/* start the session with the recording, once name and instrument are in */
+/* start the session with the recording, once the instrument is in (and you have an account) */
 function seedRecUse() {
   if (!REC.buf || !REC.file) return;
-  var name = el('sr-by').value.trim(), rl = el('sr-role').value;
-  var miss = !name ? 'Add your name first, it goes in the credits.' : !rl ? 'Say what the track is: pick an instrument, or "Not one instrument".' : '';
-  if (miss) { el('sr-err').textContent = miss; el('sr-err').classList.add('on'); el(!name ? 'sr-by' : 'sr-role').focus(); return; }
-  /* the drop panel holds the name and instrument the upload reads */
-  if (el('seed-by')) el('seed-by').value = name;
+  var rl = el('sr-role').value;
+  if (!rl) { el('sr-err').textContent = 'Say what the track is: pick an instrument, or "Not one instrument".'; el('sr-err').classList.add('on'); el('sr-role').focus(); return; }
+  if (!me) { need('start').then(function () { el('sr-as').innerHTML = postingAs(); seedRecUse(); }); return; }
+  /* the drop panel holds the instrument the upload reads */
   if (el('seed-role')) el('seed-role').value = rl;
   var file = REC.file, meta = S.seedRecMeta;
   el('sr-scrim').classList.remove('on');
@@ -2169,13 +2167,12 @@ function renderSeed() {
       '<p>A riff, a groove or a vocal. Drag it in, and other musicians add their takes on top until the stack sounds right to you. ' +
       'You get a link to share.</p>' +
       '<div class="db-fields">' +
-        '<label class="field seed-name"><span>Your name</span><input type="text" id="seed-by" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
         '<label class="field seed-name"><span>What is it</span><select id="seed-role">' +
           '<option value="" selected disabled>Pick one</option><option value="none">Not one instrument</option>' +
           ROLES.map(function (r) { return '<option value="' + r.id + '">' + r.label + '</option>'; }).join('') + '</select></label>' +
       '</div>' +
       (S.pendingSeed && !S.seedBusy
-        ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready. Fill in your name and what it is, then start.</span>' +
+        ? '<div class="db-pending"><span class="tiny"><b>' + esc(S.pendingSeed.name) + '</b> is ready. Say what it is, then start.</span>' +
           (S.seedErr ? '<p class="db-err" role="alert">' + esc(S.seedErr) + '</p>' : '') +
           '<button class="btn btn-main" type="button" data-seedgo="1">Start the session with this track</button>' +
           '<button class="btn btn-sm" type="button" data-attach="seed">Choose another file</button></div>'
@@ -2469,7 +2466,6 @@ function cmRow() {
       '<div class="cm-pop cm-new open" style="' + cmPos(dx) + '">' +
         '<div class="cm-meta"><b>Comment at ' + clockMs(Math.max(0, S.cmDraft.at)) + '</b></div>' +
         '<textarea id="cm-body" maxlength="500" rows="2" placeholder="Say something about this moment"></textarea>' +
-        (savedName() ? '' : '<input type="text" id="cm-name" maxlength="60" placeholder="Your name">') +
         (S.cmErr ? '<p class="cm-err">' + esc(S.cmErr) + '</p>' : '') +
         '<div class="cm-acts"><button class="btn btn-sm btn-main" type="button" data-cmpost="1">Post</button>' +
         '<button class="btn btn-sm" type="button" data-cmcancel="1">Cancel</button></div>' +
@@ -2486,17 +2482,16 @@ function cmRow() {
 }
 function openComposer(songSec) {
   if (!isOpen() || !S.session) return;
-  if (!me) { flash('Still connecting, try again in a second.'); return; }
+  if (!me) { need('reply').then(function () { openComposer(songSec); }); return; }
   S.cmDraft = { at: songSec - startOf(S.seed) }; S.cmOpen = null; S.cmErr = '';
   render();
   var b = el('cm-body'); if (b) b.focus();
 }
 function postComment() {
   var body = ((el('cm-body') && el('cm-body').value) || '').trim();
-  var name = ((el('cm-name') && el('cm-name').value) || savedName() || '').trim();
   if (!body) { S.cmErr = 'Write something first.'; render(); if (el('cm-body')) el('cm-body').focus(); return; }
-  if (!name) { S.cmErr = 'Add your name, so people know who said it.'; render(); if (el('cm-name')) el('cm-name').focus(); return; }
-  rememberName(name);
+  if (!me) { need('reply').then(postComment); return; }
+  var name = myName();
   var at = S.cmDraft.at;
   db.addComment({ session_id:S.session.id, author_id:me.id, author_name:name.slice(0, 60), body:body.slice(0, 500), at_sec:at })
     .then(function () {
@@ -2535,15 +2530,15 @@ function draftBar() {
         '<span class="tiny muted">' + esc(d.file.name) + ', ' + clockMs(d.t.len) + '</span><button class="ghost" type="button" data-draftdel="' + d.t.id + '">Remove</button></label>';
     }).join('') + '</div>' +
     '<div class="db-post"><label class="field"><span>Say something (optional)</span><input type="text" id="draft-note" maxlength="200" placeholder="what you were going for"></label>' +
-      '<label class="field"><span>Your name</span><input type="text" id="draft-name" maxlength="60" placeholder="how you show up in the credits" value="' + esc(savedName()) + '"></label>' +
+      postingAs() +
       '<button class="btn btn-main" type="button" data-draftpost="1">Post my take →</button>' +
       '<button class="ghost" type="button" data-draftclear="1">Throw the draft away</button></div></div>';
 }
 function postDraft() {
-  var ds = S.drafts || [], name = ((el('draft-name') && el('draft-name').value) || '').trim(), note = ((el('draft-note') && el('draft-note').value) || '').trim();
+  var ds = S.drafts || [], note = ((el('draft-note') && el('draft-note').value) || '').trim();
   if (!ds.length) return;
-  if (!name) { flash('Add your name first, it goes in the credits.'); if (el('draft-name')) el('draft-name').focus(); return; }
-  rememberName(name);
+  if (!me) { need('play').then(function () { renderDaw(); postDraft(); }); return; }
+  var name = myName();
   var gid = ds.length > 1 ? crypto.randomUUID() : null, on = (S.draftBase || []).map(function (x) { return x.dbId; }), first = null;
   stopAll(true);
   ds.reduce(function (pr, d, i) {
@@ -2734,7 +2729,7 @@ function renderPicker() {
   box.innerHTML +=
     '<div class="pk-save">' +
       '<label class="field"><span>Name your stack</span><input type="text" id="ver-name" maxlength="60" placeholder="e.g. Half-time with the lead"></label>' +
-      '<label class="field"><span>Your name</span><input type="text" id="ver-by" maxlength="60" placeholder="how you show up under the session" value="' + esc(savedName()) + '"></label>' +
+      postingAs() +
       '<button class="btn btn-main" type="button" id="ver-save"' + (S.build.picks.length && S.session ? '' : ' disabled') + '>Save this stack</button>' +
       '<span class="tiny muted">' + S.build.picks.length + ' take(s) on top of the original track. Only the choice is saved, nothing gets re-uploaded.</span>' +
     '</div>';
@@ -2985,7 +2980,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Realtime updates re-render while people type. Keep what they typed and where the cursor was. */
-var KEEP = ['w-text', 'w-name', 'draft-note', 'draft-name', 'ver-name', 'ver-by', 'mix-by', 'seed-by', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'cm-name', 'seed-bpm', 'seed-time'];
+var KEEP = ['w-text', 'draft-note', 'ver-name', 'seed-role', 'meta-bpm', 'proj-title', 'cm-body', 'seed-bpm', 'seed-time'];
 function keepInputs(fn) {
   var vals = {}, a = document.activeElement, aid = a && a.id, sel = null;
   KEEP.forEach(function (id) { var e = el(id); if (e) vals[id] = e.value; });
@@ -3042,7 +3037,7 @@ function renderRelease() {
       : isOpen()
         ? '<p class="tiny muted">A polished mix of the same song. Anyone can attach one once the creator releases it.</p></div>'
         : '<p class="tiny muted">A polished mix of the same song. Anyone can attach one now it’s released.</p>' +
-          '<label class="field mix-who"><span class="tiny muted">Who mixed it</span><input type="text" id="mix-by" placeholder="your name" value="' + esc(savedName()) + '"></label></div>' +
+          '</div>' +
           '<label class="btn btn-main mix-up" id="mixzone">Upload a mix<input type="file" id="mix-file" accept="audio/*" aria-label="Upload a Mix"></label>');
 
   function credit(name, color, what) {
@@ -3113,24 +3108,21 @@ function syncPhase() {
 
 /* ---------- original track ---------- */
 /* A new session never starts the moment a file is picked: the file waits on the drop panel
-   ("<file> is ready") until you've filled in your name and said what the track is, then you
+   ("<file> is ready") until you've said what the track is, then you
    start it. Replacing the track of a running session goes straight through. */
 function loadSeed(file, confirmed) {
   var first = !hasSeed(), roleEl = el('seed-role');
   if (first && !confirmed) {
     S.pendingSeed = file; S.seedErr = '';
     render();
-    flash('Got ' + file.name + '. Fill in your name and what the track is, then start the session.');
-    var nm = el('seed-by');
-    if (nm && !nm.value.trim()) nm.focus(); else if (roleEl && !roleEl.value) roleEl.focus();
+    flash('Got ' + file.name + '. Say what the track is, then start the session.');
+    if (roleEl && !roleEl.value) roleEl.focus();
     return;
   }
-  var name = first ? ((el('seed-by') && el('seed-by').value) || '').trim() : (S.seed.by || savedName() || 'the creator');
-  if (!name) return;
-  if (!me) { flash('Still connecting, try again in a second.'); return; }
+  if (!me) { need('start').then(function () { loadSeed(file, confirmed); }); return; }
+  var name = first ? myName() : (S.seed.by || myName());
   S.pendingSeed = null;
   if (REC.where === 'seed') { recReset(); REC.where = null; }
-  rememberName(name);
   var created = false;
   S.seedBusy = true; S.meta.busy = true; render();
   decode(file).then(function (buf) {
@@ -3171,16 +3163,15 @@ function loadSeed(file, confirmed) {
   });
 }
 
-/* start the session with the file waiting on the drop panel, once name and instrument are in */
+/* start the session with the file waiting on the drop panel, once the instrument is in */
 function startSeed() {
   if (!S.pendingSeed) return;
-  var nm = el('seed-by'), rl = el('seed-role');
-  var miss = !(nm && nm.value.trim()) ? 'name' : !(rl && rl.value) ? 'role' : '';
-  if (miss) {
-    S.seedErr = miss === 'name' ? 'Add your name first, it goes in the credits.' : 'Say what the track is: pick an instrument, or "Not one instrument".';
+  var rl = el('seed-role');
+  if (!(rl && rl.value)) {
+    S.seedErr = 'Say what the track is: pick an instrument, or "Not one instrument".';
     render();
     flash(S.seedErr);
-    var f = el(miss === 'name' ? 'seed-by' : 'seed-role'); if (f) f.focus();
+    if (el('seed-role')) el('seed-role').focus();
     return;
   }
   S.seedErr = '';
@@ -3307,7 +3298,7 @@ function openModal(roleId, extendPos, own, keepRec) {
     countInLabel();
   }
   el('modal-err').classList.remove('on');
-  el('take-file').value = ''; el('take-name').value = savedName(); el('take-note').value = '';
+  el('take-file').value = ''; el('take-as').innerHTML = postingAs(); el('take-note').value = '';
   el('take-countin').checked = false;
   el('file-name').textContent = ext ? 'wav or mp3, any length' : 'wav or mp3, dry, starting at bar 1';
   el('modal-send').disabled = false;
@@ -3315,7 +3306,7 @@ function openModal(roleId, extendPos, own, keepRec) {
   else { recReset(); REC.where = null; REC.fromDaw = false; REC.hear = {}; REC.click = true; setSrc('file'); }
   if (!ext) secHint();
   el('scrim').classList.add('on');
-  el('take-name').focus();
+  el('take-role').focus();
 }
 function closeModal() {
   if (REC.state === 'recording' || REC.state === 'asking') recCancel();
@@ -3337,13 +3328,9 @@ el('scrim').addEventListener('click', function (e) { if (e.target === this) clos
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && el('scrim').classList.contains('on')) closeModal(); });
 /* Enter posts a comment (Shift+Enter for a new line), Escape drops it */
 document.addEventListener('keydown', function (e) {
-  if (e.target.id !== 'cm-body' && e.target.id !== 'cm-name') return;
+  if (e.target.id !== 'cm-body') return;
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); }
   else if (e.key === 'Escape') { S.cmDraft = null; S.cmErr = ''; render(); }
-});
-/* Enter in the name field starts the session with a file that is already chosen */
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && e.target.id === 'seed-by' && S.pendingSeed) { e.preventDefault(); startSeed(); }
 });
 
 function takeSource(fail) {
@@ -3363,14 +3350,15 @@ function takeSource(fail) {
   });
 }
 el('modal-send').addEventListener('click', function () {
-  var name = el('take-name').value.trim(), btn = this;
+  var btn = this;
   function fail(m){ el('modal-err').textContent = m; el('modal-err').classList.add('on'); btn.disabled = false; btn.textContent = sendLabel(); }
   function upFail(e){
     console.error(e);
     var nu = M.mode === 'own' ? needsUpdate(e, '20261004120000_own_takes.sql') : null;
     fail((nu || e).message || 'The upload failed. Try again.');
   }
-  if (!name) return fail('Add your name for the credits.');
+  if (!me) { need('play').then(function () { el('take-as').innerHTML = postingAs(); btn.click(); }); return; }
+  var name = myName();
   var p = takeSource(fail);
   if (!p) return;
   btn.disabled = true; btn.textContent = 'Uploading...';
@@ -3379,7 +3367,6 @@ el('modal-send').addEventListener('click', function () {
     if (M.mode === 'extend') {
       if (len < 1) return fail('That is under a second. A new part needs a bit more.');
       if (len > 240) return fail('Keep a new part under four minutes.');
-      rememberName(name);
       var pos = M.pos;
       return uploadTake(src.file, src.buf, { role:'part', status:'waiting', name:name, note:note, pos:pos, analyse:true })
         .then(function () {
@@ -3393,7 +3380,6 @@ el('modal-send').addEventListener('click', function () {
       return fail('Your file is ' + fmt(len) + ', ' + (M.sec === 'core' ? 'the track' : 'that part') + ' is ' + fmt(want) + '.' +
         (S.countIn && !el('take-countin').checked && Math.abs(len - want - S.countIn * barSeconds()) < TOL
           ? ' It looks like it still has the count-in: tick the box above.' : ' Trim or pad it to match.'));
-    rememberName(name);
     return uploadTake(src.file, src.buf, { role:el('take-role').value, status:own ? 'own' : 'waiting', name:name, note:note,
                                            sec:M.sec === 'core' ? null : M.sec, analyse:true, amp:src.rec ? recAmpFor(el('take-role').value) : '' })
       .then(function (res) {
@@ -3485,10 +3471,7 @@ document.addEventListener('click', function (e) {
   if (ns) { location.href = '/#start'; return; }
   var lk = e.target.closest('[data-likestack]');
   if (lk) {
-    var cst = currentStack(); if (!cst || !S.session || !me) return;
-    var k = keyOf(cst.takes);
-    S.stackLiked[k] = true; S.stackLikes[k] = (S.stackLikes[k] || 0) + 1; renderDaw();
-    db.likeStack({ stackKey:k, sessionId:S.session.id, userId:me.id }).then(refresh, oops);
+    likeStack();
     return;
   }
   var tpt = e.target.closest('[data-tpart]'), tpb = e.target.closest('button, a, input, select');
@@ -3628,24 +3611,7 @@ document.addEventListener('click', function (e) {
     stopAll(); refreshGains(); render();
     return;
   }
-  if (e.target.closest('#ver-save') || e.target.closest('#ver-save-top')) {
-    if (!S.build.picks.length || !S.session || !me) return;
-    var who = ((el('ver-by') && el('ver-by').value) || savedName() || '').trim() || 'someone';
-    var nm = ((el('ver-name') && el('ver-name').value) || '').trim() || (who + '’s stack');
-    rememberName(who);
-    db.saveVersion({ session_id:S.session.id, author_id:me.id, name:nm.slice(0, 60), by_name:who.slice(0, 60),
-                     picks:S.build.picks.slice(), ctl:JSON.parse(JSON.stringify(S.build.ctl)) })
-      .then(function (row) {
-        if (el('ver-name')) el('ver-name').value = '';
-        S.buildDirty = false; S.build.picks = [];
-        var v = row && (row[0] || row);
-        if (v && v.id) { S.stack = 'v-' + v.id; }
-        S.view = 'lineup';
-        flash('Saved "' + nm + '". It is with the stacks above the tracks, and in the thread.');
-        return refresh();
-      }).catch(oops);
-    return;
-  }
+  if (e.target.closest('#ver-save') || e.target.closest('#ver-save-top')) { saveVersion(); return; }
   var pvr = e.target.closest('[data-playver]');
   if (pvr) {
     var ver = S.versions.filter(function (v) { return v.id === pvr.dataset.playver; })[0];
@@ -3662,10 +3628,8 @@ document.addEventListener('click', function (e) {
   var lk = e.target.closest('[data-like]');
   if (lk) {
     var lv = S.versions.filter(function (v) { return v.id === lk.dataset.like; })[0];
-    if (lv && !lv.liked && me) {
-      lv.liked = true; lv.likes++; renderVersionLists();
-      db.likeVersion({ versionId:lv.id, sessionId:S.session.id, userId:me.id }).then(refresh).catch(oops);
-    }
+    if (lv && !me) { need('like').then(function () { likeVersion(lv.id); }); return; }
+    if (lv) likeVersion(lv.id);
     return;
   }
   var fk = e.target.closest('[data-fork]');
@@ -3781,7 +3745,8 @@ document.addEventListener('click', function (e) {
     return;
   }
   var react = e.target.closest('[data-react]');
-  if (react && S.session && me && !S.reacted[react.dataset.react]) {
+  if (react && S.session && !me) { var rk = react.dataset.react; need('like').then(function () { if (!S.reacted[rk]) { S.reacted[rk] = true; S.reactions[rk] = (S.reactions[rk] || 0) + 1; renderRelease(); db.react({ sessionId:S.session.id, userId:me.id, kind:rk }).then(refresh).catch(oops); } }); return; }
+  if (react && S.session && !S.reacted[react.dataset.react]) {
     var kind = react.dataset.react;
     S.reacted[kind] = true; S.reactions[kind] = (S.reactions[kind] || 0) + 1; renderRelease();
     db.react({ sessionId:S.session.id, userId:me.id, kind:kind }).then(refresh).catch(oops);
@@ -3861,17 +3826,7 @@ document.addEventListener('change', function (e) {
   if (e.target.id === 'meta-seedrole' && isHost()) setSeedRole(e.target.value || null);
   if (e.target.id === 'meta-time' && isHost()) { S.meta.time = e.target.value; patchSession({ time_sig:S.meta.time }); renderSeed(); renderDaw(); }
   if (e.target.id === 'mix-file' && e.target.files[0]) {
-    var f = e.target.files[0], by = ((el('mix-by') && el('mix-by').value) || '').trim();
-    if (!by) { e.target.value = ''; flash('Add who mixed it first.'); el('mix-by').focus(); return; }
-    rememberName(by);
-    flash('Uploading the Mix...');
-    decode(f).then(function (buf) {
-      return uploadTake(f, buf, { role:'mix', status:'mix', name:by, analyse:false });
-    }).then(function () {
-      mixEl = null;
-      flash('The Mix is added next to the song.');
-      return refresh();
-    }).catch(oops);
+    uploadMix(e.target.files[0]);
   }
 });
 (function () {
@@ -3908,15 +3863,69 @@ el('lock-btn').addEventListener('click', function () {
 
 render();
 
+/* ---------- writes that wait for an account ---------- */
+function likeStack() {
+  var cst = currentStack(); if (!cst || !S.session) return;
+  if (!me) { need('like').then(likeStack); return; }
+  var k = keyOf(cst.takes);
+  if (S.stackLiked[k]) return;
+  S.stackLiked[k] = true; S.stackLikes[k] = (S.stackLikes[k] || 0) + 1; renderDaw();
+  db.likeStack({ stackKey:k, sessionId:S.session.id, userId:me.id }).then(refresh, oops);
+}
+function likeVersion(id) {
+  var lv = S.versions.filter(function (v) { return v.id === id; })[0];
+  if (!lv || lv.liked) return;
+  lv.liked = true; lv.likes++; renderVersionLists();
+  db.likeVersion({ versionId:lv.id, sessionId:S.session.id, userId:me.id }).then(refresh).catch(oops);
+}
+function saveVersion() {
+  if (!S.build.picks.length || !S.session) return;
+  if (!me) { need('version').then(function () { renderPicker(); saveVersion(); }); return; }
+  var who = myName() || 'someone';
+  var nm = ((el('ver-name') && el('ver-name').value) || '').trim() || (who + '’s stack');
+  db.saveVersion({ session_id:S.session.id, author_id:me.id, name:nm.slice(0, 60), by_name:who.slice(0, 60),
+                   picks:S.build.picks.slice(), ctl:JSON.parse(JSON.stringify(S.build.ctl)) })
+    .then(function (row) {
+      if (el('ver-name')) el('ver-name').value = '';
+      S.buildDirty = false; S.build.picks = [];
+      var v = row && (row[0] || row);
+      if (v && v.id) { S.stack = 'v-' + v.id; }
+      S.view = 'lineup';
+      flash('Saved "' + nm + '". It is with the stacks above the tracks, and in the thread.');
+      return refresh();
+    }).catch(oops);
+}
+function uploadMix(f) {
+  if (!me) { need('mix').then(function () { uploadMix(f); }); return; }
+  var by = myName();
+  flash('Uploading the Mix...');
+  decode(f).then(function (buf) {
+    return uploadTake(f, buf, { role:'mix', status:'mix', name:by, analyse:false });
+  }).then(function () {
+    mixEl = null;
+    flash('The Mix is added next to the song.');
+    return refresh();
+  }).catch(oops);
+}
+
 /* ---------- boot ---------- */
 function boot() {
   if (!configured) {
     flash('Supabase is not configured. Copy .env.example to .env.local and fill it in.');
     return;
   }
-  flash('Connecting...');
-  db.ensureUser().then(function (user) {
-    me = user;
+  setToast(flash);
+  /* listening needs no account: load the session once we know who is here (or that nobody is
+     signed in), and refetch when someone signs in or out, so host controls and "mine" follow */
+  var ready = new Promise(function (resolve) {
+    onAccount(function (user) {
+      var was = me && me.id;
+      me = user;
+      if (ready) { if (was !== (user && user.id) && S.session) refresh(); else render(); }
+      resolve();
+    });
+  });
+  ready.then(function () {
     var m = location.pathname.match(/^\/s\/([\w-]+)/);
     if (!m) { flash('Drop an audio track to start a session. You will get a link to share.'); render(); return; }
     return db.loadSessionBySlug(m[1]).then(function (sess) {

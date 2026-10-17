@@ -3,6 +3,7 @@
 
 import './styles.css';
 import './theme.js';
+import './auth.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
 import { ico } from './icons.js';
