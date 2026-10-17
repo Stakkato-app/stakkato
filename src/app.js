@@ -147,8 +147,6 @@ var S = blank();
 
 function isHost() { return !!(S.session && me && S.session.host_id === me.id); }
 function isOpen() { return !S.session || S.session.status === 'open'; }
-/* the thread stays open after release: anyone can still reply with a take (not a new part) */
-function canReply() { return !!S.session; }
 /* whoever is looking at a page without a session is about to start one */
 function asCreator() { return !S.session || isHost(); }
 /* the instrument the creator says the original track is, or null when not set */
@@ -447,7 +445,7 @@ function takeNode(t, flat) {
   return '<div class="node tn' + (here ? ' here' : '') + (last ? ' last' : '') + '" id="tp-' + t.dbId + '">' + avaOf(t.by, col(r)) + '<div class="nbody">' +
     '<div class="meta"><b>' + esc(youOr(t.by, t.authorId)) + '</b><span class="muted">added</span>' +
       grp.map(function (g) { var gr = role(g.roleId); return '<b class="lyr" style="color:' + col(gr) + '">' + esc(gr.label.toLowerCase()) + '</b>'; }).join(' + ') +
-      (inSongAll ? '<span class="badge">In the song</span>' : waiting && isOpen() ? '<span class="badge wait">To review</span>' : '') +
+      (inSongAll ? '<span class="badge">In the song</span>' : waiting ? '<span class="badge wait">To review</span>' : '') +
       (last ? '<span class="badge ink">In the tracks above</span>' : '') + whenOf(t.created) + '</div>' +
     (t.note ? '<p class="bubble">' + esc(t.note) + '</p>' : '') +
     '<div class="twell' + (on && S.stack ? ' on' : '') + '" data-tsel="' + t.dbId + '">' +
@@ -459,7 +457,7 @@ function takeNode(t, flat) {
     '<div class="acts">' +
       (boss && !inSongAll ? '<button class="btn btn-sm btn-main" type="button" data-yesg="' + t.dbId + '">Add to song</button>' : '') +
       (boss && waiting && !inSongAll ? '<button class="btn btn-sm" type="button" data-nog="' + t.dbId + '">Pass</button>' : '') +
-      (canReply() ? (last ? '' : '<button class="tlink" type="button" data-tstack="' + t.dbId + '">Play on this</button>') +
+      (isOpen() ? (last ? '' : '<button class="tlink" type="button" data-tstack="' + t.dbId + '">Play on this</button>') +
         '<button class="tlink" type="button" data-treply="' + t.dbId + '">Reply with audio</button>' : '') +
       '<button class="tlink" type="button" data-wopen="take:' + t.dbId + '">Reply</button>' + tVote(t.dbId, 'take') + '</div>' +
     wordBox('take:' + t.dbId) + kidsBlock('t:' + t.dbId, kids, open) + '</div></div>';
@@ -495,7 +493,7 @@ function updatePost(o) {
       '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (o.stack ? 'data-tplay="' + o.id + '"' : o.part ? 'data-tpart="' + o.part + '"' : 'data-playmain="1"') + ' aria-label="Play">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
       (o.takes ? '<div class="chain flat">' + o.takes.map(function (u) { var ur = role(u.roleId); return '<span class="chip"><i style="background:' + col(ur) + '"></i>' + esc(youOr(u.by, u.authorId)) + '’s ' + esc(ur.label.toLowerCase()) + '</span>'; }).join('') + '</div>'
         : '<span class="tiny muted">' + (o.part ? 'Plays where it sits in the song' : '') + '</span>') + '</div></div>' +
-    '<div class="acts">' + (canReply() && (isOpen() || !/^part:/.test(o.reply || '')) ? '<button class="tlink" type="button" data-treply="' + o.reply + '">Reply with audio</button>' : '') +
+    '<div class="acts">' + (isOpen() ? '<button class="tlink" type="button" data-treply="' + o.reply + '">Reply with audio</button>' : '') +
       (o.stack ? (last ? '' : '<button class="tlink" type="button" data-tstack="' + o.id + '">Show in the tracks</button>') : '') +
       (o.part ? '<button class="tlink" type="button" data-tpart="' + o.part + '">Show in the tracks</button><button class="tlink" type="button" data-wopen="part:' + o.part + '">Reply</button>' : '') + '</div>' +
     (o.part ? wordBox('part:' + o.part) : '') + kidsBlock(o.id, kids, open) + '</div></div>';
@@ -547,7 +545,7 @@ function threadHtml() {
       '<small>' + esc(projName()) + (si ? ' · ' + esc(si.label.toLowerCase()) : '') + '</small></div>' +
     '<div class="t-op-acts">' + (seedHere ? '<span class="badge ink">In the tracks above</span>' : '<button class="tlink" type="button" data-tstack="seed">Play on this</button>') +
       '<button class="tlink" type="button" data-wopen="jam">Reply</button>' +
-      (canReply() ? '<button class="btn btn-sm" type="button" data-treply="seed">+ Reply with audio</button>' : '') + '</div></div>' + wordBox('jam');
+      (isOpen() ? '<button class="btn btn-sm" type="button" data-treply="seed">+ Reply with audio</button>' : '') + '</div></div>' + wordBox('jam');
   var body;
   if (f === 'words') {
     var ws = liveWords().slice().sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
@@ -1585,6 +1583,7 @@ function dawRecMode() { return S.view === 'build' && !S.override ? 'own' : 'laye
 function dawRecStart() {
   if (!hasSeed()) return;
   var own = dawRecMode() === 'own';
+  if (!own && !isOpen()) { flash('This song is released, so the stack is final.'); return; }
   if (el('scrim').classList.contains('on')) return;
   M.mode = own ? 'own' : 'layer'; M.sec = 'core';
   recReset(); REC.where = 'daw'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
@@ -3272,7 +3271,7 @@ function countInLabel() {
 }
 function openModal(roleId, extendPos, own, keepRec) {
   if (!hasSeed()) { flash('Drop an audio track first, it sets the length for everyone.'); return; }
-  if (extendPos && !isOpen()) { flash('This song is released, so its length is final. You can still reply with a take on any layer.'); return; }
+  if (!own && !isOpen()) { flash('This song is released, so the stack is final.'); return; }
   lastFocus = document.activeElement;
   M.mode = extendPos ? 'extend' : own ? 'own' : 'layer';
   M.pos = extendPos || 'after';
@@ -3395,8 +3394,7 @@ el('modal-send').addEventListener('click', function () {
           S.override = null; S.view = 'build';
           refreshGains();
           flash('It is in your version. Save the version to keep it, or send the take to the creator from the list.');
-        } else flash(isOpen() ? 'Your take is in the thread, as a reply to the song. The author decides if it goes in.'
-                             : 'Your take is in the thread. The song is released, so it stays a reply; anyone can play on it.');
+        } else flash('Your take is in the thread, as a reply to the song. The author decides if it goes in.');
         return refresh();
       }, upFail);
   }).catch(function () { fail('That file could not be read.'); });

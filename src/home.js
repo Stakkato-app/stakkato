@@ -434,7 +434,7 @@ function partHtml(r, p, depth) {
     (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
     '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
-    '<div class="acts">' + (kept ? '<button class="ghost accent" type="button" data-reply=""' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
+    '<div class="acts">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
       mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 function goneHtml(r, p, depth) {
@@ -455,7 +455,7 @@ function replyHtml(r, p, depth) {
       '<div class="chain">on top of ' + chainChips(r, chainOf(r, p.id).slice(0, -stemsOf(p).length)) + '</div></div>' : '') +
     '<div class="acts">' +
       (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
-      (p.layer ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
+      (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
       commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Show in the project', r, p.id) : '') +
       (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
@@ -489,7 +489,7 @@ function riffHtml(r) {
     '<h2 class="rtitle">' + esc(r.title) + (r.song ? '<span class="tag">Became a song</span>' : '') + '</h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="well"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas><span class="wtime">' + mmss(r.dur) + '</span></div>' +
-    '<div class="racts">' + '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' +
+    '<div class="racts">' + (r.open ? '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' : '') +
       '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a>' +
       (song.length ? '<button class="btn btn-soft" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '') +
       commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
@@ -855,13 +855,7 @@ el('r-go').addEventListener('click', function () {
       setTimeout(function () { var n = el('post-' + r.id + '-' + row.id); if (n) n.scrollIntoView({ behavior:'smooth', block:'center' }); }, 60);
       toast('Your take is posted. Anyone can play along on top of it now.');
     });
-  }).catch(function (e) {
-    el('r-go').disabled = false;
-    /* replies on a released song need 20261017100000_replies_after_release.sql in the database */
-    el('r-err').textContent = !r.open && /row-level security/i.test(String(e && e.message))
-      ? 'This song is released, and replies on it aren’t switched on yet. Try again later.'
-      : (e && e.message) || 'That didn’t work, try again.';
-  });
+  }).catch(function (e) { el('r-go').disabled = false; el('r-err').textContent = (e && e.message) || 'That didn’t work, try again.'; });
 });
 
 /* ---------- start a jam from the upload panel ---------- */
