@@ -1076,6 +1076,9 @@ a.btn{text-decoration:none}
 .side-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;display:flex;flex-direction:column;gap:10px}
 .side-h{font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:-.02em}
 .side-card p{font-size:14.5px;line-height:1.5}
+.side-hint{display:flex;gap:8px;align-items:baseline;margin:0;padding-top:10px;border-top:1px solid var(--line);font-weight:600;color:var(--ink)}
+.side-arr{flex:none;font-weight:700;color:var(--sound-ink)}
+@media (max-width:1000px){ .side-arr{transform:rotate(-90deg)} }
 
 /* the song on top: its name and numbers on the left, the original track on the right */
 body.has-track #intro{display:none}

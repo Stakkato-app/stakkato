@@ -14,9 +14,11 @@ import { configured } from './supabase.js';
 import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
-import { renderAmp } from './amp.js';
+import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
+         beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
-var NAME_KEY = 'riffraff:name';    /* shared with the song view */
+var NAME_KEY = 'riffraff:name';    /* shared with the project */
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
 
 var LAYERS = { seed:{ label:'original track', c:'var(--seed)' }, part:{ label:'new part', c:'var(--part)' } };
@@ -270,7 +272,7 @@ function chipLabel(p) { return p.isRiff ? 'clip' : p.isPart ? 'new part' : lay(p
 function chainChips(r, c) { return c.map(function (p) { return '<span class="chip"><span class="dot" style="background:' + lay(p.layer).c + '"></span>' + esc(whose(p)) + ' ' + chipLabel(p) + '</span>'; }).join(''); }
 
 /* ---------- audio ---------- */
-function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+function ac() { if (!AC) AC = newContext(); return AC; }
 function load(r, p) {
   var k = bufKey(r, p);
   if (BUF[k] || BUF[k + ':loading'] || !p.url) return Promise.resolve();
@@ -433,7 +435,7 @@ function partHtml(r, p, depth) {
     '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
     '<div class="acts">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
-      mixLink('Open in mix view', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
+      mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 function goneHtml(r, p, depth) {
   return node(r, p, 'gone', '<span class="ava words" aria-hidden="true"></span>',
@@ -454,7 +456,7 @@ function replyHtml(r, p, depth) {
     '<div class="acts">' +
       (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
       (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
-      commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Open in mix view', r, p.id) : '') +
+      commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Show in the project', r, p.id) : '') +
       (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 /* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
@@ -488,7 +490,7 @@ function riffHtml(r) {
     '<div class="well"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas><span class="wtime">' + mmss(r.dur) + '</span></div>' +
     '<div class="racts">' + (r.open ? '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' : '') +
-      '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in mix view</a>' +
+      '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a>' +
       (song.length ? '<button class="btn btn-soft" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '') +
       commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
       '<span class="grow"></span>' +
@@ -520,10 +522,12 @@ function render() {
 }
 
 /* ---------- reply with audio ---------- */
-var R = { rid:null, pid:null, file:null, buf:null };
+var R = { rid:null, pid:null, file:null, buf:null, src:'file' };
 var MD = null;
 function openScrim(id) { el(id).classList.add('on'); }
 function closeScrims() {
+  if (RC.state === 'recording' || RC.state === 'asking') rcCancel();
+  disarmMonitor();
   if (S.playing === 'reply') { stop(); mdIdle(); render(); }
   var fromStart = el('start-scrim').classList.contains('on');
   [].forEach.call(document.querySelectorAll('.scrim'), function (s) { s.classList.remove('on'); });
@@ -531,19 +535,19 @@ function closeScrims() {
 }
 function wantLen(c) { return c[0].dur || 0; }
 function openReply(rid, pid) {
-  var r = riff(rid); R = { rid:rid, pid:pid || null, file:null, buf:null };
+  var r = riff(rid); R = { rid:rid, pid:pid || null, file:null, buf:null, src:'file' };
+  rcReset(); RC.click = !!r.bpm; RC.countIn = r.bpm ? 1 : 0;
   var c = chainOf(r, pid), used = c.map(function (p) { return p.layer; });
   var pp = pid ? postOf(r, pid) : null;
   el('r-title').textContent = 'Play along with ' + (!pp ? r.title : pp.kind === 'part' ? 'the new part' : whose(pp) + ' ' + lay(pp.layer).label);
   MD = { r:r, c:c, mute:{}, raf:0, dur:wantLen(c) };
   el('r-over').innerHTML = '<div class="md-top"><button class="play" type="button" id="md-play" aria-label="Play what you play on">&#9654;</button>' +
-      '<span class="md-time" id="md-time">0:00</span><span class="md-hint">' + (r.bpm ? r.bpm + ' bpm' : 'tempo unknown') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + '. Play along first, then add your take.</span>' +
-      mixLink('Record in mix view', r, pid) + '</div>' +
+      '<span class="md-time" id="md-time">0:00</span><span class="md-hint">' + (r.bpm ? r.bpm + ' bpm' : 'tempo unknown') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + '. Play along first, then add your take.</span></div>' +
     '<div class="md-lanes" id="md-lanes">' + c.map(function (p, i) {
       return '<div class="md-lane"><span class="md-name"><i style="background:' + lay(p.layer).c + '"></i><span><b>' + esc(p.by) + '</b>' + chipLabel(p) + '</span></span>' +
         '<canvas data-md="' + i + '"></canvas><button class="md-m" type="button" data-mdmute="' + i + '" aria-pressed="false" aria-label="Mute">M</button></div>';
     }).join('') +
-    '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-empty" id="md-empty">Your take lands here</div><span></span></div>' +
+    '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-slot" id="md-slot"><div class="md-empty" id="md-empty">Your take lands here</div></div><span></span></div>' +
     '<div class="md-head" id="md-head" hidden></div></div>';
   el('r-layer').innerHTML = ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('');
   el('r-layer').value = ROLES.map(function (x) { return x.id; }).filter(function (l) { return used.indexOf(l) < 0; })[0] || 'vocals';
@@ -551,9 +555,11 @@ function openReply(rid, pid) {
   el('r-len').textContent = MD.dur ? 'Make it ' + mmss(MD.dur) + ' long (' + MD.dur.toFixed(1) + ' s), the length of what you play on.' : '';
   if (!el('r-name').value) el('r-name').value = myName();
   el('r-go').disabled = false;
+  setRSrc('file');
   openScrim('reply-scrim'); mdYou(); mdDraw(); el('r-layer').focus();
   Promise.all(c.map(function (p) { return load(r, p); })).then(mdDraw);
 }
+function peakOf(buf) { var d = buf.getChannelData(0), pk = 0; for (var i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > pk) pk = v; } return pk; }
 function mdYou() { var y = el('md-you'); if (y) y.textContent = (role(el('r-layer').value) || {}).label || ''; }
 function mdDraw() {
   if (!MD) return;
@@ -566,16 +572,22 @@ function mdDraw() {
   el('md-time').textContent = '0:00 / ' + mmss(MD.dur);
 }
 function mdPlay() {
+  if (RC.state === 'recording' || RC.state === 'asking') return;
   if (S.playing === 'reply') { stop(); mdIdle(); render(); return; }
   stop(); render(); S.playing = 'reply';
   el('md-play').innerHTML = '&#10074;&#10074;'; el('md-play').classList.add('on');
   var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05; MD.gains = {};
-  var lanes = MD.c.concat(R.buf ? [{ mine:true, buf:R.buf }] : []);
+  var m = mine(), lanes = MD.c.concat(m ? [{ mine:true, buf:m.buf, amp:m.amp }] : []);
   lanes.forEach(function (p, i) {
     var b = p.buf || bufFor(r, p); if (!b) return;
     if (!p.buf) amped(r, p);
     var src = a.createBufferSource(), g = a.createGain(); src.buffer = b; src.loop = true;
-    g.gain.value = MD.mute[i] ? 0 : 1; src.connect(g); g.connect(a.destination); src.start(T); SRC.push(src); MD.gains[i] = g;
+    g.gain.value = MD.mute[i] ? 0 : 1; src.start(T); SRC.push(src); MD.gains[i] = g;
+    /* a fresh take with an amp is heard through it live; the file itself stays dry */
+    var la = p.mine && p.amp ? liveAmp(a, p.amp, peakOf(b)) : null;
+    if (la) { src.connect(la.input); la.output.connect(g); SRC.push({ stop:function () { dropAmp(la); } }); }
+    else src.connect(g);
+    g.connect(a.destination);
   });
   MD.t0 = T; el('md-head').hidden = false;
   (function tick() {
@@ -591,7 +603,214 @@ function mdIdle() {
   el('md-play').innerHTML = '&#9654;'; el('md-play').classList.remove('on'); el('md-head').hidden = true;
   if (MD) { cancelAnimationFrame(MD.raf); el('md-time').textContent = '0:00 / ' + mmss(MD.dur); }
 }
-el('r-layer').addEventListener('change', mdYou);
+/* ---------- record your reply right here ----------
+   The same recorder as in the project (rec.js): a count-in and click, the lanes above (unmuted)
+   playing from bar 1, your input through an amp for guitar, lead and bass, and the take cut
+   to start exactly at bar 1 and run exactly as long as what you play on. */
+var RC = { state:'idle', nodes:[], player:[], mics:[], click:false, countIn:0, err:'', warn:'', info:'', done:null, level:0, peak:0 };
+function rcRole() { return el('r-layer').value; }
+function rcCleanup() {
+  clearTimeout(RC.timer); clearInterval(RC.tick);
+  RC.player.forEach(function (s) { try { s.stop(); } catch (e) {} });
+  RC.player = [];
+  RC.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
+  RC.nodes = [];
+  if (RC.stream) RC.stream.getTracks().forEach(function (tr) { tr.stop(); });
+  RC.stream = null;
+}
+function rcReset() {
+  rcCleanup();
+  RC.state = 'idle'; RC.err = ''; RC.warn = ''; RC.info = ''; RC.done = null; RC.chunks = null; RC.partial = 0;
+}
+function rcCancel() { rcCleanup(); RC.state = 'idle'; RC.chunks = null; rcDraw(); showMine(); }
+function rcMicOptions() {
+  var cur = savedMic();
+  return '<option value="">Default input</option>' + RC.mics.map(function (m, i) {
+    return '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' + esc(m.label || ('Input ' + (i + 1))) + '</option>';
+  }).join('');
+}
+function rcMics() { return listMics().then(function (l) { RC.mics = l; var s = document.querySelector('#r-rec [data-rc="mic"]'); if (s) s.innerHTML = rcMicOptions(); rcFindBtn(); }); }
+/* before the browser has been allowed the microphone it only says "default": ask once */
+function rcFindBtn() { var b = document.querySelector('#r-rec [data-rc="inputs"]'); if (b) b.hidden = RC.mics.length > 0; }
+function rcAmpOptions() {
+  var cur = savedAmp();
+  return '<option value="">Off, as it comes in</option>' + AMPS.map(function (a) { return '<option value="' + a.id + '"' + (a.id === cur ? ' selected' : '') + '>' + esc(a.label) + '</option>'; }).join('');
+}
+function rcDraw() {
+  var box = el('r-rec'); if (!box || !MD) return;
+  var err = RC.err ? '<p class="rc-err">' + esc(RC.err) + '</p>' : '';
+  if (RC.state === 'asking' || RC.state === 'recording') {
+    box.innerHTML = '<div class="rc-live"><div class="rc-status" id="rc-status">' + (RC.state === 'asking' ? 'Waiting for the microphone...' : '') + '</div>' +
+      '<div class="rc-meter"><i id="rc-meter"></i></div>' +
+      '<div class="rc-acts"><button class="btn btn-main" type="button" data-rc="finish">Stop and keep it</button>' +
+      '<button class="btn btn-sm" type="button" data-rc="cancel">Stop and throw away</button></div>' +
+      '<p class="rc-tiny">It stops by itself at the end of the clip. Stop earlier and you keep what you played; the rest of the take is silence.</p></div>';
+    rcStatus(); return;
+  }
+  if (RC.state === 'done' && RC.done) {
+    box.innerHTML = '<div class="rc-done"><b>Recorded ' + (RC.partial ? mmss(RC.partial) + ' of ' + mmss(RC.fixed) : mmss(RC.done.buf.duration)) + '</b>' +
+      '<span class="rc-tiny">' + (RC.partial ? 'You stopped early. The rest of the take is silence, so it still lines up with the clip.' : 'Cut to start exactly at bar 1 and end with the clip.') + '</span>' +
+      '<div class="rc-acts"><button class="btn btn-sm" type="button" data-rc="listen">Hear it with the lanes</button>' +
+      '<button class="btn btn-sm" type="button" data-rc="again">Record again</button></div></div>' +
+      (RC.info ? '<p class="rc-info">' + esc(RC.info) + '</p>' : '') + (RC.warn ? '<p class="rc-warn">' + esc(RC.warn) + '</p>' : '') + err;
+    return;
+  }
+  var ampOn = AMP_ROLES.indexOf(rcRole()) > -1;
+  if (ampOn && savedAmp()) preloadAmp(savedAmp());
+  box.innerHTML = '<div class="rc-row">' +
+      '<label class="rc-opt"><input type="checkbox" data-rc="click"' + (RC.click ? ' checked' : '') + '><span>Click</span></label>' +
+      '<label class="rc-sel"><span>count-in</span><select data-rc="countin">' + [0, 1, 2, 4].map(function (n) {
+        return '<option value="' + n + '"' + (n === RC.countIn ? ' selected' : '') + '>' + n + ' bar' + (n === 1 ? '' : 's') + '</option>'; }).join('') + '</select></label>' +
+      '<label class="rc-sel"><span>input</span><select data-rc="mic">' + rcMicOptions() + '</select></label>' +
+      '<button class="ghost rc-find" type="button" data-rc="inputs"' + (RC.mics.length ? ' hidden' : '') + '>Show my inputs</button>' +
+      '<label class="rc-sel" id="rc-amp"' + (ampOn ? '' : ' hidden') + ' title="Recorded dry, heard through this amp. You can change it later."><span>amp</span><select data-rc="amp">' + rcAmpOptions() + '</select></label>' +
+      '<label class="rc-opt" title="Hear your input in the headphones right away, through the amp if you picked one. Leave it off if your interface already lets you hear yourself."><input type="checkbox" data-rc="mon"' + (savedMon() ? ' checked' : '') + '><span>Hear yourself</span></label>' +
+    '</div>' +
+    '<p class="rc-tiny">Wear headphones, otherwise the lanes end up in your take. You hear the lanes above that aren’t muted, from the first beat' +
+      (MD.r.bpm ? '' : '. No tempo is known for this clip, so the click runs at 120 bpm') + '. It stops by itself after ' + mmss(MD.dur) + '.</p>' +
+    (rateTip(ac()) ? '<p class="rc-tiny" id="rc-rate"' + (ampOn ? '' : ' hidden') + '>' + esc(rateTip(ac())) + '</p>' : '') +
+    '<button class="btn btn-main rc-go" type="button" data-rc="start"><span class="rc-dot"></span> Start recording</button>' + err;
+}
+function rcStatus() {
+  var st = el('rc-status'), meter = el('rc-meter');
+  if (!st || RC.state !== 'recording') return;
+  var a = ac(), now = a.currentTime, bar = RC.bar;
+  if (now < RC.songStart) {
+    if (now < RC.t0) st.textContent = 'Get ready';
+    else { var left = RC.countIn - Math.floor((now - RC.t0) / bar); st.textContent = 'Count-in, ' + left + ' bar' + (left > 1 ? 's' : '') + ' to go'; }
+    st.className = 'rc-status counting';
+  } else { st.textContent = 'Recording ' + mmss(now - RC.songStart) + ' / ' + mmss(RC.fixed); st.className = 'rc-status live'; }
+  if (meter) meter.style.width = Math.min(100, RC.level * 140) + '%';
+  var slot = el('md-empty'); if (slot) { slot.classList.add('live'); slot.textContent = now < RC.songStart ? 'Count-in…' : 'Recording…'; }
+}
+/* "Hear yourself" arms the input: you hear it right away, through the amp for this layer
+   (the take itself stays dry), until you untick it or close the pop-up */
+function rcArm() {
+  armMonitor(ac(), recAmpFor(rcRole()), ac().destination).then(rcMics, function (err) {
+    rememberMon(false);
+    var c = document.querySelector('#r-rec [data-rc="mon"]'); if (c) c.checked = false;
+    RC.err = micError(err); rcDraw();
+  });
+}
+function rcRearm() { if (monitorOn()) rcArm(); }
+function rcStart() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { RC.err = 'This browser does not give pages access to a microphone.'; rcDraw(); return; }
+  stop(); mdIdle(); render();
+  RC.err = ''; RC.warn = ''; RC.info = ''; RC.done = null; RC.state = 'asking'; rcDraw(); showMine();
+  var a = ac(); a.resume(); var r = MD.r;
+  var loaded = Promise.all(MD.c.map(function (p) { return load(r, p).then(function () { return amped(r, p); }); }));
+  Promise.all([openMic(), loaded]).then(function (x) {
+    var stream = x[0];
+    RC.stream = stream; rcMics();
+    return recWorklet(a).then(function () { return { stream:stream, worklet:true }; }, function () { return { stream:stream, worklet:false }; });
+  }).then(function (got) {
+    if (RC.state !== 'asking') { got.stream.getTracks().forEach(function (tr) { tr.stop(); }); return; }
+    var first = bufFor(r, MD.c[0]), len = first ? first.duration : MD.dur;
+    if (!len) throw new Error('The clip could not be loaded, so there is nothing to play along with. Reload the page and try again.');
+    var bi = beatInfoFor(r.bpm, r.sig), countIn = RC.countIn;
+    var t0 = a.currentTime + 0.4, songStart = t0 + countIn * bi.bar, chunks = [];
+    RC.t0 = t0; RC.songStart = songStart; RC.countIn = countIn; RC.fixed = len; RC.bar = bi.bar; RC.beat = bi; RC.level = 0; RC.peak = 0; RC.inLat = inputLatency(got.stream);
+    var cap = capture(a, got.stream, got.worklet, function (d, t, sr) {
+      var bp = blockPeaks(d);
+      RC.level = Math.max(bp.peak, RC.level * 0.85);
+      if (t >= songStart && bp.peak > RC.peak) RC.peak = bp.peak;
+      chunks.push({ t:t, d:d, dur:d.length / sr });
+    });
+    var mg = a.createGain(); mg.connect(a.destination);
+    RC.nodes = cap.nodes.concat([mg]);
+    if (savedMon() && !monitorOn()) rcArm();
+    if (RC.click) {
+      var cs = a.createBufferSource(), cb = a.createBuffer(1, Math.ceil((countIn * bi.bar + len + 0.05) * a.sampleRate), a.sampleRate);
+      cb.copyToChannel(clickSamples(a.sampleRate, countIn, len, bi).subarray(0, cb.length), 0);
+      cs.buffer = cb; cs.connect(mg); cs.start(t0); RC.player.push(cs);
+    }
+    /* the lanes above, from bar 1 (the ones you muted stay silent) */
+    MD.c.forEach(function (p, i) {
+      var b = bufFor(r, p); if (!b || MD.mute[i]) return;
+      var s = a.createBufferSource(); s.buffer = b; s.connect(mg); s.start(songStart); RC.player.push(s);
+    });
+    RC.chunks = chunks; RC.state = 'recording';
+    RC.tick = setInterval(rcStatus, 100);
+    RC.timer = setTimeout(rcFinish, (songStart + len - a.currentTime + 0.25) * 1000);
+    rcDraw();
+  }).catch(function (err) {
+    rcCleanup(); RC.state = 'idle';
+    RC.err = err && /clip could not/.test(err.message || '') ? err.message : micError(err);
+    rcDraw(); showMine();
+  });
+}
+/* Stopping early keeps what was played: the take still runs the full length of the clip, and
+   everything after the stop is silence. */
+function rcFinish() {
+  if (RC.state !== 'recording') return;
+  var a = ac(), sr = a.sampleRate;
+  var lat = (a.outputLatency || 0) + (a.baseLatency || 0) + (RC.inLat || 0);
+  var played = Math.max(0, a.currentTime - RC.songStart), len = RC.fixed;
+  rcCleanup();
+  if (played < 0.5) {
+    RC.state = 'idle'; RC.err = played === 0 ? 'Nothing was recorded yet, the count-in was still running.' : 'That was too short to keep.';
+    rcDraw(); showMine(); return;
+  }
+  RC.partial = played < len - 0.25 ? played : 0;
+  var made = assembleTake({ chunks:RC.chunks, sr:sr, t0:RC.t0, songStart:RC.songStart, lat:lat, len:len, countIn:RC.countIn, click:RC.click, beat:RC.beat });
+  var buf = a.createBuffer(1, made.out.length, sr); buf.copyToChannel(made.out, 0);
+  RC.warn = quietNote(RC.peak, !!recAmpFor(rcRole()), rcRole()) || (made.bleed ? bleedNote(made.bleed) : '');
+  RC.done = { buf:buf, file:new File([encodeWav(buf)], 'recorded take.wav', { type:'audio/wav' }) };
+  RC.chunks = null; RC.state = 'done';
+  rcDraw(); showMine();
+}
+/* what the take on offer is: the uploaded file, or the recording, whichever tab is open */
+function mine() {
+  if (R.src === 'rec') return RC.done ? { file:RC.done.file, buf:RC.done.buf, amp:recAmpFor(rcRole()) } : null;
+  return R.file && R.buf ? { file:R.file, buf:R.buf, amp:'' } : null;
+}
+function showMine() {
+  var slot = el('md-slot'); if (!slot) return;
+  var m = mine();
+  if (!m) {
+    var live = R.src === 'rec' && (RC.state === 'recording' || RC.state === 'asking');
+    slot.innerHTML = '<div class="md-empty' + (live ? ' live' : '') + '" id="md-empty">' + (live ? 'Recording…' : 'Your take lands here') + '</div>'; return;
+  }
+  slot.innerHTML = '<canvas id="md-mine"></canvas>';
+  waveShape(el('md-mine'), m.buf, getComputedStyle(document.documentElement).getPropertyValue('--sound').trim());
+}
+function setRSrc(src) {
+  if (src === 'file' && (RC.state === 'recording' || RC.state === 'asking')) rcCancel();
+  if (src === 'file') disarmMonitor();
+  R.src = src;
+  [].forEach.call(document.querySelectorAll('[data-rsrc]'), function (b) { b.setAttribute('aria-selected', String(b.dataset.rsrc === src)); });
+  el('r-src-file').hidden = src !== 'file'; el('r-src-rec').hidden = src !== 'rec';
+  if (S.playing === 'reply') { stop(); mdIdle(); render(); }
+  if (src === 'rec') { rcDraw(); rcMics(); if (savedMon()) rcArm(); }
+  showMine();
+  el('r-err').textContent = '';
+}
+document.addEventListener('click', function (e) {
+  var t = e.target.closest('[data-rsrc]');
+  if (t) { setRSrc(t.dataset.rsrc); return; }
+  var b = e.target.closest('#r-rec [data-rc]'); if (!b) return;
+  var w = b.dataset.rc;
+  if (w === 'start') rcStart();
+  else if (w === 'finish') rcFinish();
+  else if (w === 'cancel') rcCancel();
+  else if (w === 'again') { rcReset(); rcDraw(); showMine(); }
+  else if (w === 'listen') mdPlay();
+  else if (w === 'inputs') allowInputs().then(function () { rcMics(); }, function (err) { RC.err = micError(err); rcDraw(); });
+});
+el('r-rec').addEventListener('change', function (e) {
+  var t = e.target, w = t.dataset && t.dataset.rc;
+  if (w === 'click') RC.click = t.checked;
+  else if (w === 'countin') RC.countIn = +t.value;
+  else if (w === 'mic') { rememberMic(t.value); rcRearm(); }
+  else if (w === 'amp') { rememberAmp(t.value); if (t.value) preloadAmp(t.value); rcRearm(); }
+  else if (w === 'mon') { rememberMon(t.checked); if (t.checked) rcArm(); else disarmMonitor(); }
+});
+el('r-layer').addEventListener('change', function () {
+  mdYou();
+  var l = el('rc-amp'); if (l) l.hidden = AMP_ROLES.indexOf(rcRole()) < 0;
+  var rt = el('rc-rate'); if (rt) rt.hidden = AMP_ROLES.indexOf(rcRole()) < 0;
+  rcRearm();
+});
 el('r-over').addEventListener('click', function (e) {
   var b;
   if (e.target.closest('#md-play')) { mdPlay(); return; }
@@ -603,6 +822,7 @@ el('r-over').addEventListener('click', function (e) {
 });
 el('r-file').addEventListener('change', function () {
   var f = el('r-file').files[0]; R.file = null; R.buf = null; el('r-err').textContent = '';
+  showMine();
   if (!f) return;
   f.arrayBuffer().then(function (ab) { return ac().decodeAudioData(ab); }).then(function (b) {
     var want = MD.dur;
@@ -611,15 +831,15 @@ el('r-file').addEventListener('change', function () {
       return;
     }
     R.file = f; R.buf = b;
-    var slot = el('md-empty'); if (slot) slot.outerHTML = '<canvas id="md-mine"></canvas>';
-    waveShape(el('md-mine'), b, getComputedStyle(document.documentElement).getPropertyValue('--sound').trim());
+    showMine();
   }).catch(function () { el('r-err').textContent = 'That file could not be read. Try a wav or mp3.'; });
 });
 el('r-go').addEventListener('click', function () {
   var who = el('r-name').value.trim();
-  if (!R.file) { el('r-err').textContent = el('r-err').textContent || 'Pick your take first, an audio file of the right length.'; return; }
+  var m = mine();
+  if (!m) { el('r-err').textContent = el('r-err').textContent || (R.src === 'rec' ? 'Record your take first, or upload a file.' : 'Pick your take first, an audio file of the right length.'); return; }
   if (!who) { el('r-err').textContent = 'Add your name first, it goes in the credits.'; el('r-name').focus(); return; }
-  var r = riff(R.rid), pp = R.pid ? postOf(r, R.pid) : null, file = R.file, buf = R.buf;
+  var r = riff(R.rid), pp = R.pid ? postOf(r, R.pid) : null, file = m.file, buf = m.buf, ampId = m.amp;
   var section = !pp ? null : pp.kind === 'part' ? pp.id : pp.section || null;
   var replyTo = pp && pp.kind !== 'part' ? pp.id : null;
   el('r-go').disabled = true; el('r-err').textContent = 'Uploading…';
@@ -627,9 +847,16 @@ el('r-go').addEventListener('click', function () {
     rememberName(who);
     var path = r.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(file.name), type = typeFor(file);
     return db.uploadAudio(path, file, type).then(function () {
-      return db.insertTake({ session_id:r.id, author_id:u.id, author_name:who.slice(0, 60), role_id:el('r-layer').value, note:el('r-text').value.trim(),
+      var row = { session_id:r.id, author_id:u.id, author_name:who.slice(0, 60), role_id:el('r-layer').value, note:el('r-text').value.trim(),
         status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, section_id:section, reply_to:replyTo,
-        on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) });
+        on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) };
+      if (ampId) row.amp = ampId;
+      /* without the amp migration the take still goes in, just without its amp (as in the project) */
+      return db.insertTake(row).catch(function (e) {
+        if (!row.amp || !/amp/.test(String(e && (e.message || e.details)))) throw e;
+        delete row.amp;
+        return db.insertTake(row);
+      });
     });
   }).then(function (row) {
     BUF[r.id + ':' + row.id] = buf;
@@ -673,7 +900,7 @@ document.addEventListener('click', function (e) {
   /* re-rendering replaced the button: keep the focus on the same instrument */
   var same = document.querySelector(where + ' [data-inst="' + b.dataset.inst + '"]');
   if (same) same.focus();
-  if (el('picked').hidden) toast(role(b.dataset.inst).label + ' it is. Upload your clip, or record it in the song view.');
+  if (el('picked').hidden) toast(role(b.dataset.inst).label + ' it is. Upload your clip, or record it live.');
 });
 var startFrom = null;
 function openStart() {

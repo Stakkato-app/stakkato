@@ -256,10 +256,11 @@ html{scroll-behavior:smooth}
 .threadbar .faces .ava{border-color:var(--tb-bg)}
 .threadbar .tb-txt{flex:1;min-width:0;font-size:14.5px}
 .threadbar .tb-txt small{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.threadbar .tb-go{flex:none;font-weight:700;font-size:14.5px;white-space:nowrap;background:var(--ink);color:var(--paper);border-radius:99px;padding:9px 16px}
+.threadbar .tb-go{flex:none;font-weight:700;font-size:14.5px;white-space:nowrap;background:color-mix(in srgb,var(--ink) 62%,var(--paper));color:var(--paper);border-radius:99px;padding:9px 16px}
 .threadbar .tb-go i{font-style:normal;display:inline-block;margin-left:2px}
 .threadbar.open{padding:10px 24px}
-.threadbar.open .tb-go{background:none;color:var(--muted);padding:0}
+.threadbar:hover .tb-go{background:color-mix(in srgb,var(--ink) 80%,var(--paper))}
+.threadbar.open .tb-go,.threadbar.open:hover .tb-go{background:none;color:var(--muted);padding:0}
 .threadbar.open:hover .tb-go{color:var(--ink)}
 /* in an open thread, what you can act on shows it on hover */
 .take,.bubble{transition:box-shadow .15s,border-color .15s}
@@ -292,6 +293,7 @@ html{scroll-behavior:smooth}
 .modal h3{font-size:22px}
 .over{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tint);padding:10px 12px;font-size:14px}
 .md-modal{width:min(780px,100%)}
+#reply-scrim .modal > *{flex:none}
 #reply-scrim .over{padding:0;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--paper)}
 .md-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--tint)}
 .md-top .play{width:36px;height:36px;font-size:12px}
@@ -309,6 +311,37 @@ html{scroll-behavior:smooth}
 .md-lane.you{background:repeating-linear-gradient(135deg,transparent 0 8px,var(--tint) 8px 16px)}
 .md-empty{height:34px;border:1.5px dashed var(--sound);background:var(--sound-faint);border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--sound-ink)}
 .md-head{position:absolute;top:0;bottom:0;width:2px;background:var(--sound);pointer-events:none}
+/* recording a reply: the same recorder as in the project, in the pop-up */
+.md-slot{min-width:0}
+.md-slot .md-empty.live{border-color:var(--live);background:transparent;color:var(--red)}
+.rc-tabs{display:flex;gap:4px;padding:4px;background:var(--tint);border-radius:99px}
+.rc-tabs button{flex:1;min-height:38px;border:0;border-radius:99px;background:transparent;color:var(--muted);font:inherit;font-weight:700;cursor:pointer}
+.rc-tabs button[aria-selected="true"]{background:var(--action);color:var(--on-action)}
+.rc-box{border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--tint)}
+.rc-row{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
+.rc-opt{display:flex;align-items:center;gap:8px;font-size:14px;min-height:30px;cursor:pointer}
+.rc-opt input{width:18px;height:18px;accent-color:var(--action)}
+.rc-sel{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--muted)}
+.rc-sel select{min-height:38px;max-width:220px;padding:4px 10px;border:1px solid var(--line-strong);border-radius:99px;background:var(--paper);color:var(--ink);font:inherit;font-size:14px;font-weight:400;text-overflow:ellipsis}
+.rc-sel[hidden]{display:none}
+.rc-go{align-self:flex-start}
+.rc-find{font-size:13px;font-weight:700;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.rc-find[hidden]{display:none}
+.rc-dot{width:11px;height:11px;border-radius:50%;background:var(--live);flex:none}
+.rc-live{display:flex;flex-direction:column;gap:10px}
+.rc-status{font-family:var(--disp);font-weight:800;font-size:19px;line-height:1}
+.rc-status.counting{color:var(--sound-ink)}
+.rc-status.live{color:var(--red)}
+.rc-meter{height:8px;border-radius:99px;background:var(--line-soft);overflow:hidden}
+.rc-meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sound) 60%,#D9A400 82%,var(--live));transition:width .08s linear}
+.rc-acts{display:flex;gap:8px;flex-wrap:wrap}
+.rc-done{display:flex;flex-direction:column;gap:6px}
+.rc-done b{font-family:var(--disp);font-weight:800;font-size:18px}
+.rc-err{margin:0;color:var(--red);font-size:13px;font-weight:600}
+.rc-warn{margin:0;padding:10px 12px;border-radius:var(--radius-sm);background:var(--wait-bg);color:var(--wait-ink);font-size:13px;line-height:1.45}
+.rc-info{margin:0;font-size:12px;color:var(--muted)}
+.rc-tiny{margin:0;font-size:12.5px;color:var(--muted);line-height:1.45}
+@media (max-width:560px){ .rc-go{width:100%;justify-content:center} .rc-sel{flex:1 1 100%} .rc-sel select{flex:1;max-width:none;min-width:0} }
 @media (max-width:560px){ .md-lane{grid-template-columns:76px minmax(0,1fr) 30px;padding:4px 8px} .md-hint{display:none} }
 .over .chains{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .field{display:flex;flex-direction:column;gap:5px}
@@ -396,7 +429,7 @@ header.top .brand{display:flex}
     <div class="start-acts">
       <div class="insts"><span class="insts-lbl">Start with any instrument. Others stack the rest.</span><div class="inst-row" data-insts></div></div>
       <button class="btn up-open" type="button" data-upopen="1">Upload a clip</button>
-      <a class="start-rec" href="/new"><span aria-hidden="true">&#9679;</span> Or record one in the song view</a>
+      <a class="start-rec" href="/new"><span aria-hidden="true">&#9679;</span> Or record one live</a>
     </div>
   </section>
 </div>
@@ -428,8 +461,8 @@ header.top .brand{display:flex}
   </div>
   <div class="droppanel recpanel">
     <div><h3>Or record one</h3><p class="sub">A count-in, and the click keeps going while you play.</p></div>
-    <a class="btn" href="/new">&#9679; Record in the song view</a>
-    <p class="note">Recording happens in the song view, where you also set the tempo and the click.</p>
+    <a class="btn" href="/new">&#9679; Record live</a>
+    <p class="note">Recording happens in the project, where you also set the tempo and the click.</p>
   </div>
 </div>
 </div></div>
@@ -439,9 +472,14 @@ header.top .brand{display:flex}
     <h3 id="r-title">Reply with audio</h3>
     <div class="over" id="r-over"></div>
     <div class="field"><label for="r-layer">You play</label><select id="r-layer"></select></div>
-    <div class="field"><label for="r-file">Your take</label>
+    <div class="rc-tabs" role="tablist" aria-label="Where your take comes from">
+      <button type="button" role="tab" data-rsrc="file" aria-selected="true">Upload a file</button>
+      <button type="button" role="tab" data-rsrc="rec" aria-selected="false">Record here</button>
+    </div>
+    <div class="field" id="r-src-file"><label for="r-file">Your take</label>
       <input type="file" id="r-file" accept="audio/*">
       <span class="muted r-len" id="r-len"></span></div>
+    <div id="r-src-rec" hidden><div class="rc-box" id="r-rec"></div></div>
     <div class="field"><label for="r-text">Say something (optional)</label><input type="text" id="r-text" maxlength="280" placeholder="what you were going for"></div>
     <div class="field"><label for="r-name">Your name</label><input type="text" id="r-name" maxlength="40" placeholder="how you show up in the credits"></div>
     <p class="err" id="r-err"></p>

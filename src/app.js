@@ -23,6 +23,8 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
+         beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
 var NAME_KEY = 'riffraff:name';
@@ -960,7 +962,7 @@ var AC = null, master = null, analyser = null, freq = null;
 var gains = {}, sources = {}, startedAt = 0, offset = 0, running = false, only = null, raf = 0;
 function ac() {
   if (!AC) {
-    AC = new (window.AudioContext || window.webkitAudioContext)();
+    AC = newContext();
     master = AC.createGain();
     analyser = AC.createAnalyser();
     analyser.fftSize = 256;
@@ -1356,46 +1358,15 @@ function downloadAll() {
 }
 
 /* ---------- wav, click, count-in ---------- */
-function encodeWav(buf) {
-  var ch = buf.numberOfChannels, sr = buf.sampleRate, n = buf.length;
-  var dv = new DataView(new ArrayBuffer(44 + n * ch * 2));
-  function str(o, s){ for (var i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); }
-  str(0, 'RIFF'); dv.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
-  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true);
-  dv.setUint32(24, sr, true); dv.setUint32(28, sr * ch * 2, true); dv.setUint16(32, ch * 2, true);
-  dv.setUint16(34, 16, true); str(36, 'data'); dv.setUint32(40, n * ch * 2, true);
-  var data = []; for (var c = 0; c < ch; c++) data.push(buf.getChannelData(c));
-  var o = 44;
-  for (var i = 0; i < n; i++) for (var c2 = 0; c2 < ch; c2++) {
-    var v = Math.max(-1, Math.min(1, data[c2][i]));
-    dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7FFF, true); o += 2;
-  }
-  return new Blob([dv.buffer], { type:'audio/wav' });
-}
 function trimStart(buf, sec) {
   var cut = Math.min(buf.length - 1, Math.round(sec * buf.sampleRate));
   var out = ac().createBuffer(buf.numberOfChannels, buf.length - cut, buf.sampleRate);
   for (var c = 0; c < buf.numberOfChannels; c++) out.copyToChannel(buf.getChannelData(c).subarray(cut), c);
   return out;
 }
-function beatInfo() {
-  var sig = S.meta.time === 'odd' ? '4/4' : S.meta.time, p = sig.split('/');
-  var beats = +p[0] || 4, unit = +p[1] || 4;
-  return { beats:beats, beat:(60 / (S.meta.bpm || 120)) * (4 / unit), bar:barSeconds() };
-}
-/* click samples: count-in bars first, then the song, accent on every bar's first beat */
-function clickSamples(sr, countBars, songSec) {
-  var b = beatInfo(), total = countBars * b.bar + songSec + 0.05;
-  var out = new Float32Array(Math.ceil(total * sr)), blip = Math.round(0.045 * sr);
-  var nBeats = Math.ceil((countBars * b.bar + songSec) / b.beat);
-  for (var k = 0; k < nBeats; k++) {
-    var at = Math.round(k * b.beat * sr), first = k % b.beats === 0, counting = k < countBars * b.beats;
-    var f = first ? (counting ? 1760 : 1500) : 1000, amp = first ? 0.9 : 0.55;
-    for (var i = 0; i < blip && at + i < out.length; i++)
-      out[at + i] += amp * Math.sin(2 * Math.PI * f * i / sr) * Math.exp(-i / (sr * 0.012));
-  }
-  return out;
-}
+function beatInfo() { return beatInfoFor(S.meta.bpm, S.meta.time); }
+/* click samples: count-in bars first, then the song, accent on every bar's first beat (rec.js) */
+function clickSamples(sr, countBars, songSec) { return clickRaw(sr, countBars, songSec, beatInfo()); }
 function clickBuffer(countBars, songSec) {
   var sr = ac().sampleRate, data = clickSamples(sr, countBars, songSec);
   var b = ac().createBuffer(1, data.length, sr);
@@ -1461,25 +1432,7 @@ function playBacking(list, T, into, from) {
     into.push(s); REC.nodes.push(g);
   });
 }
-/* The microphone is captured by an AudioWorklet (off the page's main thread, so redrawing
-   the page can't make it drop audio). Browsers without it fall back to ScriptProcessorNode.
-   The worklet hands over blocks of 2048 samples with the context time of their first sample. */
-var REC_WORKLET = "class StakkatoRec extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0;this.t=0}" +
-  "process(inputs){var ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(var i=0;i<ch.length;i++){if(this.n===0)this.t=currentTime+i/sampleRate;" +
-  "this.b[this.n++]=ch[i];if(this.n===this.b.length){this.port.postMessage({t:this.t,d:this.b},[this.b.buffer]);this.b=new Float32Array(2048);this.n=0}}return true}}" +
-  "registerProcessor('stackato-rec',StakkatoRec);";
-function recWorklet(a) {
-  if (!a.audioWorklet || typeof AudioWorkletNode === 'undefined') return Promise.reject(new Error('no worklet'));
-  if (!a.__stackatoRec) {
-    var url = URL.createObjectURL(new Blob([REC_WORKLET], { type:'application/javascript' }));
-    a.__stackatoRec = a.audioWorklet.addModule(url);
-  }
-  return a.__stackatoRec;
-}
 /* ---------- which input to record from ---------- */
-var MIC_KEY = 'stackato:mic';
-function savedMic() { try { return localStorage.getItem(MIC_KEY) || ''; } catch (e) { return ''; } }
-function rememberMic(id) { try { if (id) localStorage.setItem(MIC_KEY, id); else localStorage.removeItem(MIC_KEY); } catch (e) {} }
 S.mics = [];
 function micOptions() {
   var cur = savedMic();
@@ -1489,15 +1442,9 @@ function micOptions() {
 }
 /* ---------- the amp you record through: remembered per browser. The take is stored dry
    and keeps this amp as its setting, so it can be changed later. ---------- */
-var AMP_KEY = 'stackato:amp', MON_KEY = 'stackato:monitor', AMP_ROLES = ['guitar', 'lead', 'bass'];
-function savedAmp() { try { return localStorage.getItem(AMP_KEY) || ''; } catch (e) { return ''; } }
-function rememberAmp(id) { try { if (id) localStorage.setItem(AMP_KEY, id); else localStorage.removeItem(AMP_KEY); } catch (e) {} }
-function savedMon() { try { return localStorage.getItem(MON_KEY) === '1'; } catch (e) { return false; } }
-function rememberMon(on) { try { localStorage.setItem(MON_KEY, on ? '1' : '0'); } catch (e) {} }
 /* the amp a recording for this layer gets: only guitar-like layers use one */
 /* the layer being recorded: the grey track's, the send window's, none for the original track */
 function recRoleId() { return REC.where === 'daw' ? S.recRole || ROLES[0].id : REC.where === 'seed' ? '' : el('take-role').value; }
-function recAmpFor(rid) { return AMP_ROLES.indexOf(rid) > -1 ? savedAmp() : ''; }
 function ampPicker(rid) {
   var cur = savedAmp(), on = AMP_ROLES.indexOf(rid) > -1;
   if (on && cur) preloadAmp(cur);
@@ -1507,33 +1454,31 @@ function ampPicker(rid) {
     }).join('') + '</select></label>';
 }
 function showAmpPick(rid) {
-  [].forEach.call(document.querySelectorAll('.amp-mini'), function (l) { l.hidden = AMP_ROLES.indexOf(rid) < 0; });
+  [].forEach.call(document.querySelectorAll('.amp-mini, .rate-tip'), function (l) { l.hidden = AMP_ROLES.indexOf(rid) < 0; });
 }
+/* "Hear yourself" arms the input: you hear it right away, through the amp for this layer */
+function monRole() { return el('scrim').classList.contains('on') ? el('take-role').value : REC.where === 'seed' ? '' : (S.recRole || ROLES[0].id); }
+function arm() {
+  armMonitor(ac(), recAmpFor(monRole()), master).then(refreshMics, function (err) {
+    rememberMon(false);
+    [].forEach.call(document.querySelectorAll('.mon-pick'), function (c) { c.checked = false; });
+    flash(micError(err));
+  });
+}
+function rearm() { if (monitorOn()) arm(); }
 function monPicker() {
-  return '<label class="rec-opt mon-opt" title="Hear your input in the headphones while you record. Leave it off if your interface already lets you hear yourself.">' +
+  return '<label class="rec-opt mon-opt" title="Hear your input in the headphones right away, through the amp if you picked one. Leave it off if your interface already lets you hear yourself.">' +
     '<input type="checkbox" class="mon-pick"' + (savedMon() ? ' checked' : '') + '><span>Hear yourself</span></label>';
 }
 function micPicker() { return '<label class="mini mic"><span>input</span><select class="mic-pick">' + micOptions() + '</select></label>'; }
 /* labels only show once the browser has been allowed to use a microphone */
 function refreshMics() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
-  navigator.mediaDevices.enumerateDevices().then(function (list) {
-    S.mics = list.filter(function (d) { return d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'; })
-      .map(function (d) { return { id:d.deviceId, label:d.label }; });
+  listMics().then(function (list) {
+    S.mics = list;
     [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.innerHTML = micOptions(); });
-  }).catch(function () {});
-}
-if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', refreshMics);
-function openMic() {
-  var base = { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
-  var id = savedMic();
-  var want = id ? Object.assign({ deviceId:{ exact:id } }, base) : base;
-  return navigator.mediaDevices.getUserMedia({ audio:want }).catch(function (err) {
-    /* the chosen input is gone: forget it and use the default */
-    if (id && err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) { rememberMic(''); return navigator.mediaDevices.getUserMedia({ audio:base }); }
-    throw err;
   });
 }
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', refreshMics);
 function recStart() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     REC.err = 'This browser does not give pages access to a microphone.'; renderRec(); return;
@@ -1547,43 +1492,24 @@ function recStart() {
     return recWorklet(a).then(function () { return { stream:stream, worklet:true }; }, function () { return { stream:stream, worklet:false }; });
   }).then(function (got) {
     if (REC.state !== 'asking') { got.stream.getTracks().forEach(function (tr) { tr.stop(); }); return; }
-    var src = a.createMediaStreamSource(got.stream);
-    var sink = a.createGain(); sink.gain.value = 0;
     var chunks = [], bar = barSeconds(), extend = M.mode === 'extend';
     var countIn = S.countIn, t0 = a.currentTime + 0.4, songStart = t0 + countIn * bar;
     var fixed = extend ? 0 : secLen(M.sec);
     REC.songStart = songStart; REC.t0 = t0; REC.countIn = countIn; REC.fixed = fixed; REC.level = 0; REC.peak = 0;
     /* the input's own delay, where the browser reports it */
-    var ts = got.stream.getAudioTracks()[0], st = ts && ts.getSettings ? ts.getSettings() : {};
-    REC.inLat = typeof st.latency === 'number' && st.latency > 0 && st.latency < 0.5 ? st.latency : 0;
+    REC.inLat = inputLatency(got.stream);
     function onChunk(d, t, sr) {
-      var pk = 0;
-      for (var i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > pk) pk = v; }
-      REC.level = Math.max(pk, REC.level * 0.85);
-      if (t >= songStart && pk > REC.peak) REC.peak = pk;
+      var bp = blockPeaks(d);
+      REC.level = Math.max(bp.peak, REC.level * 0.85);
+      if (t >= songStart && bp.peak > REC.peak) REC.peak = bp.peak;
       /* eight sub-peaks per chunk, so the take can be drawn finely while it comes in */
-      var pks = [], seg = Math.ceil(d.length / 8);
-      for (var q = 0; q < 8; q++) { var m = 0; for (var k = q * seg; k < Math.min(d.length, (q + 1) * seg); k++) { var u = Math.abs(d[k]); if (u > m) m = u; } pks.push(m); }
-      chunks.push({ t:t, d:d, pks:pks, dur:d.length / sr });
+      chunks.push({ t:t, d:d, pks:bp.pks, dur:d.length / sr });
     }
-    if (got.worklet) {
-      var node = new AudioWorkletNode(a, 'stackato-rec', { numberOfInputs:1, numberOfOutputs:1, channelCount:1, channelCountMode:'explicit' });
-      node.port.onmessage = function (e) { onChunk(e.data.d, e.data.t, a.sampleRate); };
-      src.connect(node); node.connect(sink); sink.connect(a.destination);
-      REC.nodes = [src, node, sink];
-    } else {
-      var proc = a.createScriptProcessor(4096, 1, 1);
-      proc.onaudioprocess = function (e) {
-        var d = e.inputBuffer.getChannelData(0);
-        onChunk(new Float32Array(d), e.playbackTime - d.length / e.inputBuffer.sampleRate, e.inputBuffer.sampleRate);
-      };
-      src.connect(proc); proc.connect(sink); sink.connect(a.destination);
-      REC.nodes = [src, proc, sink];
-    }
-    /* hearing yourself, through the amp if one is picked (the take itself stays dry) */
-    if (savedMon()) {
-      src.connect(ampInto(recAmpFor(recRoleId()), 0, master, REC.nodes));
-    }
+    var cap = capture(a, got.stream, got.worklet, onChunk), src = cap.src;
+    REC.nodes = cap.nodes;
+    /* hearing yourself, through the amp if one is picked (the take itself stays dry); when the
+       input is already armed it keeps playing as it is */
+    if (savedMon() && !monitorOn()) arm();
     /* what you hear: the click and, for a layer, the chosen tracks from bar 1 */
     if (REC.click) {
       var cs = a.createBufferSource();
@@ -1601,9 +1527,7 @@ function recStart() {
   }).catch(function (err) {
     recCleanup();
     REC.state = 'idle';
-    REC.err = (err && err.name === 'NotAllowedError')
-      ? 'The microphone was blocked. Allow it in your browser, or upload a file instead.'
-      : 'No microphone could be opened here. Upload a file instead.';
+    REC.err = micError(err);
     renderRec();
   });
 }
@@ -1613,8 +1537,6 @@ function recFinish() {
   if (REC.state !== 'recording') return;
   var a = ac(), sr = a.sampleRate;
   var lat = (a.outputLatency || 0) + (a.baseLatency || 0) + (REC.inLat || 0);
-  var pre = REC.songStart - REC.t0, preN = Math.round(pre * sr);
-  var from = REC.t0 + lat;
   var played = Math.max(0, a.currentTime - REC.songStart);
   var len = REC.fixed || played;
   recCleanup();
@@ -1624,28 +1546,9 @@ function recFinish() {
     renderRec(); return;
   }
   REC.partial = REC.fixed && played < REC.fixed - 0.25 ? played : 0;
-  /* Blocks are laid back to back, sample-exact: only the first block's timestamp places the
-     take (timestamps jitter a little, and placing every block by its own left tiny gaps and
-     overlaps you could hear). If a block really went missing, the next one resyncs to its time. */
-  /* everything from the first count-in click on, plus some room to line the take up later */
-  var room = Math.round(0.4 * sr);
-  var all = new Float32Array(preN + Math.round(len * sr) + room), cursor = null;
-  REC.chunks.forEach(function (c) {
-    var at = Math.round((c.t - from) * sr);
-    if (cursor === null || Math.abs(at - cursor) > c.d.length) cursor = at;
-    for (var i = 0; i < c.d.length; i++) { var j = cursor + i; if (j >= 0 && j < all.length) all[j] = c.d[i]; }
-    cursor += c.d.length;
-  });
-  /* If the click got into the recording (speakers, or an interface that sends the computer's
-     sound back in), it shows exactly how late the recording runs: line the take up by it and
-     take the click back out. */
-  var shift = 0, bleed = REC.click ? findClick(all, sr, REC.countIn, len) : null;
-  if (bleed) {
-    shift = bleed.lag;
-    var ref = clickSamples(sr, REC.countIn, len + 0.4);
-    for (var q = 0; q < all.length - shift && q < ref.length; q++) if (q + shift >= 0) all[q + shift] -= bleed.gain * ref[q];
-  }
-  var out = all.slice(Math.max(0, preN + shift), Math.max(0, preN + shift) + Math.round(len * sr));
+  /* the blocks laid back to back, lined up by the click if it got into the recording (rec.js) */
+  var made = assembleTake({ chunks:REC.chunks, sr:sr, t0:REC.t0, songStart:REC.songStart, lat:lat, len:len, countIn:REC.countIn, click:REC.click, beat:beatInfo() });
+  var bleed = made.bleed, out = made.out;
   /* A take of free length (the original track, a new part) ends on the bar where the playing
      stops, not where you pressed stop: the silence after it would become part of the song. */
   if (!REC.fixed) {
@@ -1663,15 +1566,11 @@ function recFinish() {
       REC.info = 'Cut to ' + bars + ' bar' + (bars > 1 ? 's' : '') + ' (' + clockMs(keep / sr) + '): the ' + cutSec.toFixed(1) + ' s of silence before you pressed stop is left out.';
     }
   }
-  if (bleed) REC.warn = 'The click was in your recording' + (bleed.clean ? '' : ' (some of it may still be audible)') + ', so your input also picks up the computer’s sound. ' +
-    'We took it out and lined the take up with the beat. To keep it out next time, wear headphones and turn off the computer’s sound on the input you record from (Quad Cortex: don’t send USB playback to USB 1/2).';
+  if (bleed) REC.warn = bleedNote(bleed);
   /* a very quiet take usually means the wrong input or channel (a DI channel, for one) */
   /* (a dry guitar through one of our amps is fine quiet: the amp brings it up) */
-  var amped = !!recAmpFor(recRoleId());
-  if (REC.peak > 0 && REC.peak < (amped ? 0.004 : 0.06))
-    REC.warn = 'This came in very quiet (peak ' + Math.round(20 * Math.log10(REC.peak)) + ' dB). On an interface with many channels, like a Quad Cortex, ' +
-      'the browser records the first channel, which is often the dry DI. Send your processed sound there (Quad Cortex: I/O settings, DRY/WET for USB 1/2) or pick another input.' +
-      (amped || AMP_ROLES.indexOf(recRoleId()) < 0 ? '' : ' If it is a dry guitar on purpose, pick an amp for it.');
+  var quiet = quietNote(REC.peak, !!recAmpFor(recRoleId()), recRoleId());
+  if (quiet) REC.warn = quiet;
   var buf = a.createBuffer(1, out.length, sr);
   buf.copyToChannel(out, 0);
   REC.buf = buf; REC.peakOf = minMaxOf(buf, 64).peak; REC.pvAt = 0;
@@ -1681,58 +1580,6 @@ function recFinish() {
   REC.chunks = null;
   REC.state = 'done';
   renderRec();
-}
-/* Looks for the click in a recording. The count-in bars are the place to look: nobody plays
-   there yet, so anything shaped like a click is the click. Returns how many samples late it is
-   and how loud, or null when the click isn't in there. */
-function findClick(all, sr, countIn, len) {
-  var b = beatInfo(), ref = clickSamples(sr, countIn, len), T = Math.round(0.02 * sr);
-  var beats = [], k;
-  var nCount = countIn * b.beats;
-  for (k = 0; k < Math.min(nCount, 8); k++) beats.push(Math.round(k * b.beat * sr));
-  var quiet = beats.length >= 3;
-  if (!quiet) for (k = nCount; beats.length < 8 && k * b.beat < countIn * b.bar + len - 0.5; k++) beats.push(Math.round(k * b.beat * sr));
-  if (beats.length < 3) return null;
-  var lo = -Math.round(0.03 * sr), hi = Math.round(0.3 * sr);
-  /* running energy of the recording, for normalised correlation */
-  var e2 = new Float64Array(all.length + 1);
-  for (var i = 0; i < all.length; i++) e2[i + 1] = e2[i] + all[i] * all[i];
-  var lags = [], gains = [];
-  /* the window starts a little before each click: the silence there is what pins the onset
-     (a click is a short sine, so without it every period of the sine would fit) */
-  var P = Math.round(0.008 * sr);
-  beats.forEach(function (at0) {
-    var at = Math.max(0, at0 - P), c = ref.subarray(at, at + T + P), cc = 0, W = c.length;
-    for (var j = 0; j < W; j++) cc += c[j] * c[j];
-    if (!cc) return;
-    var best = 0, bestLag = 0, bestDot = 0;
-    for (var L = lo; L <= hi; L++) {
-      var p = at + L;
-      if (p < 0 || p + W > all.length) continue;
-      var xx = e2[p + W] - e2[p];
-      if (xx < 1e-9) continue;
-      var dot = 0;
-      for (var m = 0; m < W; m++) dot += all[p + m] * c[m];
-      var r = dot / Math.sqrt(xx * cc);
-      if (r > best) { best = r; bestLag = L; bestDot = dot; }
-    }
-    if (best > (quiet ? 0.6 : 0.75)) { lags.push(bestLag); gains.push(bestDot / cc); }
-  });
-  if (lags.length < Math.ceil(beats.length * 0.75)) return null;
-  var sorted = lags.slice().sort(function (x, y) { return x - y; }), lag = sorted[sorted.length >> 1];
-  if (lags.filter(function (l) { return Math.abs(l - lag) <= Math.round(0.002 * sr); }).length < Math.ceil(beats.length * 0.75)) return null;
-  var g = gains.slice().sort(function (x, y) { return x - y; })[gains.length >> 1];
-  /* how much is left on the count-in beats once it's taken out: next to nothing for a click
-     that came back digitally, more for one picked up by a microphone */
-  var before = 0, after = 0;
-  beats.slice(0, quiet ? beats.length : 0).forEach(function (at) {
-    for (var j = 0; j < T * 2; j++) {
-      var p = at + lag + j; if (p < 0 || p >= all.length) continue;
-      var x = all[p], y = x - g * (ref[at + j] || 0);
-      before += x * x; after += y * y;
-    }
-  });
-  return { lag:lag, gain:g, clean: quiet ? after < before * 0.05 : false };
 }
 function recCancel() {
   recCleanup();
@@ -1967,6 +1814,7 @@ function renderRec() {
     '<p class="tiny muted">Wear headphones, otherwise the backing ends up in your take. ' +
       (extend ? 'Stop whenever your part is done.' : 'Recording starts on the first beat of ' + esc((section(M.sec) || section('core')).label) +
         ' and stops by itself after ' + fmt(secLen(M.sec)) + '.') + '</p>' +
+    (rateTip(ac()) ? '<p class="tiny muted rate-tip"' + (AMP_ROLES.indexOf(el('take-role').value) > -1 ? '' : ' hidden') + '>' + esc(rateTip(ac())) + '</p>' : '') +
     '<button class="btn btn-main rec-go" type="button" data-rec="start"><span class="rec-dot"></span> Start recording</button>' + err;
 }
 
@@ -3057,7 +2905,8 @@ function renderThreadSide() {
     ? '<div class="side-card"><b class="side-h">You decide</b><p class="tiny muted">Takes marked <span class="badge wait">To review</span> wait for you. ' +
         'Add one to the song or pass; passed takes stay in the thread and anyone can still play on them.</p></div>'
     : '<div class="side-card"><b class="side-h">Your take is a reply</b><p class="tiny muted">Play on any take in the thread: yours plays on top of everything above it. ' +
-        'Reply with words too, under a take or under someone’s words. The creator decides what goes in the song.</p></div>';
+        'Afterwards, anyone can stack on your take as well.</p>' +
+        '<p class="side-hint"><span class="side-arr" aria-hidden="true">&larr;</span>Select which stack of replies you want to see in the mixer.</p></div>';
 }
 function renderLock() {
   var nIn = S.members.length;
@@ -3477,7 +3326,7 @@ function closeModal() {
   if (lastFocus) lastFocus.focus();
 }
 
-el('take-role').addEventListener('change', roleHint);
+el('take-role').addEventListener('change', function () { roleHint(); rearm(); });
 el('take-sec').addEventListener('change', function () { M.sec = this.value; fillRoles(el('take-role').value); secHint(); });
 el('take-file').addEventListener('change', function () {
   el('file-name').textContent = this.files.length ? this.files[0].name
@@ -3983,21 +3832,24 @@ document.addEventListener('change', function (e) {
     if (el('countin-text')) countInLabel();
     return;
   }
-  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); return; }
+  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); rearm(); return; }
   if (e.target.classList.contains('amp-pick')) {
     rememberAmp(e.target.value);
     preloadAmp(e.target.value);
     [].forEach.call(document.querySelectorAll('.amp-pick'), function (sel) { sel.value = e.target.value; });
+    rearm();
     return;
   }
   if (e.target.classList.contains('mon-pick')) {
     rememberMon(e.target.checked);
     [].forEach.call(document.querySelectorAll('.mon-pick'), function (c) { c.checked = e.target.checked; });
+    if (e.target.checked) arm(); else disarmMonitor();
     return;
   }
   if (e.target.classList.contains('mic-pick')) {
     rememberMic(e.target.value);
     [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.value = e.target.value; });
+    rearm();
     return;
   }
   if (e.target.dataset.hear) {
