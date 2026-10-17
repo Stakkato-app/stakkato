@@ -482,7 +482,7 @@ function start() {
   paintHeader();
 
   // an email link the gate couldn't check (npm run dev, or no Supabase variables on Cloudflare)
-  if (location.pathname === '/auth/confirm') {
+  if (/^\/+auth\/confirm\/?$/.test(location.pathname)) {
     var th = q.get('token_hash'), type = q.get('type') || 'signup';
     history.replaceState(null, '', '/');
     if (th) {

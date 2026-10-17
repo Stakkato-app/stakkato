@@ -167,6 +167,12 @@ function pass(context, url) {
 export async function onRequest(context) {
   const request = context.request;
   const url = new URL(request.url);
+  /* Supabase can end the address in our email links with a slash, so the link reads
+     //auth/confirm: one slash, then on as usual (before the gate, which would drop it) */
+  if (url.pathname.startsWith('//')) {
+    url.pathname = url.pathname.replace(/^\/+/, '/');
+    return Response.redirect(url.toString(), 302);
+  }
   const password = context.env.ACCESS_PASSWORD;
   const token = password ? await tokenFor(password) : DEFAULT_TOKEN;
 

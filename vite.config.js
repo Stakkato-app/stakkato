@@ -9,7 +9,7 @@ const ROUTES = [
   [/^\/songs(?=$|\?)/, '/songs.html'],
   [/^\/privacy(?=$|\?)/, '/privacy.html'],
   [/^\/reset(?=$|\?)/, '/reset.html'],
-  [/^\/auth\/confirm(?=$|\?)/, '/index.html'],
+  [/^\/+auth\/confirm(?=$|\?)/, '/index.html'],
   [/^\/new(?=$|\?)/, '/session.html'],
   [/^\/s\/[\w-]+(?=$|\?)/, '/session.html']
 ];
