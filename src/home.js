@@ -15,7 +15,7 @@ import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var NAME_KEY = 'riffraff:name';    /* shared with the project */
@@ -527,6 +527,7 @@ var MD = null;
 function openScrim(id) { el(id).classList.add('on'); }
 function closeScrims() {
   if (RC.state === 'recording' || RC.state === 'asking') rcCancel();
+  disarmMonitor();
   if (S.playing === 'reply') { stop(); mdIdle(); render(); }
   var fromStart = el('start-scrim').classList.contains('on');
   [].forEach.call(document.querySelectorAll('.scrim'), function (s) { s.classList.remove('on'); });
@@ -628,7 +629,9 @@ function rcMicOptions() {
     return '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' + esc(m.label || ('Input ' + (i + 1))) + '</option>';
   }).join('');
 }
-function rcMics() { listMics().then(function (l) { RC.mics = l; var s = document.querySelector('#r-rec [data-rc="mic"]'); if (s) s.innerHTML = rcMicOptions(); }); }
+function rcMics() { return listMics().then(function (l) { RC.mics = l; var s = document.querySelector('#r-rec [data-rc="mic"]'); if (s) s.innerHTML = rcMicOptions(); rcFindBtn(); }); }
+/* before the browser has been allowed the microphone it only says "default": ask once */
+function rcFindBtn() { var b = document.querySelector('#r-rec [data-rc="inputs"]'); if (b) b.hidden = RC.mics.length > 0; }
 function rcAmpOptions() {
   var cur = savedAmp();
   return '<option value="">Off, as it comes in</option>' + AMPS.map(function (a) { return '<option value="' + a.id + '"' + (a.id === cur ? ' selected' : '') + '>' + esc(a.label) + '</option>'; }).join('');
@@ -659,8 +662,9 @@ function rcDraw() {
       '<label class="rc-sel"><span>count-in</span><select data-rc="countin">' + [0, 1, 2, 4].map(function (n) {
         return '<option value="' + n + '"' + (n === RC.countIn ? ' selected' : '') + '>' + n + ' bar' + (n === 1 ? '' : 's') + '</option>'; }).join('') + '</select></label>' +
       '<label class="rc-sel"><span>input</span><select data-rc="mic">' + rcMicOptions() + '</select></label>' +
+      '<button class="ghost rc-find" type="button" data-rc="inputs"' + (RC.mics.length ? ' hidden' : '') + '>Show my inputs</button>' +
       '<label class="rc-sel" id="rc-amp"' + (ampOn ? '' : ' hidden') + ' title="Recorded dry, heard through this amp. You can change it later."><span>amp</span><select data-rc="amp">' + rcAmpOptions() + '</select></label>' +
-      '<label class="rc-opt" title="Hear your input in the headphones while you record. Leave it off if your interface already lets you hear yourself."><input type="checkbox" data-rc="mon"' + (savedMon() ? ' checked' : '') + '><span>Hear yourself</span></label>' +
+      '<label class="rc-opt" title="Hear your input in the headphones right away, through the amp if you picked one. Leave it off if your interface already lets you hear yourself."><input type="checkbox" data-rc="mon"' + (savedMon() ? ' checked' : '') + '><span>Hear yourself</span></label>' +
     '</div>' +
     '<p class="rc-tiny">Wear headphones, otherwise the lanes end up in your take. You hear the lanes above that aren’t muted, from the first beat' +
       (MD.r.bpm ? '' : '. No tempo is known for this clip, so the click runs at 120 bpm') + '. It stops by itself after ' + mmss(MD.dur) + '.</p>' +
@@ -678,13 +682,16 @@ function rcStatus() {
   if (meter) meter.style.width = Math.min(100, RC.level * 140) + '%';
   var slot = el('md-empty'); if (slot) { slot.classList.add('live'); slot.textContent = now < RC.songStart ? 'Count-in…' : 'Recording…'; }
 }
-/* hearing yourself, through the amp if one is picked (the take itself stays dry) */
-function rcMonitor(src, dest) {
-  var amp = recAmpFor(rcRole()), la = amp ? liveAmp(ac(), amp, 0) : null;
-  if (!la) { src.connect(dest); return; }
-  la.output.connect(dest); src.connect(la.input);
-  RC.nodes.push({ disconnect:function () { dropAmp(la); } });
+/* "Hear yourself" arms the input: you hear it right away, through the amp for this layer
+   (the take itself stays dry), until you untick it or close the pop-up */
+function rcArm() {
+  armMonitor(ac(), recAmpFor(rcRole()), ac().destination).then(rcMics, function (err) {
+    rememberMon(false);
+    var c = document.querySelector('#r-rec [data-rc="mon"]'); if (c) c.checked = false;
+    RC.err = micError(err); rcDraw();
+  });
 }
+function rcRearm() { if (monitorOn()) rcArm(); }
 function rcStart() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { RC.err = 'This browser does not give pages access to a microphone.'; rcDraw(); return; }
   stop(); mdIdle(); render();
@@ -710,7 +717,7 @@ function rcStart() {
     });
     var mg = a.createGain(); mg.connect(a.destination);
     RC.nodes = cap.nodes.concat([mg]);
-    if (savedMon()) rcMonitor(cap.src, mg);
+    if (savedMon() && !monitorOn()) rcArm();
     if (RC.click) {
       var cs = a.createBufferSource(), cb = a.createBuffer(1, Math.ceil((countIn * bi.bar + len + 0.05) * a.sampleRate), a.sampleRate);
       cb.copyToChannel(clickSamples(a.sampleRate, countIn, len, bi).subarray(0, cb.length), 0);
@@ -768,11 +775,12 @@ function showMine() {
 }
 function setRSrc(src) {
   if (src === 'file' && (RC.state === 'recording' || RC.state === 'asking')) rcCancel();
+  if (src === 'file') disarmMonitor();
   R.src = src;
   [].forEach.call(document.querySelectorAll('[data-rsrc]'), function (b) { b.setAttribute('aria-selected', String(b.dataset.rsrc === src)); });
   el('r-src-file').hidden = src !== 'file'; el('r-src-rec').hidden = src !== 'rec';
   if (S.playing === 'reply') { stop(); mdIdle(); render(); }
-  if (src === 'rec') rcDraw();
+  if (src === 'rec') { rcDraw(); rcMics(); if (savedMon()) rcArm(); }
   showMine();
   el('r-err').textContent = '';
 }
@@ -786,18 +794,20 @@ document.addEventListener('click', function (e) {
   else if (w === 'cancel') rcCancel();
   else if (w === 'again') { rcReset(); rcDraw(); showMine(); }
   else if (w === 'listen') mdPlay();
+  else if (w === 'inputs') allowInputs().then(function () { rcMics(); }, function (err) { RC.err = micError(err); rcDraw(); });
 });
 el('r-rec').addEventListener('change', function (e) {
   var t = e.target, w = t.dataset && t.dataset.rc;
   if (w === 'click') RC.click = t.checked;
   else if (w === 'countin') RC.countIn = +t.value;
-  else if (w === 'mic') rememberMic(t.value);
-  else if (w === 'amp') { rememberAmp(t.value); if (t.value) preloadAmp(t.value); }
-  else if (w === 'mon') rememberMon(t.checked);
+  else if (w === 'mic') { rememberMic(t.value); rcRearm(); }
+  else if (w === 'amp') { rememberAmp(t.value); if (t.value) preloadAmp(t.value); rcRearm(); }
+  else if (w === 'mon') { rememberMon(t.checked); if (t.checked) rcArm(); else disarmMonitor(); }
 });
 el('r-layer').addEventListener('change', function () {
   mdYou();
   var l = el('rc-amp'); if (l) l.hidden = AMP_ROLES.indexOf(rcRole()) < 0;
+  rcRearm();
 });
 el('r-over').addEventListener('click', function (e) {
   var b;

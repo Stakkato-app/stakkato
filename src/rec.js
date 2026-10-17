@@ -4,6 +4,8 @@
    settings (input, amp, "Hear yourself") and the notes shown about a finished take.
    The pages keep their own screens and their own audio graph around it. */
 
+import { liveAmp, dropAmp } from './amp.js';
+
 /* ---------- per-browser settings (the keys keep the old product name on purpose) ---------- */
 var MIC_KEY = 'stackato:mic', AMP_KEY = 'stackato:amp', MON_KEY = 'stackato:monitor';
 /* only guitar-like layers go through an amp */
@@ -73,6 +75,37 @@ export function capture(a, stream, useWorklet, onChunk) {
   src.connect(proc); proc.connect(sink); sink.connect(a.destination);
   return { src:src, nodes:[src, proc, sink] };
 }
+/* ---------- "Hear yourself": the input armed, like a track in a DAW ----------
+   Ticking it opens the input right away and plays it to `dest` (through the amp when one is
+   given), so you hear yourself before and while you record. It stays on until it is unticked
+   or disarmed; a recording takes its own stream next to it, so nothing is heard twice. */
+var MON = null;
+export function monitorOn() { return !!MON; }
+export function armMonitor(a, ampId, dest) {
+  disarmMonitor();
+  var me = { nodes:[], stream:null };
+  MON = me;
+  a.resume();
+  return openMic().then(function (stream) {
+    if (MON !== me) { stream.getTracks().forEach(function (tr) { tr.stop(); }); return; }
+    me.stream = stream;
+    var src = a.createMediaStreamSource(stream), la = ampId ? liveAmp(a, ampId, 0) : null;
+    me.nodes.push(src);
+    if (la) { src.connect(la.input); la.output.connect(dest); me.nodes.push({ disconnect:function () { dropAmp(la); } }); }
+    else src.connect(dest);
+  }, function (err) { if (MON === me) MON = null; throw err; });
+}
+export function disarmMonitor() {
+  var m = MON; MON = null;
+  if (!m) return;
+  m.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
+  if (m.stream) m.stream.getTracks().forEach(function (tr) { tr.stop(); });
+}
+/* asks for the microphone once, so the browser tells us the names of the inputs */
+export function allowInputs() {
+  return navigator.mediaDevices.getUserMedia({ audio:true }).then(function (s) { s.getTracks().forEach(function (tr) { tr.stop(); }); return listMics(); });
+}
+
 /* the input's own delay, where the browser reports it */
 export function inputLatency(stream) {
   var ts = stream.getAudioTracks()[0], st = ts && ts.getSettings ? ts.getSettings() : {};

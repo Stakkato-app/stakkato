@@ -23,7 +23,7 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
@@ -1456,8 +1456,18 @@ function ampPicker(rid) {
 function showAmpPick(rid) {
   [].forEach.call(document.querySelectorAll('.amp-mini'), function (l) { l.hidden = AMP_ROLES.indexOf(rid) < 0; });
 }
+/* "Hear yourself" arms the input: you hear it right away, through the amp for this layer */
+function monRole() { return el('scrim').classList.contains('on') ? el('take-role').value : REC.where === 'seed' ? '' : (S.recRole || ROLES[0].id); }
+function arm() {
+  armMonitor(ac(), recAmpFor(monRole()), master).then(refreshMics, function (err) {
+    rememberMon(false);
+    [].forEach.call(document.querySelectorAll('.mon-pick'), function (c) { c.checked = false; });
+    flash(micError(err));
+  });
+}
+function rearm() { if (monitorOn()) arm(); }
 function monPicker() {
-  return '<label class="rec-opt mon-opt" title="Hear your input in the headphones while you record. Leave it off if your interface already lets you hear yourself.">' +
+  return '<label class="rec-opt mon-opt" title="Hear your input in the headphones right away, through the amp if you picked one. Leave it off if your interface already lets you hear yourself.">' +
     '<input type="checkbox" class="mon-pick"' + (savedMon() ? ' checked' : '') + '><span>Hear yourself</span></label>';
 }
 function micPicker() { return '<label class="mini mic"><span>input</span><select class="mic-pick">' + micOptions() + '</select></label>'; }
@@ -1497,10 +1507,9 @@ function recStart() {
     }
     var cap = capture(a, got.stream, got.worklet, onChunk), src = cap.src;
     REC.nodes = cap.nodes;
-    /* hearing yourself, through the amp if one is picked (the take itself stays dry) */
-    if (savedMon()) {
-      src.connect(ampInto(recAmpFor(recRoleId()), 0, master, REC.nodes));
-    }
+    /* hearing yourself, through the amp if one is picked (the take itself stays dry); when the
+       input is already armed it keeps playing as it is */
+    if (savedMon() && !monitorOn()) arm();
     /* what you hear: the click and, for a layer, the chosen tracks from bar 1 */
     if (REC.click) {
       var cs = a.createBufferSource();
@@ -3316,7 +3325,7 @@ function closeModal() {
   if (lastFocus) lastFocus.focus();
 }
 
-el('take-role').addEventListener('change', roleHint);
+el('take-role').addEventListener('change', function () { roleHint(); rearm(); });
 el('take-sec').addEventListener('change', function () { M.sec = this.value; fillRoles(el('take-role').value); secHint(); });
 el('take-file').addEventListener('change', function () {
   el('file-name').textContent = this.files.length ? this.files[0].name
@@ -3822,21 +3831,24 @@ document.addEventListener('change', function (e) {
     if (el('countin-text')) countInLabel();
     return;
   }
-  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); return; }
+  if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); rearm(); return; }
   if (e.target.classList.contains('amp-pick')) {
     rememberAmp(e.target.value);
     preloadAmp(e.target.value);
     [].forEach.call(document.querySelectorAll('.amp-pick'), function (sel) { sel.value = e.target.value; });
+    rearm();
     return;
   }
   if (e.target.classList.contains('mon-pick')) {
     rememberMon(e.target.checked);
     [].forEach.call(document.querySelectorAll('.mon-pick'), function (c) { c.checked = e.target.checked; });
+    if (e.target.checked) arm(); else disarmMonitor();
     return;
   }
   if (e.target.classList.contains('mic-pick')) {
     rememberMic(e.target.value);
     [].forEach.call(document.querySelectorAll('.mic-pick'), function (sel) { sel.value = e.target.value; });
+    rearm();
     return;
   }
   if (e.target.dataset.hear) {
