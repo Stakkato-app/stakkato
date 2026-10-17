@@ -256,10 +256,10 @@ html{scroll-behavior:smooth}
 .threadbar .faces .ava{border-color:var(--tb-bg)}
 .threadbar .tb-txt{flex:1;min-width:0;font-size:14.5px}
 .threadbar .tb-txt small{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.threadbar .tb-go{flex:none;font-weight:700;font-size:14.5px;white-space:nowrap;background:color-mix(in srgb,var(--ink) 80%,var(--paper));color:var(--paper);border-radius:99px;padding:9px 16px}
+.threadbar .tb-go{flex:none;font-weight:700;font-size:14.5px;white-space:nowrap;background:color-mix(in srgb,var(--ink) 11%,var(--paper));color:var(--ink);border-radius:99px;padding:9px 16px}
 .threadbar .tb-go i{font-style:normal;display:inline-block;margin-left:2px}
 .threadbar.open{padding:10px 24px}
-.threadbar:hover .tb-go{background:var(--ink)}
+.threadbar:hover .tb-go{background:color-mix(in srgb,var(--ink) 18%,var(--paper))}
 .threadbar.open .tb-go,.threadbar.open:hover .tb-go{background:none;color:var(--muted);padding:0}
 .threadbar.open:hover .tb-go{color:var(--ink)}
 /* in an open thread, what you can act on shows it on hover */
@@ -293,6 +293,7 @@ html{scroll-behavior:smooth}
 .modal h3{font-size:22px}
 .over{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tint);padding:10px 12px;font-size:14px}
 .md-modal{width:min(780px,100%)}
+#reply-scrim .modal > *{flex:none}
 #reply-scrim .over{padding:0;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--paper)}
 .md-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--tint)}
 .md-top .play{width:36px;height:36px;font-size:12px}

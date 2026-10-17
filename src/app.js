@@ -2895,7 +2895,8 @@ function renderThreadSide() {
     ? '<div class="side-card"><b class="side-h">You decide</b><p class="tiny muted">Takes marked <span class="badge wait">To review</span> wait for you. ' +
         'Add one to the song or pass; passed takes stay in the thread and anyone can still play on them.</p></div>'
     : '<div class="side-card"><b class="side-h">Your take is a reply</b><p class="tiny muted">Play on any take in the thread: yours plays on top of everything above it. ' +
-        'Reply with words too, under a take or under someone’s words. The creator decides what goes in the song.</p></div>';
+        'Afterwards, anyone can stack on your take as well.</p>' +
+        '<p class="side-hint"><span class="side-arr" aria-hidden="true">&larr;</span>Select which stack of replies you want to see in the mixer.</p></div>';
 }
 function renderLock() {
   var nIn = S.members.length;
