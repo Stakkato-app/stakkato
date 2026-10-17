@@ -21,6 +21,22 @@ export function rememberMon(on) { try { localStorage.setItem(MON_KEY, on ? '1' :
 /* the amp a recording for this layer gets: only guitar-like layers use one */
 export function recAmpFor(roleId) { return AMP_ROLES.indexOf(roleId) > -1 ? savedAmp() : ''; }
 
+/* ---------- the audio context ----------
+   Asks for the smallest buffer the device allows (latencyHint 0; the browser clamps it to its
+   minimum) instead of the default, so "Hear yourself" answers a little faster. Browsers that
+   don't take options get the default. The sample rate stays the device's own: forcing 48 kHz on
+   a 44.1 kHz device would only move the resampling to the output, with no time saved. */
+export function newContext() {
+  var C = window.AudioContext || window.webkitAudioContext;
+  try { return new C({ latencyHint:0 }); } catch (e) { return new C(); }
+}
+/* The amps are captured at 48 kHz; at 44.1 kHz the live amp resamples, which costs a few ms. */
+export function rateTip(a) {
+  return a && a.sampleRate && a.sampleRate !== 48000
+    ? 'Your audio runs at ' + (a.sampleRate / 1000).toFixed(1).replace(/\.0$/, '') + ' kHz. Set your interface (and your computer’s sound settings) to 48 kHz and the amp answers a few ms faster.'
+    : '';
+}
+
 /* ---------- the microphone ---------- */
 /* Captured by an AudioWorklet (off the page's main thread, so redrawing the page can't make it
    drop audio). Browsers without it fall back to ScriptProcessorNode. The worklet hands over

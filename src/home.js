@@ -15,7 +15,7 @@ import * as db from './data.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var NAME_KEY = 'riffraff:name';    /* shared with the project */
@@ -272,7 +272,7 @@ function chipLabel(p) { return p.isRiff ? 'clip' : p.isPart ? 'new part' : lay(p
 function chainChips(r, c) { return c.map(function (p) { return '<span class="chip"><span class="dot" style="background:' + lay(p.layer).c + '"></span>' + esc(whose(p)) + ' ' + chipLabel(p) + '</span>'; }).join(''); }
 
 /* ---------- audio ---------- */
-function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+function ac() { if (!AC) AC = newContext(); return AC; }
 function load(r, p) {
   var k = bufKey(r, p);
   if (BUF[k] || BUF[k + ':loading'] || !p.url) return Promise.resolve();
@@ -668,6 +668,7 @@ function rcDraw() {
     '</div>' +
     '<p class="rc-tiny">Wear headphones, otherwise the lanes end up in your take. You hear the lanes above that aren’t muted, from the first beat' +
       (MD.r.bpm ? '' : '. No tempo is known for this clip, so the click runs at 120 bpm') + '. It stops by itself after ' + mmss(MD.dur) + '.</p>' +
+    (rateTip(ac()) ? '<p class="rc-tiny" id="rc-rate"' + (ampOn ? '' : ' hidden') + '>' + esc(rateTip(ac())) + '</p>' : '') +
     '<button class="btn btn-main rc-go" type="button" data-rc="start"><span class="rc-dot"></span> Start recording</button>' + err;
 }
 function rcStatus() {
@@ -807,6 +808,7 @@ el('r-rec').addEventListener('change', function (e) {
 el('r-layer').addEventListener('change', function () {
   mdYou();
   var l = el('rc-amp'); if (l) l.hidden = AMP_ROLES.indexOf(rcRole()) < 0;
+  var rt = el('rc-rate'); if (rt) rt.hidden = AMP_ROLES.indexOf(rcRole()) < 0;
   rcRearm();
 });
 el('r-over').addEventListener('click', function (e) {

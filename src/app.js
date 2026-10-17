@@ -23,7 +23,7 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
@@ -962,7 +962,7 @@ var AC = null, master = null, analyser = null, freq = null;
 var gains = {}, sources = {}, startedAt = 0, offset = 0, running = false, only = null, raf = 0;
 function ac() {
   if (!AC) {
-    AC = new (window.AudioContext || window.webkitAudioContext)();
+    AC = newContext();
     master = AC.createGain();
     analyser = AC.createAnalyser();
     analyser.fftSize = 256;
@@ -1454,7 +1454,7 @@ function ampPicker(rid) {
     }).join('') + '</select></label>';
 }
 function showAmpPick(rid) {
-  [].forEach.call(document.querySelectorAll('.amp-mini'), function (l) { l.hidden = AMP_ROLES.indexOf(rid) < 0; });
+  [].forEach.call(document.querySelectorAll('.amp-mini, .rate-tip'), function (l) { l.hidden = AMP_ROLES.indexOf(rid) < 0; });
 }
 /* "Hear yourself" arms the input: you hear it right away, through the amp for this layer */
 function monRole() { return el('scrim').classList.contains('on') ? el('take-role').value : REC.where === 'seed' ? '' : (S.recRole || ROLES[0].id); }
@@ -1814,6 +1814,7 @@ function renderRec() {
     '<p class="tiny muted">Wear headphones, otherwise the backing ends up in your take. ' +
       (extend ? 'Stop whenever your part is done.' : 'Recording starts on the first beat of ' + esc((section(M.sec) || section('core')).label) +
         ' and stops by itself after ' + fmt(secLen(M.sec)) + '.') + '</p>' +
+    (rateTip(ac()) ? '<p class="tiny muted rate-tip"' + (AMP_ROLES.indexOf(el('take-role').value) > -1 ? '' : ' hidden') + '>' + esc(rateTip(ac())) + '</p>' : '') +
     '<button class="btn btn-main rec-go" type="button" data-rec="start"><span class="rec-dot"></span> Start recording</button>' + err;
 }
 
