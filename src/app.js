@@ -24,6 +24,7 @@ import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
+import { stackTree, viewToggle, savedView, rememberView } from './stacktree.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
@@ -141,7 +142,7 @@ function blank() {
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
            pitches:[], parts:[], trialPitch:null, countIn:2, recRole:null,
            comments:[], cmAvailable:true, cmDraft:null, cmOpen:null,
-           words:[], tVotes:{}, myTVote:{}, tFilter:'all', wAt:null, wErr:'',
+           words:[], tVotes:{}, myTVote:{}, tFilter:'all', tView:savedView(), wAt:null, wErr:'',
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
            meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
@@ -520,7 +521,8 @@ function threadUpdates() {
   var list = [];
   S.parts.forEach(function (p) {
     list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, at:p.joinedAt || p.created, by:S.seed.by || 'The author', uid:S.session && S.session.host_id, icon:'&#8596;',
-      what:'extended the track', note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long. Play on it, it’s part of the song now.',
+      what:'extended the track', note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long' +
+        (carryNames(p).length ? ', with ' + esc(carryNames(p).join(', ')) + ' playing on' : '') + '. Play on it, it’s part of the song now.',
       reply:'part:' + p.id, part:p.id }) });
   });
   var made = S.members.filter(onKeptSection);
@@ -579,6 +581,36 @@ function threadHtml() {
     body = roots.length ? roots.map(function (r) { return r.html; }).join('') : '<p class="tiny muted">Nobody played along yet.</p>';
   }
   return op + '<div class="t-list">' + body + '</div>';
+}
+/* ---------- the stack view: the same thread, as a tree of stacks (src/stacktree.js) ---------- */
+function stacksHtml() {
+  var cur = S.view !== 'build' && !S.override ? currentStack() : null, hp = herePath(), si = seedInstr();
+  var seedCol = si ? col(si) : 'var(--seed)';
+  function dotsOf(list) { return [seedCol].concat(list.map(function (u) { return col(role(u.roleId)); })); }
+  function nodeOf(t) {
+    var grp = groupOf(t), inSong = grp.every(function (g) { return S.members.indexOf(g) > -1; });
+    return { title:esc(youOr(t.by, t.authorId)), sub:esc(grp.map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + ')) + (t.created ? ' · ' + esc(agoOf(t.created)) : ''),
+      dots:dotsOf(pathOf(t)), attrs:'data-tplay="' + t.dbId + '"', on:!!(running && S.stack && cur && cur.id === t.dbId), here:!!hp[t.dbId],
+      song:inSong, wait:isOpen() && !inSong && grp.some(function (g) { return g.status === 'waiting'; }), kids:takeKids(t).map(nodeOf) };
+  }
+  var nodeKeys = nodeKeySet();
+  var firsts = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; })
+    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
+  var roots = [{ root:true, title:esc(isHost() ? 'Your original track' : (S.seed.by || 'The') + '’s original track'), sub:'where every stack starts', dots:[seedCol],
+    attrs:'data-tplay="seed"', on:!!(running && S.stack === '__seed'), here:S.stack === '__seed' || firsts.some(function (t) { return hp[t.dbId]; }), kids:firsts.map(nodeOf) }];
+  var made = S.members.filter(onKeptSection);
+  if (made.length) roots.push({ root:true, title:'The song so far', sub:'picked by the author', dots:dotsOf(made), attrs:'data-tplay="main"',
+    on:!!(running && !S.stack && cur && cur.creation), song:true, kids:onNode(keyOf(made)).map(nodeOf) });
+  (S.versions || []).forEach(function (v) {
+    var tk = byIds(v.picks).filter(live); if (!tk.length) return;
+    roots.push({ root:true, title:esc(v.name || (v.by + '’s stack')), sub:'put together by ' + esc(v.by), dots:dotsOf(tk.filter(function (x) { return x.id !== 'seed'; })),
+      attrs:'data-tplay="v-' + v.id + '"', kids:onNode(keyOf(tk)).map(nodeOf) });
+  });
+  S.parts.forEach(function (p) {
+    roots.push({ root:true, title:'New part', sub:'plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original track · ' + fmt(p.len),
+      dots:['var(--part)'].concat(carryOf(p).map(function (c) { return c === S.seed ? seedCol : col(role(c.roleId)); })), attrs:'data-tpart="' + p.id + '"' });
+  });
+  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it in the tracks above; switch to Thread to reply or add a take.');
 }
 /* the small waveforms of the takes in the thread */
 function drawThreadWaves() {
@@ -644,6 +676,23 @@ function trialPitchTake() {
   return S.pitches.filter(function (t) { return t.id === S.trialPitch; })[0] || null;
 }
 function partTakes() { return S.parts; }
+/* ---------- tracks carried into a new part (takes.carry) ----------
+   A new part can keep tracks of the original track playing under it: the original track itself
+   or takes on it. They play again from the part's start, repeated to fill the part and cut at
+   its end, through their own mixer strip (so muting the drums mutes them under the part too). */
+function carryOf(p) {
+  return (p && p.carry || []).map(function (id) { return S.seed && S.seed.dbId === id ? S.seed : TAKES[id]; })
+    .filter(function (t) { return live(t) && t.buf && t.roleId !== 'part' && t.roleId !== 'mix'; });
+}
+function carryNames(p) {
+  return (p && p.carry || []).map(function (id) { return S.seed && S.seed.dbId === id ? S.seed : TAKES[id]; }).filter(live).map(function (t) {
+    return t === S.seed ? (S.seed.by ? S.seed.by + '’s original track' : 'the original track') : t.by + '’s ' + role(t.roleId).label.toLowerCase();
+  });
+}
+/* what can be carried into a new part: the original track and the takes you hear on it now */
+function carryChoices() {
+  return tracks().filter(function (t) { return t.id === 'seed' || (t.roleId !== 'part' && secOf(t) === 'core' && t.dbId); });
+}
 /* the song, left to right: parts before, the original track (with every layer on it), parts after.
    The newest part before plays first, the newest part after plays last. */
 function arrangement() {
@@ -762,6 +811,7 @@ function applySnapshot(sess, snap) {
     t.status = row.status; t.why = row.archive_reason; t.fileName = row.file_name; t.path = row.storage_path;
     t.url = db.publicUrl(row.storage_path); t.joinedAt = row.joined_at; t.created = row.created_at;
     t.pos = row.part_pos || null; t.sec = row.section_id || null; t.on = row.on_takes || null; t.group = row.group_id || null;
+    t.carry = row.carry || null;
     /* keep what the creator is dragging or saving right now */
     if (!t.fadeBusy && !(drag && drag.t === t)) { t.fin = row.fade_in || 0; t.fout = row.fade_out || 0; t.xfade = row.xfade || 0; }
     if (!t.buf) t.len = row.duration_sec;
@@ -1106,6 +1156,26 @@ function play(from, soloId) {
     s.start(T, x0);
     sources[t.id] = s;
   });
+  /* tracks carried into a part play again under it, repeated to fill it */
+  list.forEach(function (p) {
+    if (p.roleId !== 'part') return;
+    var st = startOf(p);
+    carryOf(p).forEach(function (src) {
+      if (!audible(src)) return;
+      var b = ampFailed(src) ? src.buf : playBuf(src), seg = src.len || (b && b.duration) || 0;
+      if (!b || seg < 0.25) return;
+      for (var k = 0; k * seg < p.len; k++) {
+        var s0 = st + k * seg, dur = Math.min(seg, p.len - k * seg);
+        if (at >= s0 + dur) continue;
+        var cs = ac().createBufferSource(), cenv = ac().createGain();
+        cs.buffer = b; cs.connect(cenv); cenv.connect(gainFor(src));
+        var cT = at >= s0 ? now : now + (s0 - at), cx = at >= s0 ? at - s0 : 0;
+        scheduleEnv(cenv, p, cT, k * seg + cx);   /* the part's own fades and crossfades */
+        cs.start(cT, cx, dur - cx);
+        sources['c:' + p.id + ':' + src.id + ':' + k] = cs;
+      }
+    });
+  });
   offset = at; running = true;
   startLoop();
   render();
@@ -1314,15 +1384,18 @@ function uploadTake(file, buf, o) {
       an_bpm: an && an.tempo ? an.tempo.bpm : null, an_key: an && an.key ? an.key.key : null
     };
     if (o.amp) row.amp = o.amp;
+    if (o.carry && o.carry.length) row.carry = o.carry;
     /* without the amp migration the take still goes in, just without its amp */
     return db.insertTake(row).catch(function (e) {
+      if (row.carry && /carry/.test(String(e && (e.message || e.details))) && !/only carry|at most/.test(String(e && e.message)))
+        throw new Error('Carrying tracks into a new part needs a database update that is not applied yet (20261018230000_carry_into_parts.sql). Untick them, or try again once it is applied.');
       if (!row.amp || !/amp/.test(String(e && (e.message || e.details)))) throw e;
       delete row.amp;
       return db.insertTake(row);
     }).then(function (row) {
       var t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{},
                                 roleId:row.role_id, status:row.status, by:row.author_name, authorId:row.author_id,
-                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0, on:row.on_takes || null, group:row.group_id || null, created:row.created_at, amp:row.amp || '' };
+                                note:row.note, sec:row.section_id || null, pos:row.part_pos || null, fin:0, fout:0, xfade:0, on:row.on_takes || null, group:row.group_id || null, created:row.created_at, amp:row.amp || '', carry:row.carry || null };
       if (row.status === 'waiting' && row.role_id !== 'part' && !o.group) { S.stack = row.id; S.sel = row.id; }
       setBuffer(t, buf);
       file.arrayBuffer().then(function (ab) { t.bytes = new Uint8Array(ab); });
@@ -1448,6 +1521,23 @@ function playBacking(list, T, into, from) {
     s.buffer = b; g.gain.value = volOf(t);
     s.connect(g); g.connect(master); s.start(T + Math.max(0, rel), off);
     into.push(s); REC.nodes.push(g);
+  });
+  /* tracks carried into a part play under it here too, so a layer on the part hears them */
+  list.forEach(function (p) {
+    if (p.roleId !== 'part') return;
+    var st = startOf(p);
+    carryOf(p).forEach(function (src) {
+      var b = ampFailed(src) ? src.buf : playBuf(src), seg = src.len || 0;
+      if (!b || seg < 0.25) return;
+      for (var k = 0; k * seg < p.len; k++) {
+        var rel = st + k * seg - s0, dur = Math.min(seg, p.len - k * seg), off = rel < 0 ? -rel : 0;
+        if (off >= dur) continue;
+        var cs = a.createBufferSource(), cg = a.createGain();
+        cs.buffer = b; cg.gain.value = volOf(src);
+        cs.connect(cg); cg.connect(master); cs.start(T + Math.max(0, rel), off, dur - off);
+        into.push(cs); REC.nodes.push(cg);
+      }
+    });
   });
 }
 /* ---------- which input to record from ---------- */
@@ -2703,7 +2793,8 @@ function renderPitches() {
       var on = only === t.id, tr = S.trialPitch === t.id;
       return '<div class="pt-row">' +
         '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear the part by ' + esc(t.by) + ' on its own"' + (t.buf ? '' : ' disabled') + '>' + (on ? I_PAUSE : I_PLAY) + '</button>' +
-        '<div class="pt-who"><b>' + esc(t.by) + '</b><span class="tiny muted">' + fmt(t.len) + ', ' + (t.pos === 'before' ? 'before' : 'after') + ' the track</span>' +
+        '<div class="pt-who"><b>' + esc(t.by) + '</b><span class="tiny muted">' + fmt(t.len) + ', ' + (t.pos === 'before' ? 'before' : 'after') + ' the track' +
+          (carryNames(t).length ? ', with ' + esc(carryNames(t).join(', ')) : '') + '</span>' +
         (t.note ? '<span class="note">&ldquo;' + esc(t.note) + '&rdquo;</span>' : '') + '</div>' +
         (tr ? mixToggle('this part') : '') +
         '<button class="btn btn-sm' + (tr ? ' trybtn on' : '') + '" type="button" data-trypitch="' + t.id + '"' + (t.buf ? '' : ' disabled') + '>' + (tr ? 'Take it out' : 'Hear it in place') + '</button>' +
@@ -2898,7 +2989,10 @@ function layerCard(r) {
 function renderBoards() {
   /* every instrument keeps its card: it shows people straight away what they can add */
   if (el('applyboard')) el('applyboard').innerHTML = ROLES.map(layerCard).join('');
-  if (el('thread')) el('thread').innerHTML = threadHtml();
+  var stacks = S.tView === 'stacks';
+  if (el('tview')) el('tview').innerHTML = viewToggle(S.tView);
+  if (el('tfilter')) el('tfilter').hidden = stacks;
+  if (el('thread')) el('thread').innerHTML = stacks ? stacksHtml() : threadHtml();
   renderTFilter(); drawThreadWaves();
   var nAll = threadTakes().length;
   if (el('layer-toggle')) el('layer-toggle').innerHTML = nAll ? '<button class="btn btn-sm" type="button" data-showlayers="1" aria-expanded="' + !!S.showLayers + '">' +
@@ -3297,6 +3391,8 @@ function openModal(roleId, extendPos, own, keepRec) {
   M.pos = extendPos || 'after';
   var ext = M.mode === 'extend';
   el('role-field').hidden = ext;
+  el('carry-field').hidden = !ext;
+  if (ext) fillCarry();
   if (ext) el('sec-field').hidden = true;
   el('countin-field').hidden = ext;
   if (ext) {
@@ -3352,13 +3448,32 @@ document.addEventListener('keydown', function (e) {
   else if (e.key === 'Escape') { S.cmDraft = null; S.cmErr = ''; render(); }
 });
 
+/* the tracks you can keep playing under a new part, as tick boxes */
+function fillCarry() {
+  var list = carryChoices();
+  el('carry-list').innerHTML = list.length ? list.map(function (t) {
+    var r = t === S.seed ? seedInstr() : role(t.roleId);
+    var label = t === S.seed ? (isHost() ? 'Your original track' : (S.seed.by || 'The') + '’s original track') : t.by + '’s ' + role(t.roleId).label.toLowerCase();
+    return '<label class="rec-opt"><input type="checkbox" data-carry="' + esc(t.dbId) + '">' +
+      (r ? ico(r.icon, col(r)) : '') + '<span>' + esc(label) + '</span></label>';
+  }).join('') : '<span class="tiny muted">Nothing plays on the original track yet.</span>';
+}
+function carryPicked() {
+  return [].map.call(document.querySelectorAll('#carry-list [data-carry]:checked'), function (c) { return c.dataset.carry; });
+}
+/* a part that only repeats tracks has no audio of its own: a silent file as long as the original track */
+function silentPart() {
+  var sr = 8000, len = S.seed.len || 0, b = ac().createBuffer(1, Math.max(1, Math.round(len * sr)), sr);
+  return { file:new File([encodeWav(b)], 'repeat.wav', { type:'audio/wav' }), buf:b, silent:true };
+}
 function takeSource(fail) {
   if (M.src === 'rec') {
     if (!REC.buf) { fail(REC.state === 'recording' ? 'Finish recording first.' : 'Record a take first.'); return null; }
     return Promise.resolve({ file:REC.file, buf:REC.buf, rec:true });
   }
   var f = el('take-file').files[0];
-  if (!f) { fail('Pick an audio file first.'); return null; }
+  if (!f && M.mode === 'extend' && carryPicked().length) return Promise.resolve(silentPart());
+  if (!f) { fail(M.mode === 'extend' ? 'Pick an audio file first, or tick tracks to repeat under the new part.' : 'Pick an audio file first.'); return null; }
   return decode(f).then(function (buf) {
     if (M.mode === 'layer' && el('take-countin').checked && S.countIn) {
       var trimmed = trimStart(buf, S.countIn * barSeconds());
@@ -3386,11 +3501,11 @@ el('modal-send').addEventListener('click', function () {
     if (M.mode === 'extend') {
       if (len < 1) return fail('That is under a second. A new part needs a bit more.');
       if (len > 240) return fail('Keep a new part under four minutes.');
-      var pos = M.pos;
-      return uploadTake(src.file, src.buf, { role:'part', status:'waiting', name:name, note:note, pos:pos, analyse:true })
+      var pos = M.pos, carry = carryPicked();
+      return uploadTake(src.file, src.buf, { role:'part', status:'waiting', name:name, note:note, pos:pos, analyse:!src.silent, carry:carry })
         .then(function () {
           closeModal();
-          flash('Pitched a new part ' + (pos === 'before' ? 'before' : 'after') + ' the track. The creator decides.');
+          flash('Pitched a new part ' + (pos === 'before' ? 'before' : 'after') + ' the track' + (carry.length ? ', with ' + carry.length + ' track' + (carry.length > 1 ? 's' : '') + ' carried into it' : '') + '. The creator decides.');
           return refresh();
         }, upFail);
     }
@@ -3459,6 +3574,8 @@ document.addEventListener('click', function (e) {
     else { S.tOpen = S.tOpen || {}; tk = tk.indexOf('t:') === 0 ? tk.slice(2) : tk; S.tOpen[tk] = !S.tOpen[tk]; }
     renderBoards(); return;
   }
+  var tvw = e.target.closest('[data-tview]');
+  if (tvw) { S.tView = tvw.dataset.tview; rememberView(S.tView); renderBoards(); return; }
   var tf = e.target.closest('[data-tfilter]');
   if (tf) { S.tFilter = tf.dataset.tfilter; renderBoards(); return; }
   var wo = e.target.closest('[data-wopen]');
@@ -3514,7 +3631,7 @@ document.addEventListener('click', function (e) {
     if (id === 'seed') { S.stack = '__seed'; S.sel = '__seed'; }
     refreshGains(); render();
     if (d.tplay || d.tstack || (d.stack && was)) play(0);
-    if (d.tstack || d.tplay) { var dw = el('mix-head'); if (dw && (d.tstack || stb.closest && stb.closest('#thread'))) dw.scrollIntoView({ behavior:'smooth', block:'start' }); }
+    if (d.tstack || d.tplay) { var dw = el('mix-head'); if (dw && !(stb.closest && stb.closest('.stree')) && (d.tstack || stb.closest && stb.closest('#thread'))) dw.scrollIntoView({ behavior:'smooth', block:'start' }); }
     if (d.treply) {
       if (/^part:/.test(d.treply)) { S.stack = null; openModal(null); var sp = d.treply.slice(5); if (el('take-sec')) { el('take-sec').value = sp; el('take-sec').dispatchEvent(new Event('change')); } }
       else openModal(null);

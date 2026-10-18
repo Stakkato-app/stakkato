@@ -89,7 +89,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
               <div class="kicker">Replies</div>
               <h2>The thread</h2>
             </div>
-            <div class="seg" id="tfilter" role="tablist" aria-label="Show in the thread"></div>
+            <div class="t-ctrls"><div id="tview"></div><div class="seg" id="tfilter" role="tablist" aria-label="Show in the thread"></div></div>
           </div>
           <div class="thread" id="thread"></div>
         </div>
@@ -165,6 +165,11 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       <label for="take-role">Layer</label>
       <select id="take-role"></select>
       <span class="tiny muted" id="role-hint"></span>
+    </div>
+    <div class="field" id="carry-field" hidden>
+      <span class="lbl">Keep playing on the new part</span>
+      <div class="carry-list" id="carry-list"></div>
+      <span class="tiny muted">Ticked tracks repeat under your new part, from its start, until it ends. Tick the original track and add no file to simply play it once more.</span>
     </div>
     <div class="srctabs" role="tablist" aria-label="Where the audio comes from">
       <button type="button" role="tab" data-src="file" aria-selected="true">Upload a file</button>
