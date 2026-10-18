@@ -3,6 +3,13 @@
    adding real accounts later only changes this layer. */
 
 import { supabase, BUCKET } from './supabase.js';
+import { viewing, readOnlyText } from './viewas.js';
+
+/* while the admin views the site as someone else (src/viewas.js), nothing is written */
+function ro() {
+  var v = viewing();
+  if (v) throw new Error(readOnlyText(v));
+}
 
 function check(res) {
   if (res.error) throw res.error;
@@ -45,10 +52,16 @@ export function isAdmin(user) {
   return !!(user && user.app_metadata && user.app_metadata.role === 'admin');
 }
 
+/* the admin's list of accounts (admin_accounts() refuses everyone else); the only place emails leave the database */
+export async function adminAccounts() {
+  return check(await supabase.rpc('admin_accounts'));
+}
+
 /* where the links in our emails send people back to (the gate checks them at /auth/confirm) */
 function home() { return location.origin; }
 
 export async function signUp(email, password, username) {
+  ro();
   const res = await supabase.auth.signUp({ email, password, options: { data: { username }, emailRedirectTo: home() } });
   if (res.error) throw res.error;
   return res.data;
@@ -67,16 +80,19 @@ export async function signInWithGoogle() {
 }
 
 export async function resendConfirmation(email) {
+  ro();
   const res = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: home() } });
   if (res.error) throw res.error;
 }
 
 export async function requestReset(email) {
+  ro();
   const res = await supabase.auth.resetPasswordForEmail(email, { redirectTo: home() });
   if (res.error) throw res.error;
 }
 
 export async function updatePassword(password) {
+  ro();
   const res = await supabase.auth.updateUser({ password });
   if (res.error) throw res.error;
 }
@@ -94,6 +110,7 @@ export async function usernameCheck(name, hints) {
 }
 
 export async function pickUsername(name) {
+  ro();
   const picked = check(await supabase.rpc('pick_username', { p_name: name }));
   const { data } = await supabase.auth.getSession();
   if (data.session) NAMES[data.session.user.id] = picked;
@@ -103,6 +120,7 @@ export async function pickUsername(name) {
 /* Settings: the current password is checked by signing in with it again (same account,
    so nothing changes in the page), then the new one is set */
 export async function changePassword(email, current, next) {
+  ro();
   const res = await supabase.auth.signInWithPassword({ email, password: current });
   if (res.error) throw res.error;
   await updatePassword(next);
@@ -251,10 +269,12 @@ export async function loadFeed(limit) {
 /* Deleting from the homepage: your own (or anyone's, as admin). Replies stay. A deleted
    take's audio file is removed from Storage too; if that fails the take is still gone. */
 export async function deleteJam(sessionId) {
+  ro();
   return check(await supabase.rpc('delete_jam', { p_session: sessionId }));
 }
 
 export async function deleteThreadTake(takeId, storagePath) {
+  ro();
   check(await supabase.rpc('delete_thread_take', { p_take: takeId }));
   if (storagePath) {
     const res = await supabase.storage.from(BUCKET).remove([storagePath]);
@@ -263,20 +283,24 @@ export async function deleteThreadTake(takeId, storagePath) {
 }
 
 export async function deleteThreadComment(commentId) {
+  ro();
   return check(await supabase.rpc('delete_thread_comment', { p_comment: commentId }));
 }
 
 /* the creator hides a written reply in their jam's thread; the row stays */
 export async function hideThreadComment(commentId) {
+  ro();
   return check(await supabase.rpc('hide_thread_comment', { p_comment: commentId }));
 }
 
 export async function addThreadComment(row) {
+  ro();
   return check(await supabase.from('thread_comments').insert(row).select().single());
 }
 
 /* value 1 = up, -1 = down, 0 = taken back (votes are upserted, never deleted) */
 export async function voteInThread({ targetId, targetKind, sessionId, voterId, value }) {
+  ro();
   return check(await supabase.from('thread_votes').upsert(
     { target_id: targetId, target_kind: targetKind, session_id: sessionId, voter_id: voterId, value, updated_at: new Date().toISOString() },
     { onConflict: 'target_id,voter_id' }
@@ -290,10 +314,12 @@ export function publicUrl(path) {
 /* ---------- sessions ---------- */
 
 export async function createSession(hostId) {
+  ro();
   return check(await supabase.from('sessions').insert({ host_id: hostId }).select().single());
 }
 
 export async function updateSession(id, patch) {
+  ro();
   return check(await supabase.from('sessions').update(patch).eq('id', id).select().single());
 }
 
@@ -302,65 +328,78 @@ export async function updateSession(id, patch) {
 /* Uploads go straight from the browser to Supabase Storage, so file size is bounded
    by the bucket limit (50 MB), not by the hosting's request size. */
 export async function uploadAudio(path, file, contentType) {
+  ro();
   return check(await supabase.storage.from(BUCKET).upload(path, file, { contentType, upsert: false }));
 }
 
 export async function insertTake(row) {
+  ro();
   return check(await supabase.from('takes').insert(row).select().single());
 }
 
 /* Status changes are host-only and run server-side so slot rules can't be bypassed. */
 export async function letIn(takeId) {
+  ro();
   return check(await supabase.rpc('let_in', { p_take: takeId }));
 }
 
 export async function veto(takeId) {
+  ro();
   return check(await supabase.rpc('veto', { p_take: takeId }));
 }
 
 /* A kept new part goes back out of the song (it stays in the database as passed). */
 export async function dropPart(takeId) {
+  ro();
   return check(await supabase.rpc('drop_part', { p_take: takeId }));
 }
 
 /* Fades (and a new part's crossfade) are set by the host and heard by everyone. */
 export async function setFades(takeId, { fadeIn, fadeOut, xfade }) {
+  ro();
   return check(await supabase.rpc('set_fades', { p_take: takeId, p_in: fadeIn, p_out: fadeOut, p_xfade: xfade }));
 }
 
 /* The amp a take plays through (null = off). The creator, or the take's author while it
    waits or is their own; heard by everyone. The audio itself stays dry. */
 export async function setAmp(takeId, amp) {
+  ro();
   return check(await supabase.rpc('set_amp', { p_take: takeId, p_amp: amp }));
 }
 
 /* ---------- timeline comments ---------- */
 
 export async function addComment(row) {
+  ro();
   return check(await supabase.from('comments').insert(row).select().single());
 }
 
 /* The creator hides a comment; it stays in the table. */
 export async function hideComment(commentId) {
+  ro();
   return check(await supabase.rpc('hide_comment', { p_comment: commentId }));
 }
 
 /* The creator takes a layer out of the project; it goes to the archive, still usable in versions. */
 export async function takeOutLayer(takeId) {
+  ro();
   return check(await supabase.rpc('take_out_layer', { p_take: takeId }));
 }
 
 /* An own take (recorded for your own version) goes to the creator as a waiting take. */
 export async function sendOwnTake(takeId) {
+  ro();
   return check(await supabase.rpc('send_own_take', { p_take: takeId }));
 }
 
 /* "Deleting" marks the take as deleted; the row stays so realtime can report it. */
 export async function deleteTake(takeId) {
+  ro();
   return check(await supabase.rpc('delete_take', { p_take: takeId }));
 }
 
 export async function castVote({ takeId, sessionId, voterId, value }) {
+  ro();
   return check(await supabase.from('votes').upsert(
     { take_id: takeId, session_id: sessionId, voter_id: voterId, value, updated_at: new Date().toISOString() },
     { onConflict: 'take_id,voter_id' }
@@ -370,6 +409,7 @@ export async function castVote({ takeId, sessionId, voterId, value }) {
 /* ---------- versions, likes, reactions ---------- */
 
 export async function saveVersion(row) {
+  ro();
   return check(await supabase.from('versions').insert(row).select().single());
 }
 
@@ -379,16 +419,19 @@ function ignoreDuplicate(res) {
 }
 
 export async function likeVersion({ versionId, sessionId, userId }) {
+  ro();
   return ignoreDuplicate(await supabase.from('version_likes')
     .insert({ version_id: versionId, session_id: sessionId, user_id: userId }));
 }
 
 export async function likeStack({ stackKey, sessionId, userId }) {
+  ro();
   return ignoreDuplicate(await supabase.from('stack_likes')
     .insert({ stack_key: stackKey, session_id: sessionId, user_id: userId }));
 }
 
 export async function react({ sessionId, userId, kind }) {
+  ro();
   return ignoreDuplicate(await supabase.from('reactions')
     .insert({ session_id: sessionId, user_id: userId, kind }));
 }
