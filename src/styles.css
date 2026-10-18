@@ -1334,3 +1334,69 @@ body.has-track #intro{display:none}
 .sr-one{grid-template-columns:1fr}
 .wrow .acct-as,.db-post .acct-as{flex:1;min-width:200px}
 .pk-save .acct-as{flex:1;min-width:200px}
+
+/* a player's profile (/u/<name>) and the settings page */
+.pf-wrap{max-width:1040px;padding-top:28px;padding-bottom:56px;display:grid;gap:28px}
+.pf-hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:24px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px}
+.pf-who{display:flex;align-items:center;gap:22px;min-width:0}
+.pf-av{width:96px;height:96px;flex:none;border-radius:50%;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:800;font-size:42px}
+.pf-id{display:grid;gap:8px;min-width:0}
+.pf-id h1{font-size:44px;overflow-wrap:anywhere}
+.pf-id p{margin:0}
+.pf-chips,.pf-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.pf-chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:var(--tint);border-radius:99px;padding:3px 11px}
+.pf-chip i{width:8px;height:8px;border-radius:50%;flex:none}
+.pf-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.pf-stats{display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:4px;background:var(--tint);border-radius:var(--radius-sm);padding:14px 8px}
+.pf-stat{display:grid;justify-items:center;text-align:center;gap:2px;padding:0 10px}
+.pf-stat b{font-family:var(--disp);font-weight:800;font-size:30px;line-height:1}
+.pf-stat span{font-size:13px;color:var(--muted)}
+.pf-jams{display:grid;gap:12px}
+.pf-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
+.pf-head h2{font-size:28px}
+.pf-jam{display:flex;align-items:center;gap:18px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px}
+.pf-main{flex:1;min-width:0;display:grid;gap:6px}
+.pf-title{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.pf-title h3{font-size:19px;overflow-wrap:anywhere}
+.pf-facts{margin:0;font-size:14px;color:var(--muted)}
+.pf-lab{margin:0;font-size:13px;color:var(--muted);font-weight:600}
+a.pf-name{color:inherit;font-weight:700;text-decoration:none}
+a.pf-name:hover{color:var(--sound-ink);text-decoration:underline}
+.pf-none{display:grid;gap:12px;justify-items:start;padding:40px 0}
+.pf-none h1{font-size:36px}
+.st-wrap{max-width:820px;padding-top:28px;padding-bottom:56px;display:grid;gap:18px}
+.st-wrap > h1{font-size:40px}
+.st-back{color:var(--muted);font-weight:700;text-decoration:none;font-size:14px}
+.st-back:hover{color:var(--ink)}
+.st-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;display:grid;gap:14px}
+.st-card h2{font-size:22px}
+.st-card h3{font-size:17px}
+.st-card p{margin:0}
+.st-card a{color:var(--sound-ink)}
+.st-card a.btn{color:inherit}
+.st-me{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.st-me .pf-av{width:56px;height:56px;font-size:24px}
+.st-who{flex:1;min-width:160px;display:grid;gap:2px}
+.st-who b{font-size:17px}
+.st-who span{font-size:14px;overflow-wrap:anywhere}
+.st-rows{margin:0;display:grid}
+.st-rows > div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line-soft)}
+.st-rows > div:first-child{border-top:0}
+.st-rows dt{font-weight:700}
+.st-rows dd{margin:0;text-align:right;overflow-wrap:anywhere;min-width:0}
+.st-pill{display:inline-block;margin-left:6px;font-size:12px;font-weight:700;color:var(--sound-ink);background:var(--sound-soft);border-radius:99px;padding:2px 10px}
+.st-form{display:grid;gap:12px;max-width:420px;border-top:1px solid var(--line-soft);padding-top:16px}
+.st-acts{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+.st-danger{border-color:var(--red);color:var(--red)}
+.st-danger:hover:not(:disabled){background:var(--red);border-color:var(--red);color:var(--paper)}
+@media (max-width:760px){
+  .pf-wrap,.st-wrap{padding-top:18px}
+  .pf-hero{padding:20px}
+  .pf-who{gap:14px}
+  .pf-av{width:64px;height:64px;font-size:28px}
+  .pf-id h1{font-size:32px}
+  .pf-stats{width:100%}
+  .pf-jam{flex-wrap:wrap;gap:12px;padding:16px}
+  .pf-main{flex-basis:calc(100% - 64px)}
+  .pf-jam > .btn{width:100%}
+}

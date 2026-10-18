@@ -7,9 +7,10 @@
    kept here only as a hash (DEFAULT_TOKEN). Entering the password sets an HttpOnly
    cookie holding that hash, so changing the password signs everyone out of the gate.
 
-   Once in, /new and /s/<slug> are served the song view (session.html); Cloudflare serves
-   /songs and /privacy from songs.html and privacy.html by itself, and sends /session.html
-   to /session, so the song view is fetched as /session.
+   Once in, /new and /s/<slug> are served the song view (session.html) and /u/<name> a
+   profile (profile.html); Cloudflare serves /songs, /privacy and /settings from their .html
+   files by itself, and sends /session.html to /session, so the song view is fetched as
+   /session (and a profile as /profile).
 
    Links from Supabase's emails (/auth/confirm?token_hash=…&type=…, to confirm an email
    or set a new password) come in without the cookie when they're opened on another
@@ -30,6 +31,7 @@ const GATE_PATH = '/__access';
 const OPEN = ['/stakkato-logo.svg', '/favicon.svg'];   /* the gate page itself shows these */
 const OPEN_DIRS = ['/fonts/'];                          /* and its fonts (public/fonts) */
 const SONG_VIEW = /^\/(new|s\/[\w-]+)\/?$/;              /* paths answered by session.html */
+const PROFILE = /^\/u\/[\w.%-]+\/?$/;                    /* paths answered by profile.html */
 const MAX_AGE = 60 * 60 * 24 * 30;                      /* 30 days */
 const CONFIRM_PATH = '/auth/confirm';
 const LINK_TYPES = ['signup', 'email', 'recovery', 'invite', 'magiclink', 'email_change'];
@@ -161,6 +163,7 @@ function pass(context, url) {
   /* an email link the gate couldn't check: the homepage verifies it in the browser */
   if (url.pathname === CONFIRM_PATH) return context.env.ASSETS.fetch(new Request(new URL('/' + url.search, url), context.request));
   if (SONG_VIEW.test(url.pathname)) return context.env.ASSETS.fetch(new Request(new URL('/session' + url.search, url), context.request));
+  if (PROFILE.test(url.pathname)) return context.env.ASSETS.fetch(new Request(new URL('/profile' + url.search, url), context.request));
   return context.next();
 }
 

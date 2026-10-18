@@ -52,6 +52,11 @@ function toast(m) {
   clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('on'); }, 4500);
 }
 
+export function say(m) { toast(m); }
+
+/* where someone's profile lives: /u/<name, lowercased> */
+export function profileHref(name) { return '/u/' + encodeURIComponent(String(name).toLowerCase()); }
+
 /* ---------- who is signed in ---------- */
 export function account() { return A; }
 export function onAccount(fn) { subs.push(fn); if (A.ready) fn(A.user, A.name); }
@@ -113,7 +118,8 @@ function paintHeader() {
     var nm = A.name || 'Pick your name';
     slot.innerHTML = '<details class="acct-me"><summary aria-label="Your account"><i class="acct-av" aria-hidden="true">' + esc((A.name || A.user.email || '?').charAt(0).toUpperCase()) + '</i><span class="acct-nm">' + esc(nm) + '</span>' + CHEVRON + '</summary>'
       + '<div class="acct-menu" role="menu"><div class="who"><b>' + esc(nm) + '</b><span>' + esc(A.user.email || '') + '</span></div>'
-      + (A.name ? '' : '<button type="button" role="menuitem" data-acct="name">Pick your name</button>')
+      + (A.name ? '<a role="menuitem" href="' + profileHref(A.name) + '">Your profile</a>' : '<button type="button" role="menuitem" data-acct="name">Pick your name</button>')
+      + '<a role="menuitem" href="/settings">Settings</a>'
       + '<button type="button" role="menuitem" data-acct-signout>Sign out</button></div></details>';
   });
 }

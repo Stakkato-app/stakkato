@@ -100,6 +100,14 @@ export async function pickUsername(name) {
   return picked;
 }
 
+/* Settings: the current password is checked by signing in with it again (same account,
+   so nothing changes in the page), then the new one is set */
+export async function changePassword(email, current, next) {
+  const res = await supabase.auth.signInWithPassword({ email, password: current });
+  if (res.error) throw res.error;
+  await updatePassword(next);
+}
+
 export async function signOut() {
   const res = await supabase.auth.signOut();
   if (res.error) throw res.error;
@@ -107,6 +115,59 @@ export async function signOut() {
 
 export function onAuthChange(fn) {
   return supabase.auth.onAuthStateChange(function (event, session) { fn(session ? session.user : null, event); });
+}
+
+/* ---------- profiles ----------
+   Profiles are readable by everyone, so /u/<name> needs no account. Names link to a
+   profile through the author's id, never the name copied on a row: anonymous users have
+   no profile, so an old anonymous name that happens to match a real one doesn't link. */
+
+/* ilike without wildcards: names may hold _ */
+function exactly(s) { return String(s).replace(/[\\%_]/g, '\\$&'); }
+
+/* the profile for /u/<name>, ignoring case; null when nobody plays under that name */
+export async function profileByName(name) {
+  return check(await supabase.from('profiles').select('id, username, created_at')
+    .ilike('username', exactly(name)).not('username', 'is', null).maybeSingle());
+}
+
+/* { user id: name } for the ids that belong to an account with a name */
+export async function profilesFor(ids) {
+  var seen = {};
+  ids = (ids || []).filter(function (id) {
+    if (!id || seen[id] || !/^[0-9a-f-]{36}$/i.test(id)) return false;
+    return (seen[id] = true);
+  });
+  if (!ids.length) return {};
+  const rows = check(await supabase.from('profiles').select('id, username').in('id', ids).not('username', 'is', null));
+  var out = {};
+  rows.forEach(function (p) { out[p.id] = p.username; });
+  return out;
+}
+
+const PROFILE_SESSION = 'id, slug, host_id, title, status, bpm, music_key, time_sig, seed_role, seed_take_id, created_at, released_at';
+
+/* Everything a profile shows: the jams someone started, the takes they sent (deleted and
+   own-version takes left out) and, for every jam either way, its original track, stack,
+   takes to review and mixes. */
+export async function loadPlayer(userId) {
+  const [hosted, mine] = await Promise.all([
+    supabase.from('sessions').select(PROFILE_SESSION).eq('host_id', userId)
+      .is('deleted_at', null).not('seed_take_id', 'is', null).order('created_at', { ascending: false }),
+    supabase.from('takes').select('id, session_id, role_id, status, section_id, created_at')
+      .eq('author_id', userId).not('status', 'in', '(deleted,own)').order('created_at', { ascending: false })
+  ]);
+  const started = check(hosted), takes = check(mine);
+  var own = {}; started.forEach(function (s) { own[s.id] = true; });
+  var others = [];
+  takes.forEach(function (t) { if (t.role_id !== 'seed' && !own[t.session_id] && others.indexOf(t.session_id) < 0) others.push(t.session_id); });
+  const played = others.length ? check(await supabase.from('sessions').select(PROFILE_SESSION).in('id', others)
+    .is('deleted_at', null).not('seed_take_id', 'is', null).order('created_at', { ascending: false })) : [];
+  const ids = started.concat(played).map(function (s) { return s.id; });
+  const stacks = ids.length ? check(await supabase.from('takes')
+    .select('id, session_id, role_id, status, section_id, author_id, author_name, storage_path, amp, duration_sec, created_at')
+    .in('session_id', ids).in('status', ['seed', 'in', 'waiting', 'mix'])) : [];
+  return { started, played, takes, stacks };
 }
 
 /* ---------- reads ---------- */
