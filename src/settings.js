@@ -51,7 +51,8 @@ function render() {
     '<section class="st-card" aria-labelledby="st-del"><h2 id="st-del">Delete your account</h2>' +
       '<p class="muted">Want to leave Stakkato? We’ll delete your account for you.</p>' +
       '<div><button class="btn st-danger" type="button" data-delete>Delete my account</button></div></section>' +
-    '<div><button class="btn" type="button" data-signout>Sign out</button></div>';
+    (me.viewing ? '<div><button class="btn" type="button" data-va-stop>Stop viewing</button></div>'
+      : '<div><button class="btn" type="button" data-signout>Sign out</button></div>');
 }
 
 /* deleting isn't self-service yet: the pop-up says who to write to, from this account's email */

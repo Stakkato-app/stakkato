@@ -13,8 +13,9 @@
 import './auth.css';
 import * as db from './data.js';
 import { configured } from './supabase.js';
+import { viewing, startViewing, stopViewing, asUser, readOnlyText } from './viewas.js';
 
-var A = { user: null, name: null, ready: false };
+var A = { user: null, name: null, ready: false, real: null, view: null };   // real: who is actually signed in; view: "View as" (src/viewas.js)
 var subs = [];
 var V = { view: 'up', ctx: null, pending: [], mail: '', name: '', err: '', notice: '', cool: 0, coolT: 0, poll: 0, checkT: 0, checkSeq: 0, check: null, show: false, asked: false };
 var RETURN_KEY = 'stackato:auth-return';
@@ -65,12 +66,17 @@ function setUser(user) {
   if (user && user.is_anonymous) user = null;   // an old anonymous session counts as signed out
   var load = user ? db.loadProfile(user).catch(function (e) { console.error(e); return db.accountName(user); }) : Promise.resolve(null);
   return load.then(function (name) {
+    // "View as" only counts for the admin; the pages then get that person, read-only
+    var real = user, v = viewing();
+    if (v && !db.isAdmin(user)) { stopViewing(); v = null; }
+    A.real = real; A.view = v;
+    if (v) { user = asUser(v); name = v.name; }
     var changed = !A.ready || (A.user && A.user.id) !== (user && user.id) || A.name !== name;
     A.user = user; A.name = name || null; A.ready = true;
     paintHeader();
     if (changed) subs.forEach(function (fn) { try { fn(A.user, A.name); } catch (e) { console.error(e); } });
     if (A.user && A.name) done();
-    else if (A.user && !A.name && !V.asked) { V.asked = true; openView('name'); }
+    else if (A.user && !A.name && !V.asked && !A.view) { V.asked = true; openView('name'); }
   });
 }
 
@@ -85,6 +91,7 @@ function done() {
    or { heading, text, jam: { title, meta } } */
 export function requireAccount(reason) {
   return new Promise(function (resolve) {
+    if (A.view) { toast(readOnlyText(A.view)); return; }   // nothing starts while viewing as someone
     if (A.user && A.name) return resolve(A.user);
     V.pending.push(resolve);
     if (A.user) openView('name');
@@ -92,9 +99,21 @@ export function requireAccount(reason) {
   });
 }
 
-export function openAuth(view) { openView(view || 'in', null); }
+export function openAuth(view) { if (A.view) { toast(readOnlyText(A.view)); return; } openView(view || 'in', null); }
+
+/* "View as" from /admin: the site renders as that person in this tab until "Stop viewing" */
+export function viewAs(p) {
+  if (!db.isAdmin(A.real)) return;
+  startViewing(p);
+  location.href = p.name ? profileHref(p.name) : '/';
+}
+export function stopViewingNow(to) {
+  stopViewing();
+  if (to) location.href = to; else location.reload();
+}
 
 export function signOutNow() {
+  stopViewing();
   return db.signOut().then(function () { V.asked = false; toast('You’re signed out. You can still listen to everything.'); }).catch(function (x) { toast(msg(x) || 'Signing out didn’t work. Try again.'); });
 }
 
@@ -115,13 +134,43 @@ function paintHeader() {
     }
     if (!A.ready) { slot.innerHTML = ''; return; }
     if (!A.user) { slot.innerHTML = '<button class="acct-ghost" type="button" data-acct="in">Sign in</button><button class="acct-btn" type="button" data-acct="up">Sign up</button>'; return; }
+    if (A.view) { slot.innerHTML = viewMenu(); return; }
     var nm = A.name || 'Pick your name';
     slot.innerHTML = '<details class="acct-me"><summary aria-label="Your account"><i class="acct-av" aria-hidden="true">' + esc((A.name || A.user.email || '?').charAt(0).toUpperCase()) + '</i><span class="acct-nm">' + esc(nm) + '</span>' + CHEVRON + '</summary>'
       + '<div class="acct-menu" role="menu"><div class="who"><b>' + esc(nm) + '</b><span>' + esc(A.user.email || '') + '</span></div>'
       + (A.name ? '<a role="menuitem" href="' + profileHref(A.name) + '">Your profile</a>' : '<button type="button" role="menuitem" data-acct="name">Pick your name</button>')
       + '<a role="menuitem" href="/settings">Settings</a>'
+      + (db.isAdmin(A.user) ? '<a role="menuitem" href="/admin">Accounts</a>' : '')
       + '<button type="button" role="menuitem" data-acct-signout>Sign out</button></div></details>';
   });
+  paintBand();
+}
+
+/* the header's menu while viewing as someone: their name, their pages, the way back */
+function viewMenu() {
+  var nm = A.name || 'No name yet';
+  return '<details class="acct-me"><summary aria-label="Viewing as ' + esc(nm) + '"><i class="acct-av" aria-hidden="true">' + esc((A.name || A.user.email || '?').charAt(0).toUpperCase()) + '</i><span class="acct-nm">' + esc(nm) + '</span>' + CHEVRON + '</summary>'
+    + '<div class="acct-menu" role="menu"><div class="who"><b>' + esc(nm) + '</b><span>' + esc(A.user.email || '') + '</span></div>'
+    + (A.name ? '<a role="menuitem" href="' + profileHref(A.name) + '">Their profile</a>' : '')
+    + '<a role="menuitem" href="/settings">Their settings</a>'
+    + '<a role="menuitem" href="/admin">Back to accounts</a>'
+    + '<button type="button" role="menuitem" data-va-stop>Stop viewing</button></div></details>';
+}
+
+/* the yellow band above the header while viewing as someone; "Start a jam" is greyed out */
+var EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+function paintBand() {
+  var band = el('va-band');
+  [].forEach.call(document.querySelectorAll('a[href="/#start"], a[href="#start"]'), function (a) {
+    if (A.view) { a.setAttribute('aria-disabled', 'true'); a.title = readOnlyText(A.view); a.classList.add('va-off'); }
+    else if (a.classList.contains('va-off')) { a.removeAttribute('aria-disabled'); a.removeAttribute('title'); a.classList.remove('va-off'); }
+  });
+  if (!A.view) { if (band) band.remove(); document.documentElement.classList.remove('va-on'); return; }
+  if (!band) { band = document.createElement('div'); band.id = 'va-band'; band.className = 'va-band'; band.setAttribute('role', 'status'); document.body.prepend(band); }
+  document.documentElement.classList.add('va-on');
+  var nm = esc(A.view.name || A.view.email || 'this person');
+  band.innerHTML = '<div class="wrap va-in">' + EYE + '<p><b>You’re viewing Stakkato as ' + nm + '.</b> Read-only: nothing you do here is saved, and ' + nm + ' doesn’t see that you looked.</p>'
+    + '<a class="btn btn-sm va-back" href="/admin">Back to accounts</a><button class="btn btn-sm btn-main" type="button" data-va-stop>Stop viewing</button></div>';
 }
 
 /* ---------- the pop-up ---------- */
@@ -420,7 +469,15 @@ function resend() {
 }
 
 /* ---------- events ---------- */
+/* while viewing as someone, "Start a jam" does nothing (capture phase, before the page opens its pop-up) */
 document.addEventListener('click', function (e) {
+  var off = e.target.closest && e.target.closest('.va-off');
+  if (off && A.view) { e.preventDefault(); e.stopImmediatePropagation(); toast(readOnlyText(A.view)); }
+}, true);
+
+document.addEventListener('click', function (e) {
+  var stop = e.target.closest && e.target.closest('[data-va-stop]');
+  if (stop) { e.preventDefault(); stopViewingNow(A.real ? '/admin' : null); return; }
   var t = e.target.closest && e.target.closest('[data-acct], [data-acct-close], [data-acct-signout], [data-acct-google], [data-acct-show], [data-acct-sugg], [data-acct-resend]');
   if (!t) {
     if (e.target.id === 'acct-scrim' && V.view !== 'name') close();

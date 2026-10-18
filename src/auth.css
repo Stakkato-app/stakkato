@@ -99,3 +99,11 @@
 /* /reset: the same card, on its own page */
 .reset-wrap{display:flex;justify-content:center;padding-top:56px;padding-bottom:80px}
 .reset-wrap .acct-card{box-shadow:var(--shadow,0 1px 2px rgba(18,18,18,.06))}
+
+/* "View as" (src/viewas.js): the yellow band above the header, and "Start a jam" greyed out */
+.va-band{background:var(--wait-bg);border-bottom:1px solid color-mix(in srgb,var(--wait-ink) 22%,transparent);color:var(--wait-ink)}
+.va-in{min-height:52px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}
+.va-in svg{flex:none}
+.va-in p{margin:0;font-size:14.5px;flex:1 1 320px;line-height:1.4}
+.va-in .va-back{background:transparent;border-color:color-mix(in srgb,var(--wait-ink) 40%,transparent);color:var(--wait-ink)}
+.va-off{opacity:.4;cursor:not-allowed}
