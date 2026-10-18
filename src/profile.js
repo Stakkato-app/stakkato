@@ -9,7 +9,7 @@ import { configured } from './supabase.js';
 import * as db from './data.js';
 import { role, col } from './roles.js';
 import { renderAmp } from './amp.js';
-import { newContext, fadeIn } from './rec.js';
+import { newContext, fadeIn, fadeOut } from './rec.js';
 
 var P = null;          // { profile, started, played, takes, stacks, names } once loaded
 var me = null, tab = 'started', failed = '', missing = '';
@@ -59,7 +59,7 @@ function stateOf(t, s) {
 }
 
 /* ---------- playing: the original track with its stack, or the mix once there is one ---------- */
-var AC = null, BUF = {}, SRC = [], playing = null;
+var AC = null, BUF = {}, SRC = [], FADE = null, playing = null;
 function ac() { if (!AC) AC = newContext(); return AC; }
 function decoded(t) {
   if (!BUF[t.id]) BUF[t.id] = fetch(db.publicUrl(t.storage_path))
@@ -76,7 +76,7 @@ function playable(t) {
     return BUF[k];
   });
 }
-function stop() { SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; playing = null; }
+function stop() { if (SRC.length) fadeOut(ac(), FADE, SRC); SRC = []; FADE = null; playing = null; }
 function play(sid) {
   if (playing === sid) { stop(); render(); return; }
   stop(); playing = sid; render();
@@ -85,7 +85,7 @@ function play(sid) {
   var list = mix ? [mix] : [seedOf(s)].concat(stackOf(s).filter(function (t) { return !t.section_id && t.role_id !== 'part'; })).filter(Boolean);
   Promise.all(list.map(function (t) { return playable(t).catch(function (e) { console.warn('Could not load audio', e); return null; }); })).then(function (bufs) {
     if (playing !== sid) return;
-    var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0, fade = fadeIn(a, T, a.destination);
+    var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0, fade = FADE = fadeIn(a, T, a.destination);
     bufs.forEach(function (b) {
       if (!b) return;
       var src = a.createBufferSource(); src.buffer = b; src.connect(fade); src.start(T); SRC.push(src);
