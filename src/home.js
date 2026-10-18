@@ -15,7 +15,7 @@ import { requireAccount, onAccount, postingAs, setToast, profileHref } from './a
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
@@ -324,10 +324,10 @@ function playList(k, r, c, at) {
     if (S.playing !== k) return;
     var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0;
     c.forEach(function (p) { var b = bufFor(r, p); if (b) len = Math.max(len, b.duration); });
-    var from = seek ? ((at % len) + len) % len : 0;
+    var from = seek ? ((at % len) + len) % len : 0, fade = fadeIn(a, T, a.destination);
     c.forEach(function (p) {
       var b = bufFor(r, p); if (!b) return;
-      var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(a.destination);
+      var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(fade);
       s.start(T, from % b.duration); SRC.push(s);
     });
     CLOCK = { k:k, t0:T - from, len:len };
@@ -594,7 +594,7 @@ function mdPlay() {
   if (S.playing === 'reply') { stop(); mdIdle(); render(); return; }
   stop(); render(); S.playing = 'reply';
   el('md-play').innerHTML = '&#10074;&#10074;'; el('md-play').classList.add('on');
-  var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05; MD.gains = {};
+  var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05, fade = fadeIn(a, T, a.destination); MD.gains = {};
   var m = mine(), lanes = MD.c.concat(m ? [{ mine:true, buf:m.buf, amp:m.amp }] : []);
   lanes.forEach(function (p, i) {
     var b = p.buf || bufFor(r, p); if (!b) return;
@@ -605,7 +605,7 @@ function mdPlay() {
     var la = p.mine && p.amp ? liveAmp(a, p.amp, peakOf(b)) : null;
     if (la) { src.connect(la.input); la.output.connect(g); SRC.push({ stop:function () { dropAmp(la); } }); }
     else src.connect(g);
-    g.connect(a.destination);
+    g.connect(fade);
   });
   MD.t0 = T; el('md-head').hidden = false;
   (function tick() {

@@ -9,7 +9,7 @@ import { configured } from './supabase.js';
 import * as db from './data.js';
 import { role, col } from './roles.js';
 import { renderAmp } from './amp.js';
-import { newContext } from './rec.js';
+import { newContext, fadeIn } from './rec.js';
 
 var P = null;          // { profile, started, played, takes, stacks, names } once loaded
 var me = null, tab = 'started', failed = '', missing = '';
@@ -85,10 +85,10 @@ function play(sid) {
   var list = mix ? [mix] : [seedOf(s)].concat(stackOf(s).filter(function (t) { return !t.section_id && t.role_id !== 'part'; })).filter(Boolean);
   Promise.all(list.map(function (t) { return playable(t).catch(function (e) { console.warn('Could not load audio', e); return null; }); })).then(function (bufs) {
     if (playing !== sid) return;
-    var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0;
+    var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0, fade = fadeIn(a, T, a.destination);
     bufs.forEach(function (b) {
       if (!b) return;
-      var src = a.createBufferSource(); src.buffer = b; src.connect(a.destination); src.start(T); SRC.push(src);
+      var src = a.createBufferSource(); src.buffer = b; src.connect(fade); src.start(T); SRC.push(src);
       len = Math.max(len, b.duration);
     });
     if (!SRC.length) { stop(); render(); say('That jam couldn’t be played. Check your connection and try again.'); return; }
