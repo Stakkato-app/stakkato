@@ -84,8 +84,8 @@
 .acct-menu .who{padding:8px 10px 10px;border-bottom:1px solid var(--line,#E6E4DE);margin-bottom:4px}
 .acct-menu .who b{display:block;font-size:14.5px;color:var(--ink,#121212)}
 .acct-menu .who span{font-size:13px;color:var(--muted,#5C5A55);word-break:break-all}
-.acct-menu button{border:0;background:none;text-align:left;padding:9px 10px;border-radius:9px;font-family:var(--body,'Figtree',system-ui,sans-serif);font-weight:600;font-size:14px;color:var(--ink,#121212);cursor:pointer}
-.acct-menu button:hover{background:var(--tint,#F3F2EE)}
+.acct-menu button,.acct-menu a{border:0;background:none;text-align:left;padding:9px 10px;border-radius:9px;font-family:var(--body,'Figtree',system-ui,sans-serif);font-weight:600;font-size:14px;color:var(--ink,#121212);cursor:pointer;text-decoration:none}
+.acct-menu button:hover,.acct-menu a:hover{background:var(--tint,#F3F2EE)}
 @media (max-width:640px){ .acct-me .acct-nm{display:none} .acct-me > summary{padding:4px} .acct-hdr .acct-btn{min-height:34px;padding:0 12px;font-size:13px} }
 
 /* "Posting as" in the forms */

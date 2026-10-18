@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>try{var t=localStorage.getItem("stackato:theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){}</script>
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-5RQ4VKFH');</script>
+<!-- End Google Tag Manager -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Someone who plays on Stakkato: the jams they started and the ones they played on.">
+<title>Stakkato player</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="/" aria-label="Stakkato, home">
+      <img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311">
+    </a>
+    <nav class="topnav" aria-label="Main"><a href="/">Jams</a><a href="/songs">Songs</a></nav>
+    <div class="hdr-acts">
+      <span data-theme-toggle></span>
+      <a class="btn btn-main btn-sm" href="/#start">Start a jam</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap pf-wrap" id="profile" aria-live="polite">
+    <p class="song-empty">Loading...</p>
+  </div>
+</main>
+
+<footer class="sitefoot"><div class="wrap"><a href="/" class="foot-logo"><img class="logo" src="/stakkato-logo.svg" alt="Stakkato" width="1441" height="311"><img class="logo on-dark" src="/stakkato-logo-on-dark.svg" alt="Stakkato" width="1441" height="311"></a><a href="/">All jams</a><a href="/privacy">Privacy &amp; rights</a></div></footer>
+
+<script type="module" src="/src/profile.js"></script>
+</body>
+</html>

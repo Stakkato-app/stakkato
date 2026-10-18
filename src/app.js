@@ -23,7 +23,7 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
-import { requireAccount, onAccount, postingAs, setToast } from './auth.js';
+import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
@@ -383,6 +383,24 @@ function avaOf(name, color) {
   return '<span class="ava' + (color ? '' : ' words') + '"' + (color ? ' style="background:' + color + '"' : '') + ' aria-hidden="true">' + esc(String(name || '?').charAt(0).toUpperCase()) + '</span>';
 }
 function youOr(name, uid) { return me && uid === me.id ? 'You' : name; }
+/* a name in the markup, linked to its profile once we know the author has one (askProfiles) */
+var PROF = {}, PROF_ASKED = {};
+function nameOf(text, uid) {
+  return uid && PROF[uid] ? '<a class="pf-name" href="' + profileHref(PROF[uid]) + '">' + esc(text) + '</a>' : esc(text);
+}
+function askProfiles() {
+  var ids = [S.session && S.session.host_id];
+  Object.keys(TAKES).forEach(function (k) { ids.push(TAKES[k].authorId); });
+  (S.versions || []).concat(S.comments || [], S.words || []).forEach(function (x) { ids.push(x.authorId); });
+  ids = ids.filter(function (id) { return id && !PROF_ASKED[id]; });
+  if (!ids.length) return;
+  ids.forEach(function (id) { PROF_ASKED[id] = true; });
+  db.profilesFor(ids).then(function (names) {
+    var any = false;
+    Object.keys(names).forEach(function (id) { if (PROF[id] !== names[id]) { PROF[id] = names[id]; any = true; } });
+    if (any) renderAll();
+  }).catch(function (e) { console.warn('Could not load the profile names', e); ids.forEach(function (id) { delete PROF_ASKED[id]; }); });
+}
 function whenOf(iso) { return iso ? '<span class="muted">· ' + esc(agoOf(iso)) + '</span>' : ''; }
 function agoOf(iso) {
   var m = Math.max(0, (Date.now() - new Date(iso).getTime()) / 60000);
@@ -426,7 +444,7 @@ function wordNode(w, flat) {
       : ww ? 'replying to ' + esc(youOr(ww.by, ww.authorId)) : tg.indexOf('p:') === 0 ? 'on the new part' : 'on the jam') + '</span>';
   }
   return '<div class="node" id="tw-' + w.id + '">' + avaOf(youOr(w.by, w.authorId)) + '<div class="nbody">' +
-    '<div class="meta"><b>' + esc(youOr(w.by, w.authorId)) + '</b>' + ctx + whenOf(w.created) + '</div>' +
+    '<div class="meta"><b>' + nameOf(youOr(w.by, w.authorId), w.authorId) + '</b>' + ctx + whenOf(w.created) + '</div>' +
     '<p class="bubble">' + esc(w.body) + '</p>' +
     '<div class="acts"><button class="tlink" type="button" data-wopen="word:' + w.id + '">Reply</button>' + tVote(w.id, 'comment') +
       (isHost() && !mine ? '<button class="tlink" type="button" data-whide="' + w.id + '">Hide</button>' : '') +
@@ -443,7 +461,7 @@ function takeNode(t, flat) {
   var open = !!kids.length && (here && !last || !!(S.tOpen || {})[t.dbId]);
   var boss = isHost() && isOpen();
   return '<div class="node tn' + (here ? ' here' : '') + (last ? ' last' : '') + '" id="tp-' + t.dbId + '">' + avaOf(t.by, col(r)) + '<div class="nbody">' +
-    '<div class="meta"><b>' + esc(youOr(t.by, t.authorId)) + '</b><span class="muted">added</span>' +
+    '<div class="meta"><b>' + nameOf(youOr(t.by, t.authorId), t.authorId) + '</b><span class="muted">added</span>' +
       grp.map(function (g) { var gr = role(g.roleId); return '<b class="lyr" style="color:' + col(gr) + '">' + esc(gr.label.toLowerCase()) + '</b>'; }).join(' + ') +
       (inSongAll ? '<span class="badge">In the song</span>' : waiting ? '<span class="badge wait">To review</span>' : '') +
       (last ? '<span class="badge ink">In the tracks above</span>' : '') + whenOf(t.created) + '</div>' +
@@ -487,7 +505,7 @@ function updatePost(o) {
     .concat(o.part ? wordKids('p:' + o.part).map(function (w) { return { at:w.created, html:wordNode(w) }; }) : []);
   var open = !!kids.length && (last || inner || !!(S.tOpen || {})[o.id]);
   return '<div class="node tn upd' + (last ? ' here last' : inner ? ' here' : '') + '" id="tp-' + o.id + '"><span class="ava upd-ava" aria-hidden="true">' + o.icon + '</span><div class="nbody">' +
-    '<div class="meta"><b>' + esc(o.by) + '</b><span class="muted">' + o.what + '</span>' + (o.tag || '') + whenOf(o.at) + '</div>' +
+    '<div class="meta"><b>' + nameOf(o.by, o.uid) + '</b><span class="muted">' + o.what + '</span>' + (o.tag || '') + whenOf(o.at) + '</div>' +
     (o.note ? '<p class="bubble">' + o.note + '</p>' : '') +
     '<div class="twell"' + (o.stack ? ' data-tsel="' + o.id + '"' : o.part ? ' data-tpart="' + o.part + '"' : '') + '><div class="take-row">' +
       '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (o.stack ? 'data-tplay="' + o.id + '"' : o.part ? 'data-tpart="' + o.part + '"' : 'data-playmain="1"') + ' aria-label="Play">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
@@ -501,19 +519,19 @@ function updatePost(o) {
 function threadUpdates() {
   var list = [];
   S.parts.forEach(function (p) {
-    list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, at:p.joinedAt || p.created, by:S.seed.by || 'The author', icon:'&#8596;',
+    list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, at:p.joinedAt || p.created, by:S.seed.by || 'The author', uid:S.session && S.session.host_id, icon:'&#8596;',
       what:'extended the track', note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long. Play on it, it’s part of the song now.',
       reply:'part:' + p.id, part:p.id }) });
   });
   var made = S.members.filter(onKeptSection);
   if (made.length) {
     var at = made.reduce(function (m, t) { return String(t.joinedAt) > m ? String(t.joinedAt) : m; }, '');
-    list.push({ at:at, html:updatePost({ id:'main', at:at, key:keyOf(made), stack:true, by:S.seed.by || 'The author', icon:'&#9733;',
+    list.push({ at:at, html:updatePost({ id:'main', at:at, key:keyOf(made), stack:true, by:S.seed.by || 'The author', uid:S.session && S.session.host_id, icon:'&#9733;',
       what:'made the Author’s creation', tag:'<span class="badge ink">Plays first</span>', takes:made, reply:'main' }) });
   }
   (S.versions || []).forEach(function (v) {
     var tk = byIds(v.picks).filter(live); if (!tk.length) return;
-    list.push({ at:v.created || '', html:updatePost({ id:'v-' + v.id, at:v.created, key:keyOf(tk), stack:true, by:v.by, icon:'&#9776;',
+    list.push({ at:v.created || '', html:updatePost({ id:'v-' + v.id, at:v.created, key:keyOf(tk), stack:true, by:v.by, uid:v.authorId, icon:'&#9776;',
       what:'made a stack: <b>' + esc(v.name) + '</b>', takes:tk, reply:'v-' + v.id }) });
   });
   return list;
@@ -541,7 +559,7 @@ function threadHtml() {
   var f = tFilter(), si = seedInstr();
   var seedHere = S.stack === '__seed' && !S.override && S.view !== 'build';
   var op = '<div class="t-op' + (seedHere ? ' here' : '') + '">' + avaOf(S.seed.by || 'C', si ? col(si) : 'var(--seed)') +
-    '<div class="t-op-txt"><b>' + esc(isHost() ? 'You' : S.seed.by || 'The creator') + '</b> <span class="muted">started the jam' + (S.session ? ' · ' + esc(agoOf(S.session.created_at)) : '') + '</span>' +
+    '<div class="t-op-txt"><b>' + nameOf(isHost() ? 'You' : S.seed.by || 'The creator', S.session && S.session.host_id) + '</b> <span class="muted">started the jam' + (S.session ? ' · ' + esc(agoOf(S.session.created_at)) : '') + '</span>' +
       '<small>' + esc(projName()) + (si ? ' · ' + esc(si.label.toLowerCase()) : '') + '</small></div>' +
     '<div class="t-op-acts">' + (seedHere ? '<span class="badge ink">In the tracks above</span>' : '<button class="tlink" type="button" data-tstack="seed">Play on this</button>') +
       '<button class="tlink" type="button" data-wopen="jam">Reply</button>' +
@@ -839,6 +857,7 @@ function refresh() {
   return Promise.all([db.loadSessionById(id), db.loadSnapshot(id)]).then(function (r) {
     if (!S.session || S.session.id !== id) return;
     applySnapshot(r[0], r[1]);
+    askProfiles();
     syncPhase();
     if (AC) refreshGains(); /* an amp someone else changed is heard right away */
     renderAll();
@@ -2108,7 +2127,7 @@ function ocTake(t, extra) {
     '<button class="play sm' + (on ? ' on' : '') + '" type="button" ' + (core ? 'data-pair' : 'data-prev') + '="' + t.id + '" aria-label="Hear the take by ' + esc(t.by) +
       (core ? ' with the original track' : '') + '"' + (t.buf && S.seed.buf ? '' : ' disabled') + '>' + (on ? I_PAUSE : I_PLAY) + '</button>' +
     ico(r.icon, col(r)) +
-    '<div class="oc-who"><b>' + esc(t.by) + '</b><span>' + esc(r.label) + (extra ? ', ' + extra : '') + ' ' + secTag(t) + verTag(t.id) + '</span></div>' +
+    '<div class="oc-who"><b>' + nameOf(t.by, t.authorId) + '</b><span>' + esc(r.label) + (extra ? ', ' + extra : '') + ' ' + secTag(t) + verTag(t.id) + '</span></div>' +
     menuBtn('o:' + t.id,
       (core ? mi('data-prev="' + t.id + '"', only === t.id ? 'Stop' : 'Play on its own') : '') +
       mi('data-dl="' + t.id + '"', 'Download') + (extra ? miDel(t.id) : '')) + '</li>';
@@ -2158,7 +2177,7 @@ function renderSeed() {
   if (hasSeed()) {
     el('seedpanel').innerHTML =
       '<div class="seed-head"><span class="kicker">The original track' + (ri ? ' · ' + ri.label.toLowerCase() : '') + '</span>' +
-        '<span class="tiny muted">by ' + (host ? 'you' : esc(s.by)) + (s.buf ? '' : ', loading') + '</span></div>' +
+        '<span class="tiny muted">by ' + (host ? 'you' : nameOf(s.by, S.session && S.session.host_id)) + (s.buf ? '' : ', loading') + '</span></div>' +
       '<div class="seed-well"><button class="play' + (only === 'seed' ? ' on' : '') + '" type="button" data-prev="seed" aria-label="Play the original track"' + (s.buf ? '' : ' disabled') + '>' +
         (only === 'seed' ? I_PAUSE : I_PLAY) + '</button>' + seedWave() + '</div>';
   } else if (asCreator()) {
@@ -2453,7 +2472,7 @@ function cmRow() {
     return '<button type="button" class="cm-mark' + (on ? ' open' : '') + (who === 'creator' ? ' host' : '') + '" style="' + cmLeft(x) + '" ' +
         'data-cm="' + c.id + '" data-at="' + t.toFixed(3) + '" aria-label="Comment by ' + esc(c.by) + ' at ' + clockMs(c.at) + '">' + esc((c.by || '?').charAt(0).toUpperCase()) + '</button>' +
       '<div class="cm-pop' + (on ? ' open' : '') + '" style="' + cmPos(x) + '">' +
-        '<div class="cm-meta"><b>' + esc(c.by) + '</b>' + (who ? '<span class="cm-who">' + esc(who) + '</span>' : '') + '<span class="cm-at">at ' + clockMs(Math.max(0, c.at)) + '</span></div>' +
+        '<div class="cm-meta"><b>' + nameOf(c.by, c.authorId) + '</b>' + (who ? '<span class="cm-who">' + esc(who) + '</span>' : '') + '<span class="cm-at">at ' + clockMs(Math.max(0, c.at)) + '</span></div>' +
         '<p>' + esc(c.body) + '</p>' +
         (on ? '<div class="cm-acts"><button class="btn btn-sm" type="button" data-cmplay="' + t.toFixed(3) + '">' + I_PLAY + ' Play from here</button>' +
           (host ? '<button class="btn btn-sm" type="button" data-cmhide="' + c.id + '">Hide</button>' : '') + '</div>' : '') +
@@ -2743,7 +2762,7 @@ function versionCard(v) {
   return '<article class="vcard">' +
     '<div class="vc-top"><button class="play' + (on ? ' on' : '') + '" type="button" data-playver="' + v.id + '" aria-label="Play ' + esc(v.name) + '">' +
       (on ? I_PAUSE : I_PLAY) + '</button>' +
-    '<div><b>' + esc(v.name) + '</b><span class="tiny muted">by ' + esc(v.by) + ', ' + livePicks(v.picks).length + ' take(s) on the original</span></div></div>' +
+    '<div><b>' + esc(v.name) + '</b><span class="tiny muted">by ' + nameOf(v.by, v.authorId) + ', ' + livePicks(v.picks).length + ' take(s) on the original</span></div></div>' +
     '<div class="vc-chips">' + chips + '</div>' +
     '<div class="vc-foot"><button class="btn btn-sm' + (v.liked ? ' on' : '') + '" type="button" data-like="' + v.id + '"' +
       (v.liked ? ' disabled aria-label="You liked this"' : '') + '>&#9829; ' + v.likes + '</button>' +

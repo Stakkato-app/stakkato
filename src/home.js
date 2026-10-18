@@ -11,7 +11,7 @@
 import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
-import { requireAccount, onAccount, postingAs, setToast } from './auth.js';
+import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
@@ -90,7 +90,7 @@ function build(feed) {
         if (t.role_id !== 'part') posts.push({ id:t.id, parent:t.reply_to || t.section_id || null, deleted:true, created:t.created_at, likes:0 });
         return;
       }
-      var base = { id:t.id, by:t.author_name, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
+      var base = { id:t.id, by:t.author_name, uid:t.author_id, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
         text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
@@ -104,7 +104,7 @@ function build(feed) {
     feed.comments.filter(function (c) { return c.session_id === s.id; }).forEach(function (c) {
       KIND[c.id] = { kind:'comment', sid:s.id };
       if (c.deleted_at) { posts.push({ id:c.id, parent:c.reply_to_take || c.reply_to_comment || null, deleted:true, isComment:true, created:c.created_at, likes:0 }); return; }
-      posts.push({ id:c.id, parent:c.reply_to_take || c.reply_to_comment || null, by:c.author_name, mine:!!(me && c.author_id === me.id),
+      posts.push({ id:c.id, parent:c.reply_to_take || c.reply_to_comment || null, by:c.author_name, uid:c.author_id, mine:!!(me && c.author_id === me.id),
         time:ago(c.created_at), created:c.created_at, text:c.body, likes:votes[c.id] || 0, isComment:true });
     });
     /* takes sent together as one reply: the first is the post, the others play as its stems */
@@ -126,7 +126,7 @@ function build(feed) {
         again = true; return false;
       });
     }
-    var r = { id:s.id, slug:s.slug, by:seed.author_name, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
+    var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
       time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '',
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };
@@ -146,9 +146,24 @@ function land() {
     if (n) { n.scrollIntoView({ block: hit ? 'center' : 'start' }); if (hit) n.classList.add('hl'); }
   }, 60);
 }
+/* names link to their profiles once we know who has one (user id -> name) */
+var PROF = {};
+function nameOf(text, uid) {
+  return uid && PROF[uid] ? '<a class="pf-name" href="' + profileHref(PROF[uid]) + '">' + esc(text) + '</a>' : esc(text);
+}
+function askProfiles(feed) {
+  var ids = feed.sessions.map(function (s) { return s.host_id; })
+    .concat(feed.takes.map(function (t) { return t.author_id; }), feed.comments.map(function (c) { return c.author_id; }))
+    .filter(function (id) { return id && !(id in PROF); });
+  if (!ids.length) return;
+  db.profilesFor(ids).then(function (names) {
+    ids.forEach(function (id) { PROF[id] = names[id] || null; });
+    if (Object.keys(names).length) render();
+  }).catch(function (e) { console.warn('Could not load the profile names', e); });
+}
 function reload() {
   if (!configured) { S.failed = 'Supabase is not configured. Copy .env.example to .env.local and fill it in.'; render(); return Promise.resolve(); }
-  return db.loadFeed(20).then(function (feed) { build(feed); S.loaded = true; S.failed = null; render(); if (LANDING) land(); })
+  return db.loadFeed(20).then(function (feed) { build(feed); S.loaded = true; S.failed = null; render(); askProfiles(feed); if (LANDING) land(); })
     .catch(function (e) { console.error(e); S.failed = 'The jams could not be loaded. Check your connection and reload the page.'; render(); });
 }
 
@@ -430,7 +445,7 @@ function node(r, p, cls, aside, body, depth) {
 function partHtml(r, p, depth) {
   var on = S.playing === key(r, p.id), kept = p.status === 'in';
   return node(r, p, 'upd', '<span class="ava upd-ava" aria-hidden="true">&#8596;</span>',
-    '<div class="meta"><b>' + esc(p.mine ? 'You' : p.by) + '</b><span class="muted">' + (kept ? 'extended the jam' : 'pitched a new part') + '</span>' + metaTime(p) + '</div>' +
+    '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b><span class="muted">' + (kept ? 'extended the jam' : 'pitched a new part') + '</span>' + metaTime(p) + '</div>' +
     (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
     '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
@@ -446,7 +461,7 @@ function replyHtml(r, p, depth) {
   if (p.kind === 'part') return partHtml(r, p, depth);
   var on = S.playing === key(r, p.id);
   return node(r, p, '', ava(p.mine ? 'You' : p.by, p.layer),
-    '<div class="meta"><b>' + esc(p.mine ? 'You' : p.by) + '</b>' + (p.layer ? '<span class="muted">added</span>' + stemsOf(p).map(function (x) { return lyr(x.layer); }).join(' + ') : '') +
+    '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b>' + (p.layer ? '<span class="muted">added</span>' + stemsOf(p).map(function (x) { return lyr(x.layer); }).join(' + ') : '') +
       (p.inSong ? '<span class="songtag">In the song</span>' : '') + metaTime(p) + '</div>' +
     (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
     (p.layer ? '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play with everything above it') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
@@ -484,7 +499,7 @@ function riffHtml(r) {
   var on = S.playing === key(r), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
   var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
-    '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + esc(r.by) + (r.host ? ' (you)' : '') + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
+    '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + (r.host ? ' (you)' : '') + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + esc(r.title) + (r.song ? '<span class="tag">Became a song</span>' : '') + '</h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="well"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
