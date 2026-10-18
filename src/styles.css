@@ -1328,3 +1328,9 @@ body.has-track #intro{display:none}
   .release .play.rel-big{width:48px;height:48px}
   .rel-well .rel-time{font-family:var(--body);font-size:12.5px}
 }
+
+/* accounts: "Posting as" where the name fields were */
+.as-slot:empty{display:none}
+.sr-one{grid-template-columns:1fr}
+.wrow .acct-as,.db-post .acct-as{flex:1;min-width:200px}
+.pk-save .acct-as{flex:1;min-width:200px}

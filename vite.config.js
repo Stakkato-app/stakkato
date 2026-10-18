@@ -1,12 +1,15 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 
-/* The pretty routes: / is the homepage (index.html), /songs and /privacy are their own
-   pages, and the song view (session.html) answers /new and /s/<slug>. On Cloudflare Pages
+/* The pretty routes: / is the homepage (index.html), /songs, /privacy and /reset are their own
+   pages, an email link (/auth/confirm) opens the homepage, which checks it (on Cloudflare the gate
+   checks it first), and the song view (session.html) answers /new and /s/<slug>. On Cloudflare Pages
    functions/_middleware.js serves them; this does the same for `npm run dev` and `npm run preview`. */
 const ROUTES = [
   [/^\/songs(?=$|\?)/, '/songs.html'],
   [/^\/privacy(?=$|\?)/, '/privacy.html'],
+  [/^\/reset(?=$|\?)/, '/reset.html'],
+  [/^\/+auth\/confirm(?=$|\?)/, '/index.html'],
   [/^\/new(?=$|\?)/, '/session.html'],
   [/^\/s\/[\w-]+(?=$|\?)/, '/session.html']
 ];
@@ -35,7 +38,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      input: { home: 'index.html', session: 'session.html', songs: 'songs.html', privacy: 'privacy.html' }
+      input: { home: 'index.html', session: 'session.html', songs: 'songs.html', privacy: 'privacy.html', reset: 'reset.html' }
     }
   }
 });
