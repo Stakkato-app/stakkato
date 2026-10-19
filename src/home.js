@@ -13,7 +13,6 @@ import { configured } from './supabase.js';
 import * as db from './data.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { analyse, sureness } from './analysis.js';
-import { stackTree, viewToggle, savedView, rememberView } from './stacktree.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
@@ -26,7 +25,7 @@ ROLES.forEach(function (r) { LAYERS[r.id] = { label:r.label.toLowerCase(), c:'va
 function lay(id) { return LAYERS[id] || LAYERS.wild; }
 
 var RIFFS = [];
-var S = { tab:'fresh', tview:savedView(), expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'' }, loaded:false, failed:null, sure:null };
+var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'' }, loaded:false, failed:null, sure:null };
 var KIND = {};                     /* target id -> { kind, sid } for votes */
 var me = null;                     /* the signed-in account (src/auth.js), or null */
 var AC = null, BUF = {}, SRC = [];
@@ -499,27 +498,6 @@ function replyHtml(r, p, depth) {
       commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Show in the project', r, p.id) : '') +
       (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
-/* The stack view (src/stacktree.js): the same replies as a tree. The clip is the root, every take
-   hangs on what it was played on, so each path is a stack; written replies stay in the thread. */
-function treeOf(r) {
-  function audio(p) { return p.deleted ? !p.isComment : p.kind === 'part' || (!!p.layer && !p.isComment); }
-  function nodeOf(p) {
-    var ks = kids(r, p.id).filter(audio).map(nodeOf);
-    if (p.deleted) return { gone:true, title:'Deleted take', kids:ks };
-    var who = esc(p.mine ? 'You' : p.by), on = sounding(r, p.id);
-    if (p.kind === 'part') return { title:who, sub:'new part, plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the clip', dots:['var(--part)'].concat((p.carry || []).map(function (c) { return lay(c.layer).c; })),
-      attrs:'data-play="' + r.id + '" data-post="' + p.id + '"', on:on, kids:ks, plus:r.open && p.status === 'in' ? 'data-reply="' + r.id + '" data-post="' + p.id + '"' : '' };
-    return { title:who, sub:esc(stemsOf(p).map(function (x) { return lay(x.layer).label; }).join(' + ')) + ' · ' + esc(p.time),
-      dots:chainOf(r, p.id).map(function (x) { return lay(x.layer).c; }), attrs:'data-play="' + r.id + '" data-post="' + p.id + '"', on:on, song:!!p.inSong, kids:ks,
-      plus:r.open ? 'data-reply="' + r.id + '" data-post="' + p.id + '"' : '' };
-  }
-  var top = r.posts.filter(function (p) { return !p.parent && audio(p); });
-  var roots = [{ root:true, title:esc(r.host ? 'Your clip' : r.by + '’s clip'), sub:'where every stack starts', dots:[lay(r.layer).c],
-    attrs:'data-play="' + r.id + '"', on:sounding(r, null), kids:top.filter(function (p) { return p.kind !== 'part'; }).map(nodeOf),
-    plus:r.open ? 'data-reply="' + r.id + '"' : '' }]
-    .concat(top.filter(function (p) { return p.kind === 'part'; }).map(nodeOf));
-  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it, or + at its end to play on it.');
-}
 /* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
    replied, what kind of replies there are and the latest one, so it reads as "there's a
    conversation here" rather than a small link. */
@@ -561,8 +539,7 @@ function riffHtml(r) {
   if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
     (r.mix ? '<button class="btn btn-sm btn-sound" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
   html += '</div>' + threadBar(r, open);
-  if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '"><div class="rep-ctrls">' + viewToggle(S.tview) + '</div>' +
-    (S.tview === 'stacks' ? treeOf(r) : top.map(function (x) { return replyHtml(r, x, 0); }).join('')) + '</div>';
+  if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
 }
 function render() {
@@ -1051,7 +1028,6 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
-  if ((b = e.target.closest('[data-tview]'))) { S.tview = b.dataset.tview; rememberView(S.tview); render(); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
   if ((b = e.target.closest('[data-reply]'))) { openReply(b.dataset.reply, b.dataset.post); return; }
   if ((b = e.target.closest('[data-comment]'))) { openComment(b.dataset.comment, b.dataset.post); return; }

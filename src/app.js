@@ -24,7 +24,6 @@ import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
-import { stackTree, viewToggle, savedView, rememberView } from './stacktree.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
@@ -142,7 +141,7 @@ function blank() {
            view:'lineup', build:{ picks:[], ctl:{} }, versions:[], override:null, myVotes:{},
            pitches:[], parts:[], trialPitch:null, countIn:2, recRole:null,
            comments:[], cmAvailable:true, cmDraft:null, cmOpen:null,
-           words:[], tVotes:{}, myTVote:{}, tFilter:'all', tView:savedView(), wAt:null, wErr:'',
+           words:[], tVotes:{}, myTVote:{}, tFilter:'all', wAt:null, wErr:'',
            reactions:{ banger:0, mess:0, again:0 }, reacted:{}, seedBusy:false, phaseSeen:null,
            meta:{ bpm:null, key:null, alt:null, time:'4/4', from:'none', sure:null, seedRole:null, busy:false } };
 }
@@ -583,39 +582,6 @@ function threadHtml() {
     body = roots.length ? roots.map(function (r) { return r.html; }).join('') : '<p class="tiny muted">Nobody played along yet.</p>';
   }
   return op + '<div class="t-list">' + body + '</div>';
-}
-/* ---------- the stack view: the same thread, as a tree of stacks (src/stacktree.js) ---------- */
-function stacksHtml() {
-  var cur = S.view !== 'build' && !S.override ? currentStack() : null, hp = herePath(), si = seedInstr();
-  var seedCol = si ? col(si) : 'var(--seed)';
-  function dotsOf(list) { return [seedCol].concat(list.map(function (u) { return col(role(u.roleId)); })); }
-  function nodeOf(t) {
-    var grp = groupOf(t), inSong = grp.every(function (g) { return S.members.indexOf(g) > -1; });
-    return { title:esc(youOr(t.by, t.authorId)), sub:esc(grp.map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + ')) + (t.created ? ' · ' + esc(agoOf(t.created)) : ''),
-      dots:dotsOf(pathOf(t)), attrs:'data-tplay="' + t.dbId + '"', on:!!(running && S.stack && cur && (cur.id === t.dbId || hp[t.dbId])), here:!!hp[t.dbId],
-      song:inSong, wait:isOpen() && !inSong && grp.some(function (g) { return g.status === 'waiting'; }), kids:takeKids(t).map(nodeOf),
-      plus:isOpen() ? 'data-treply="' + t.dbId + '"' : '' };
-  }
-  var nodeKeys = nodeKeySet();
-  var firsts = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; })
-    .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
-  var roots = [{ root:true, title:esc(isHost() ? 'Your original track' : (S.seed.by || 'The') + '’s original track'), sub:'where every stack starts', dots:[seedCol],
-    attrs:'data-tplay="seed"', on:!!(running && S.stack && S.view !== 'build' && !S.override), here:S.stack === '__seed' || firsts.some(function (t) { return hp[t.dbId]; }), kids:firsts.map(nodeOf),
-    plus:isOpen() ? 'data-treply="seed"' : '' }];
-  var made = S.members.filter(onKeptSection);
-  if (made.length) roots.push({ root:true, title:'The song so far', sub:'picked by the author', dots:dotsOf(made), attrs:'data-tplay="main"',
-    on:!!(running && !S.stack && cur && cur.creation), song:true, kids:onNode(keyOf(made)).map(nodeOf), plus:isOpen() ? 'data-treply="main"' : '' });
-  (S.versions || []).forEach(function (v) {
-    var tk = byIds(v.picks).filter(live); if (!tk.length) return;
-    roots.push({ root:true, title:esc(v.name || (v.by + '’s stack')), sub:'put together by ' + esc(v.by), dots:dotsOf(tk.filter(function (x) { return x.id !== 'seed'; })),
-      attrs:'data-tplay="v-' + v.id + '"', kids:onNode(keyOf(tk)).map(nodeOf), plus:isOpen() ? 'data-treply="v-' + v.id + '"' : '' });
-  });
-  S.parts.forEach(function (p) {
-    roots.push({ root:true, title:'New part', sub:'plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original track · ' + fmt(p.len),
-      dots:['var(--part)'].concat(carryOf(p).map(function (c) { return c === S.seed ? seedCol : col(role(c.roleId)); })), attrs:'data-tpart="' + p.id + '"',
-      plus:isOpen() ? 'data-treply="part:' + p.id + '"' : '' });
-  });
-  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it in the tracks above, or + at its end to play on it.');
 }
 /* the small waveforms of the takes in the thread */
 function drawThreadWaves() {
@@ -2994,10 +2960,7 @@ function layerCard(r) {
 function renderBoards() {
   /* every instrument keeps its card: it shows people straight away what they can add */
   if (el('applyboard')) el('applyboard').innerHTML = ROLES.map(layerCard).join('');
-  var stacks = S.tView === 'stacks';
-  if (el('tview')) el('tview').innerHTML = viewToggle(S.tView);
-  if (el('tfilter')) el('tfilter').hidden = stacks;
-  if (el('thread')) el('thread').innerHTML = stacks ? stacksHtml() : threadHtml();
+  if (el('thread')) el('thread').innerHTML = threadHtml();
   renderTFilter(); drawThreadWaves();
   var nAll = threadTakes().length;
   if (el('layer-toggle')) el('layer-toggle').innerHTML = nAll ? '<button class="btn btn-sm" type="button" data-showlayers="1" aria-expanded="' + !!S.showLayers + '">' +
@@ -3579,8 +3542,6 @@ document.addEventListener('click', function (e) {
     else { S.tOpen = S.tOpen || {}; tk = tk.indexOf('t:') === 0 ? tk.slice(2) : tk; S.tOpen[tk] = !S.tOpen[tk]; }
     renderBoards(); return;
   }
-  var tvw = e.target.closest('[data-tview]');
-  if (tvw) { S.tView = tvw.dataset.tview; rememberView(S.tView); renderBoards(); return; }
   var tf = e.target.closest('[data-tfilter]');
   if (tf) { S.tFilter = tf.dataset.tfilter; renderBoards(); return; }
   var wo = e.target.closest('[data-wopen]');
@@ -3637,7 +3598,7 @@ document.addEventListener('click', function (e) {
     if (id === 'seed') { S.stack = '__seed'; S.sel = '__seed'; }
     refreshGains(); render();
     if (d.tplay || d.tstack || (d.stack && was)) play(0);
-    if (d.tstack || d.tplay) { var dw = el('mix-head'); if (dw && !(stb.closest && stb.closest('.stree')) && (d.tstack || stb.closest && stb.closest('#thread'))) dw.scrollIntoView({ behavior:'smooth', block:'start' }); }
+    if (d.tstack || d.tplay) { var dw = el('mix-head'); if (dw && (d.tstack || stb.closest && stb.closest('#thread'))) dw.scrollIntoView({ behavior:'smooth', block:'start' }); }
     if (d.treply) {
       if (/^part:/.test(d.treply)) { S.stack = null; openModal(null); var sp = d.treply.slice(5); if (el('take-sec')) { el('take-sec').value = sp; el('take-sec').dispatchEvent(new Event('change')); } }
       else openModal(null);

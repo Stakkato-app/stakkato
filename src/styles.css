@@ -1170,8 +1170,6 @@ body.has-track #intro{display:none}
 .carry-list{display:flex;flex-direction:column;gap:2px}
 .field > .lbl{font-size:13.5px;font-weight:700;color:var(--muted)}
 .field .carry-list label.rec-opt{font-size:14px;font-weight:400;color:var(--ink)}
-.t-ctrls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.t-ctrls .seg[hidden]{display:none}
 .ava{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#fff;flex:none}
 .ava.words{background:var(--paper);color:var(--ink);border:1.5px solid var(--line-strong)}
 .upd-ava{background:var(--ink);color:var(--paper)}
