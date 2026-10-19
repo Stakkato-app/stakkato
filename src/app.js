@@ -454,8 +454,10 @@ function wordNode(w, flat) {
 }
 /* a take: who added what, their words, the take you can hear, and what you can do with it */
 function takeNode(t, flat) {
-  var r = role(t.roleId), cur = S.view !== 'build' && !S.override ? currentStack() : null, on = running && cur && cur.id === t.dbId;
+  var r = role(t.roleId), cur = S.view !== 'build' && !S.override ? currentStack() : null;
   var under = onOf(t), here = !!herePath()[t.dbId], last = !!(S.stack && cur && cur.id === t.dbId);
+  /* while a stack plays, every take in it sounds: they all show as playing, and pause it all */
+  var on = running && cur && (cur.id === t.dbId || here);
   var grp = groupOf(t), inSongAll = grp.every(function (g) { return S.members.indexOf(g) > -1; }), waiting = grp.some(function (g) { return g.status === 'waiting'; });
   var key = 't:' + t.dbId, kids = flat ? [] : takeKids(t).map(function (k) { return { at:k.created, html:takeNode(k) }; })
     .concat(wordKids(key).map(function (w) { return { at:w.created, html:wordNode(w) }; }));
@@ -590,7 +592,7 @@ function stacksHtml() {
   function nodeOf(t) {
     var grp = groupOf(t), inSong = grp.every(function (g) { return S.members.indexOf(g) > -1; });
     return { title:esc(youOr(t.by, t.authorId)), sub:esc(grp.map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + ')) + (t.created ? ' · ' + esc(agoOf(t.created)) : ''),
-      dots:dotsOf(pathOf(t)), attrs:'data-tplay="' + t.dbId + '"', on:!!(running && S.stack && cur && cur.id === t.dbId), here:!!hp[t.dbId],
+      dots:dotsOf(pathOf(t)), attrs:'data-tplay="' + t.dbId + '"', on:!!(running && S.stack && cur && (cur.id === t.dbId || hp[t.dbId])), here:!!hp[t.dbId],
       song:inSong, wait:isOpen() && !inSong && grp.some(function (g) { return g.status === 'waiting'; }), kids:takeKids(t).map(nodeOf),
       plus:isOpen() ? 'data-treply="' + t.dbId + '"' : '' };
   }
@@ -598,7 +600,7 @@ function stacksHtml() {
   var firsts = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; })
     .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
   var roots = [{ root:true, title:esc(isHost() ? 'Your original track' : (S.seed.by || 'The') + '’s original track'), sub:'where every stack starts', dots:[seedCol],
-    attrs:'data-tplay="seed"', on:!!(running && S.stack === '__seed'), here:S.stack === '__seed' || firsts.some(function (t) { return hp[t.dbId]; }), kids:firsts.map(nodeOf),
+    attrs:'data-tplay="seed"', on:!!(running && S.stack && S.view !== 'build' && !S.override), here:S.stack === '__seed' || firsts.some(function (t) { return hp[t.dbId]; }), kids:firsts.map(nodeOf),
     plus:isOpen() ? 'data-treply="seed"' : '' }];
   var made = S.members.filter(onKeptSection);
   if (made.length) roots.push({ root:true, title:'The song so far', sub:'picked by the author', dots:dotsOf(made), attrs:'data-tplay="main"',
@@ -3624,7 +3626,8 @@ document.addEventListener('click', function (e) {
       var st = currentStack(); return st ? makeCreation(st.takes) : null;
     }
     var id = d.stack || d.tplay || d.tstack || d.treply;
-    if (d.tplay && running && currentStack() && currentStack().id === (id === 'seed' ? '__seed' : id) && S.view !== 'build' && !S.override) { stopAll(true); render(); return; }
+    if (d.tplay && running && S.view !== 'build' && !S.override && currentStack() &&
+        (currentStack().id === (id === 'seed' ? '__seed' : id) || (S.stack && (id === 'seed' || herePath()[id])))) { stopAll(true); render(); return; }
     stopAll(true); S.override = null; S.trial = null; S.view = 'lineup';
     if (d.tplay || d.tstack || d.treply) offset = 0;  /* a take from the thread always starts at the top */
     if (/^part:/.test(id)) id = 'main';
