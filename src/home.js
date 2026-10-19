@@ -358,6 +358,37 @@ function play(rid, pid, at) {
   if (typeof at !== 'number' && S.playing !== key(r, pid) && sounding(r, pid)) { stop(); render(); return; }
   playList(key(r, pid), r, chainOf(r, pid), at);
 }
+/* the whole song with a new part in it: what the part was made on, then the part (or the other
+   way round for a part before), one after the other, each with what plays on it */
+function wholeKey(r, pid) { return r.id + ':whole:' + pid; }
+function playWhole(rid, pid) {
+  var r = riff(rid), p = postOf(r, pid), k = wholeKey(r, pid);
+  if (!p) return;
+  if (S.playing === k) { stop(); render(); return; }
+  var main = p.parent ? chainOf(r, p.parent) : chainOf(r, null).concat(songOf(r));
+  var onPart = chainOf(r, p.id);
+  r.posts.forEach(function (x) { if (x.section === p.id && x.layer && !x.deleted && !x.isComment && x.uid === p.uid && x.kind !== 'part') onPart = onPart.concat(stemsOf(x)); });
+  var segs = p.pos === 'before' ? [onPart, main] : [main, onPart], all = segs[0].concat(segs[1]);
+  SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; CLOCK = null;
+  S.playing = k; render();
+  Promise.all(all.map(function (x) { return load(r, x); })).then(function () {
+    return Promise.all(all.map(function (x) { return amped(r, x); }));
+  }).then(function () {
+    if (S.playing !== k) return;
+    var a = ac(); a.resume(); var T = a.currentTime + 0.05;
+    segs.forEach(function (seg) {
+      var lead = bufFor(r, seg[0]), len = lead ? lead.duration : 0;
+      seg.forEach(function (x) {
+        var b = bufFor(r, x); if (!b || !len) return;
+        var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(a.destination);
+        s.start(T); s.stop(T + len); SRC.push(s);
+      });
+      T += len;
+    });
+    var end = T - a.currentTime;
+    setTimeout(function () { if (S.playing === k) { stop(); render(); } }, Math.max(0, end * 1000) + 100);
+  });
+}
 function playSong(rid) { var r = riff(rid); playList(rid + ':song', r, chainOf(r, null).concat(songOf(r))); }
 function playMix(rid) { var r = riff(rid); playList(rid + ':mix', r, [{ id:'mix', url:r.mix.url }]); }
 
@@ -475,6 +506,7 @@ function partHtml(r, p, depth) {
       '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip' +
       ((p.carry || []).length ? ', with ' + chainChips(r, p.carry) : '') + '</div></div>' +
     '<div class="acts">' + (r.host && r.open && !kept ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
+      '<button class="ghost accent' + (S.playing === wholeKey(r, p.id) ? ' on' : '') + '" type="button" data-whole="' + r.id + '" data-post="' + p.id + '">' + (S.playing === wholeKey(r, p.id) ? '&#10074;&#10074; Stop the song' : '&#9654; Play the whole song') + '</button>' +
       (r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
       mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
@@ -1036,6 +1068,7 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
+  if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
   if ((b = e.target.closest('[data-reply]'))) { openReply(b.dataset.reply, b.dataset.post); return; }
   if ((b = e.target.closest('[data-comment]'))) { openComment(b.dataset.comment, b.dataset.post); return; }
