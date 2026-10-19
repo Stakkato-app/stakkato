@@ -8,7 +8,8 @@
    A node: { title (html, escaped by the page), sub (html), dots: [css colours], attrs: the
    button's data attributes, on: it plays now, here: it is on the path you hear, song: it is in
    the song, wait: it waits for the creator, root, gone: a deleted take others played on,
-   kids: [nodes] } */
+   kids: [nodes], plus: the data attributes of the "+" that plays on this stack, shown at the
+   end of a stack (a node nobody played on yet) } */
 
 import './stacktree.css';
 
@@ -30,7 +31,10 @@ export function stackTree(roots, hint) {
 }
 function item(n) {
   var ks = n.kids || [];
-  return '<li' + (n.here ? ' class="here"' : '') + '>' + card(n) + (ks.length ? '<ul role="list">' + ks.map(item).join('') + '</ul>' : '') + '</li>';
+  /* the end of a stack: a "+" to play on it, on the branch like the next reply would be */
+  var tail = !ks.length && n.plus && !n.gone ? '<ul role="list" class="sn-end"><li><button class="sn-plus" type="button" ' + n.plus +
+    ' aria-label="Play on this stack" title="Play on this stack">+</button></li></ul>' : '';
+  return '<li' + (n.here ? ' class="here"' : '') + '>' + card(n) + (ks.length ? '<ul role="list">' + ks.map(item).join('') + '</ul>' : tail) + '</li>';
 }
 function card(n) {
   var cls = 'sn' + (n.root ? ' root' : '') + (n.on ? ' on' : '') + (n.here ? ' here' : '') + (n.song ? ' song' : '');

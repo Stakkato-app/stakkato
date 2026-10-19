@@ -591,26 +591,29 @@ function stacksHtml() {
     var grp = groupOf(t), inSong = grp.every(function (g) { return S.members.indexOf(g) > -1; });
     return { title:esc(youOr(t.by, t.authorId)), sub:esc(grp.map(function (g) { return role(g.roleId).label.toLowerCase(); }).join(' + ')) + (t.created ? ' · ' + esc(agoOf(t.created)) : ''),
       dots:dotsOf(pathOf(t)), attrs:'data-tplay="' + t.dbId + '"', on:!!(running && S.stack && cur && cur.id === t.dbId), here:!!hp[t.dbId],
-      song:inSong, wait:isOpen() && !inSong && grp.some(function (g) { return g.status === 'waiting'; }), kids:takeKids(t).map(nodeOf) };
+      song:inSong, wait:isOpen() && !inSong && grp.some(function (g) { return g.status === 'waiting'; }), kids:takeKids(t).map(nodeOf),
+      plus:isOpen() ? 'data-treply="' + t.dbId + '"' : '' };
   }
   var nodeKeys = nodeKeySet();
   var firsts = threadTakes().filter(function (t) { return isLead(t) && !parentOf(t) && !nodeKeys[onKey(t)]; })
     .sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
   var roots = [{ root:true, title:esc(isHost() ? 'Your original track' : (S.seed.by || 'The') + '’s original track'), sub:'where every stack starts', dots:[seedCol],
-    attrs:'data-tplay="seed"', on:!!(running && S.stack === '__seed'), here:S.stack === '__seed' || firsts.some(function (t) { return hp[t.dbId]; }), kids:firsts.map(nodeOf) }];
+    attrs:'data-tplay="seed"', on:!!(running && S.stack === '__seed'), here:S.stack === '__seed' || firsts.some(function (t) { return hp[t.dbId]; }), kids:firsts.map(nodeOf),
+    plus:isOpen() ? 'data-treply="seed"' : '' }];
   var made = S.members.filter(onKeptSection);
   if (made.length) roots.push({ root:true, title:'The song so far', sub:'picked by the author', dots:dotsOf(made), attrs:'data-tplay="main"',
-    on:!!(running && !S.stack && cur && cur.creation), song:true, kids:onNode(keyOf(made)).map(nodeOf) });
+    on:!!(running && !S.stack && cur && cur.creation), song:true, kids:onNode(keyOf(made)).map(nodeOf), plus:isOpen() ? 'data-treply="main"' : '' });
   (S.versions || []).forEach(function (v) {
     var tk = byIds(v.picks).filter(live); if (!tk.length) return;
     roots.push({ root:true, title:esc(v.name || (v.by + '’s stack')), sub:'put together by ' + esc(v.by), dots:dotsOf(tk.filter(function (x) { return x.id !== 'seed'; })),
-      attrs:'data-tplay="v-' + v.id + '"', kids:onNode(keyOf(tk)).map(nodeOf) });
+      attrs:'data-tplay="v-' + v.id + '"', kids:onNode(keyOf(tk)).map(nodeOf), plus:isOpen() ? 'data-treply="v-' + v.id + '"' : '' });
   });
   S.parts.forEach(function (p) {
     roots.push({ root:true, title:'New part', sub:'plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original track · ' + fmt(p.len),
-      dots:['var(--part)'].concat(carryOf(p).map(function (c) { return c === S.seed ? seedCol : col(role(c.roleId)); })), attrs:'data-tpart="' + p.id + '"' });
+      dots:['var(--part)'].concat(carryOf(p).map(function (c) { return c === S.seed ? seedCol : col(role(c.roleId)); })), attrs:'data-tpart="' + p.id + '"',
+      plus:isOpen() ? 'data-treply="part:' + p.id + '"' : '' });
   });
-  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it in the tracks above; switch to Thread to reply or add a take.');
+  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it in the tracks above, or + at its end to play on it.');
 }
 /* the small waveforms of the takes in the thread */
 function drawThreadWaves() {

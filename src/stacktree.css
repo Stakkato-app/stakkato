@@ -43,5 +43,9 @@
 .sn-tag{font-style:normal;font-size:11.5px;font-weight:700;color:var(--sound-ink);background:var(--sound-soft);border-radius:99px;padding:1px 8px;margin-top:2px}
 .sn-tag.wait{background:var(--wait-bg);color:var(--wait-ink)}
 .sn.gone{width:auto;padding:7px 12px;border-style:dashed;color:var(--muted);font-size:12.5px;cursor:default;background:transparent}
+.sn-plus{flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--action);color:var(--on-action);font:700 22px/1 var(--body);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow);transition:transform .12s,background .12s}
+.sn-plus:hover{background:var(--action-hover);transform:scale(1.08)}
+.stree .sn-end::before,.stree .sn-end > li::before{border-top-style:dashed}
 .stree-hint{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
 @media (max-width:560px){ .sn{width:150px;padding:8px 10px} .stree ul{padding-left:22px} .stree ul::before{width:22px} .stree ul > li{padding-left:12px} .stree ul > li::before{width:12px} }

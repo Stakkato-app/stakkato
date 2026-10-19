@@ -494,15 +494,17 @@ function treeOf(r) {
     if (p.deleted) return { gone:true, title:'Deleted take', kids:ks };
     var who = esc(p.mine ? 'You' : p.by), on = S.playing === key(r, p.id);
     if (p.kind === 'part') return { title:who, sub:'new part, plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the clip', dots:['var(--part)'].concat((p.carry || []).map(function (c) { return lay(c.layer).c; })),
-      attrs:'data-play="' + r.id + '" data-post="' + p.id + '"', on:on, kids:ks };
+      attrs:'data-play="' + r.id + '" data-post="' + p.id + '"', on:on, kids:ks, plus:r.open && p.status === 'in' ? 'data-reply="' + r.id + '" data-post="' + p.id + '"' : '' };
     return { title:who, sub:esc(stemsOf(p).map(function (x) { return lay(x.layer).label; }).join(' + ')) + ' · ' + esc(p.time),
-      dots:chainOf(r, p.id).map(function (x) { return lay(x.layer).c; }), attrs:'data-play="' + r.id + '" data-post="' + p.id + '"', on:on, song:!!p.inSong, kids:ks };
+      dots:chainOf(r, p.id).map(function (x) { return lay(x.layer).c; }), attrs:'data-play="' + r.id + '" data-post="' + p.id + '"', on:on, song:!!p.inSong, kids:ks,
+      plus:r.open ? 'data-reply="' + r.id + '" data-post="' + p.id + '"' : '' };
   }
   var top = r.posts.filter(function (p) { return !p.parent && audio(p); });
   var roots = [{ root:true, title:esc(r.host ? 'Your clip' : r.by + '’s clip'), sub:'where every stack starts', dots:[lay(r.layer).c],
-    attrs:'data-play="' + r.id + '"', on:S.playing === key(r), kids:top.filter(function (p) { return p.kind !== 'part'; }).map(nodeOf) }]
+    attrs:'data-play="' + r.id + '"', on:S.playing === key(r), kids:top.filter(function (p) { return p.kind !== 'part'; }).map(nodeOf),
+    plus:r.open ? 'data-reply="' + r.id + '"' : '' }]
     .concat(top.filter(function (p) { return p.kind === 'part'; }).map(nodeOf));
-  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it; switch to Thread to reply.');
+  return stackTree(roots, 'Every path from the left is a stack. Click one to hear it, or + at its end to play on it.');
 }
 /* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
    replied, what kind of replies there are and the latest one, so it reads as "there's a
