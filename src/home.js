@@ -79,7 +79,16 @@ function build(feed) {
     var seed = tk.filter(function (t) { return t.id === s.seed_take_id; })[0];
     if (!seed) return null;
     var title = s.title && s.title !== 'Untitled' ? s.title : seed.author_name + '’s track';
-    var posts = [], mix = null;
+    var posts = [], mix = null, rowOf = {};
+    tk.forEach(function (t) { rowOf[t.id] = t; });
+    /* tracks carried into a new part (takes.carry) play again under it */
+    function carried(ids) {
+      return (ids || []).map(function (id) {
+        var c = rowOf[id]; if (!c || c.status === 'deleted' || c.role_id === 'part' || c.role_id === 'mix') return null;
+        if (c.id === s.seed_take_id) return { id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '' };
+        return { id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', url:db.publicUrl(c.storage_path), dur:c.duration_sec, amp:c.amp || '' };
+      }).filter(Boolean);
+    }
     KIND[s.id] = { kind:'session', sid:s.id };
     tk.forEach(function (t) {
       if (t.id === s.seed_take_id || t.role_id === 'seed') return;
@@ -95,7 +104,7 @@ function build(feed) {
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
-        posts.push(Object.assign(base, { parent:null, kind:'part', layer:'part', pos:t.part_pos }));
+        posts.push(Object.assign(base, { parent:null, kind:'part', layer:'part', pos:t.part_pos, carry:carried(t.carry) }));
         return;
       }
       posts.push(Object.assign(base, { parent:t.reply_to || t.section_id || null, section:t.section_id || null, group:t.group_id || null,
@@ -277,7 +286,7 @@ function stemsOf(p) { return [p].concat((p.stems || []).map(function (x) { retur
 function chainOf(r, pid) {
   var out = [];
   for (var p = pid ? postOf(r, pid) : null; p; p = p.parent ? postOf(r, p.parent) : null) {
-    if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, isPart:true }].concat(out);
+    if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, isPart:true }].concat(p.carry || [], out);
     if (p.layer) out = stemsOf(p).concat(out);
   }
   return [{ id:'riff', by:r.by, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host, amp:r.amp }].concat(out);
@@ -336,7 +345,20 @@ function playList(k, r, c, at) {
     tickHeads();
   });
 }
-function play(rid, pid, at) { var r = riff(rid); playList(key(r, pid), r, chainOf(r, pid), at); }
+/* while a stack plays, everything in it sounds: the take you pressed and everything it was
+   played on. Those all show as playing, and pressing any of them pauses the whole stack. */
+function sounding(r, pid) {
+  if (!r || !S.playing || S.playing.indexOf(r.id + ':') !== 0) return false;
+  var cur = S.playing.slice(r.id.length + 1);
+  if (cur === (pid || 'riff')) return true;
+  if (cur === 'riff' || cur === 'song' || cur === 'mix' || !postOf(r, cur)) return false;
+  return chainOf(r, cur).some(function (x) { return pid ? x.id === pid || x.dbId === pid : x.isRiff; });
+}
+function play(rid, pid, at) {
+  var r = riff(rid);
+  if (typeof at !== 'number' && S.playing !== key(r, pid) && sounding(r, pid)) { stop(); render(); return; }
+  playList(key(r, pid), r, chainOf(r, pid), at);
+}
 function playSong(rid) { var r = riff(rid); playList(rid + ':song', r, chainOf(r, null).concat(songOf(r))); }
 function playMix(rid) { var r = riff(rid); playList(rid + ':mix', r, [{ id:'mix', url:r.mix.url }]); }
 
@@ -407,7 +429,8 @@ function drawWaves() {
   if (CLOCK) requestAnimationFrame(tickHeads);
   var css = getComputedStyle(document.documentElement);
   [].forEach.call(document.querySelectorAll('canvas[data-wave]'), function (cv) {
-    var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of);
+    var w = cv.dataset.of || cv.dataset.wave, i = w.indexOf(':'), wp = w.slice(i + 1);
+    var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of || sounding(riff(w.slice(0, i)), wp === 'riff' ? null : wp));
     /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
     var tone = lit ? '--sound' : cv.closest('.take') && cv.dataset.layer ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
     waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(tone).trim());
@@ -445,12 +468,13 @@ function node(r, p, cls, aside, body, depth) {
     '<div class="nbody">' + body + kidsHtml(r, p, depth) + '</div></div>';
 }
 function partHtml(r, p, depth) {
-  var on = S.playing === key(r, p.id), kept = p.status === 'in';
+  var on = sounding(r, p.id), kept = p.status === 'in';
   return node(r, p, 'upd', '<span class="ava upd-ava" aria-hidden="true">&#8596;</span>',
     '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b><span class="muted">' + (kept ? 'extended the jam' : 'pitched a new part') + '</span>' + metaTime(p) + '</div>' +
     (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
     '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip</div></div>' +
+      '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip' +
+      ((p.carry || []).length ? ', with ' + chainChips(r, p.carry) : '') + '</div></div>' +
     '<div class="acts">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
       mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
@@ -461,7 +485,7 @@ function goneHtml(r, p, depth) {
 function replyHtml(r, p, depth) {
   if (p.deleted) return goneHtml(r, p, depth);
   if (p.kind === 'part') return partHtml(r, p, depth);
-  var on = S.playing === key(r, p.id);
+  var on = sounding(r, p.id);
   return node(r, p, '', ava(p.mine ? 'You' : p.by, p.layer),
     '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b>' + (p.layer ? '<span class="muted">added</span>' + stemsOf(p).map(function (x) { return lyr(x.layer); }).join(' + ') : '') +
       (p.inSong ? '<span class="songtag">In the song</span>' : '') + metaTime(p) + '</div>' +
@@ -498,7 +522,7 @@ function riffMeta(r) {
   return esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + (r.dur ? ' · ' + mmss(r.dur) : '');
 }
 function riffHtml(r) {
-  var on = S.playing === key(r), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
+  var on = sounding(r, null), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
   var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + (r.host ? ' (you)' : '') + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
