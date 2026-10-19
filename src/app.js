@@ -24,7 +24,7 @@ import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
@@ -686,13 +686,15 @@ function envAt(x, L, e) {
   if (e.fo > 0 && x > L - e.fo) v = Math.min(v, (L - x) / e.fo);
   return Math.max(0, Math.min(1, v));
 }
-/* clip time x0 starts sounding at audio time T */
-function scheduleEnv(g, t, T, x0) {
-  var e = envOf(t), L = t.len;
-  var pts = [x0, e.fi, L - e.fo, L].filter(function (x) { return x >= x0 && x <= L; }).sort(function (a, b) { return a - b; });
+/* clip time x0 starts sounding at audio time T; `soft` (the clip starts where play was pressed)
+   rises from silence over FADE_IN so it doesn't click */
+function scheduleEnv(g, t, T, x0, soft) {
+  var e = envOf(t), L = t.len, x1 = soft ? Math.min(L, x0 + FADE_IN) : x0;
+  var pts = [e.fi, L - e.fo, L].filter(function (x) { return x > x1 && x <= L; }).sort(function (a, b) { return a - b; });
   g.gain.cancelScheduledValues(0);
-  g.gain.setValueAtTime(envAt(x0, L, e), T);
-  pts.forEach(function (x) { if (x > x0) g.gain.linearRampToValueAtTime(envAt(x, L, e), T + (x - x0)); });
+  g.gain.setValueAtTime(soft ? 0 : envAt(x0, L, e), T);
+  if (soft) g.gain.linearRampToValueAtTime(envAt(x1, L, e), T + (x1 - x0));
+  pts.forEach(function (x) { g.gain.linearRampToValueAtTime(envAt(x, L, e), T + (x - x0)); });
 }
 function startOf(tk) {
   var a = arrangement();
@@ -1072,9 +1074,8 @@ function position() {
   return Math.min(duration(), ac().currentTime - startedAt);
 }
 function stopAll(keep) {
-  Object.keys(sources).forEach(function (k) {
-    try { sources[k].stop(); } catch (e) {}
-  });
+  /* each source plays through its own envelope gain (s.env): take that down so it doesn't click */
+  Object.keys(sources).forEach(function (k) { fadeOut(ac(), sources[k].env, [sources[k]]); });
   sources = {};
   if (running) offset = keep ? position() : 0;
   running = false; only = null;
@@ -1102,9 +1103,9 @@ function play(from, soloId) {
     s.buffer = b;
     s.connect(env); env.connect(gainFor(t));
     var T = at >= st ? now : now + (st - at), x0 = at >= st ? at - st : 0;
-    scheduleEnv(env, t, T, x0);
+    scheduleEnv(env, t, T, x0, T === now);
     s.start(T, x0);
-    sources[t.id] = s;
+    s.env = env; sources[t.id] = s;
   });
   offset = at; running = true;
   startLoop();
@@ -1129,11 +1130,11 @@ function preview(t) {
   s.connect(env); env.connect(gainFor(t));
   ac().resume();
   var T = ac().currentTime + 0.02;
-  scheduleEnv(env, t, T, 0);
+  scheduleEnv(env, t, T, 0, true);
   s.start(T);
   onlyAt = T;
-  sources[t.id] = s;
-  s.onended = function () { delete sources[t.id]; if (only === t.id) { only = null; render(); } };
+  s.env = env; sources[t.id] = s;
+  s.onended = function () { if (sources[t.id] === s) delete sources[t.id]; if (only === t.id) { only = null; render(); } };
   startLoop();
   render();
 }
@@ -1148,8 +1149,8 @@ function previewGroup(t) {
   list.forEach(function (g) {
     var s2 = ac().createBufferSource(), env = ac().createGain();
     s2.buffer = ampFailed(g) ? g.buf : playBuf(g); s2.connect(env); env.connect(gainFor(g));
-    scheduleEnv(env, g, T, 0); s2.start(T); sources[g.id] = s2;
-    s2.onended = function () { delete sources[g.id]; if (--left <= 0 && only === key) { only = null; render(); } };
+    scheduleEnv(env, g, T, 0, true); s2.start(T); s2.env = env; sources[g.id] = s2;
+    s2.onended = function () { if (sources[g.id] === s2) delete sources[g.id]; if (--left <= 0 && only === key) { only = null; render(); } };
   });
   onlyAt = T; startLoop(); render();
 }
@@ -1167,10 +1168,10 @@ function pairPreview(t) {
     var s = ac().createBufferSource(), env = ac().createGain();
     s.buffer = ampFailed(x) ? x.buf : playBuf(x);
     s.connect(env); env.connect(gainFor(x));
-    scheduleEnv(env, x, T, 0);
+    scheduleEnv(env, x, T, 0, true);
     s.start(T);
-    sources[x.id] = s;
-    s.onended = function () { delete sources[x.id]; if (--left === 0 && only === key) { only = null; render(); } };
+    s.env = env; sources[x.id] = s;
+    s.onended = function () { if (sources[x.id] === s) delete sources[x.id]; if (--left === 0 && only === key) { only = null; render(); } };
   });
   onlyAt = T;
   startLoop();
@@ -1415,8 +1416,8 @@ var REC = { state:'idle', buf:null, file:null, stream:null, nodes:[], timer:0, p
 function recStopPlayers() {
   /* stopping a draft take's preview keeps where it was, so play goes on from there */
   if (REC.pv) { REC.pvAt = recPvPos(); REC.pv = null; cancelAnimationFrame(REC.pvRaf); }
-  REC.player.forEach(function (s) { try { s.stop(); } catch (e) {} });
-  REC.player = [];
+  fadeOut(ac(), REC.fade, REC.player);
+  REC.player = []; REC.fade = null;
   recPvButton();
 }
 function recCleanup() {
@@ -1437,7 +1438,7 @@ function hearable() {
   return [S.seed].concat(layers.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
 }
 /* play backing so that the chosen section starts at audio time T */
-function playBacking(list, T, into, from) {
+function playBacking(list, T, into, from, dest) {
   var a = ac(), s0 = (section(M.sec) || section('core')).start + (from || 0);
   list.forEach(function (t) {
     var rel = startOf(t) - s0, off = rel < 0 ? -rel : 0;
@@ -1446,7 +1447,7 @@ function playBacking(list, T, into, from) {
     if (!b) return;
     var s = a.createBufferSource(), g = a.createGain();
     s.buffer = b; g.gain.value = volOf(t);
-    s.connect(g); g.connect(master); s.start(T + Math.max(0, rel), off);
+    s.connect(g); g.connect(dest || master); s.start(T + Math.max(0, rel), off);
     into.push(s); REC.nodes.push(g);
   });
 }
@@ -1699,10 +1700,11 @@ function recListen(withBacking, from) {
   from = Math.max(0, Math.min(from || 0, REC.buf.duration - .05));
   var a = ac(); a.resume();
   var at = a.currentTime + 0.05;
-  var s = a.createBufferSource();
-  s.buffer = REC.buf; s.connect(ampInto(recAmpFor(recRoleId()), REC.peakOf || 0, master, REC.nodes)); s.start(at, from);
+  var s = a.createBufferSource(), fade = fadeIn(a, at, master);
+  REC.nodes.push(fade); REC.fade = fade;
+  s.buffer = REC.buf; s.connect(ampInto(recAmpFor(recRoleId()), REC.peakOf || 0, fade, REC.nodes)); s.start(at, from);
   REC.player.push(s);
-  if (withBacking && M.mode !== 'extend') playBacking(recBacking(), at, REC.player, from);
+  if (withBacking && M.mode !== 'extend') playBacking(recBacking(), at, REC.player, from, fade);
   return { s:s, at:at, from:from };
 }
 /* The draft take on the grey track: play/pause it with the rest, and click (or drag over) its

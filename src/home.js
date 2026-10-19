@@ -15,7 +15,7 @@ import { requireAccount, onAccount, postingAs, setToast, profileHref } from './a
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
@@ -28,7 +28,7 @@ var RIFFS = [];
 var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'' }, loaded:false, failed:null, sure:null };
 var KIND = {};                     /* target id -> { kind, sid } for votes */
 var me = null;                     /* the signed-in account (src/auth.js), or null */
-var AC = null, BUF = {}, SRC = [];
+var AC = null, BUF = {}, SRC = [], FADE = null;
 
 function el(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -307,7 +307,9 @@ function amped(r, p) {
   return BUF[k + ':busy'];
 }
 function bufFor(r, p) { return (p.amp && BUF[ampKey(r, p)]) || BUF[bufKey(r, p)]; }
-function stop() { SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; S.playing = null; CLOCK = null; }
+/* FADE: the gain everything that plays goes through; stopping takes it down over 5 ms first */
+function silence() { if (SRC.length) fadeOut(ac(), FADE, SRC); SRC = []; FADE = null; }
+function stop() { silence(); S.playing = null; CLOCK = null; }
 /* CLOCK: when the loop that is playing started and how long it is, for the playhead */
 var CLOCK = null;
 /* play a list of takes together, looped; `at` (seconds) starts somewhere in the middle.
@@ -316,7 +318,7 @@ function playList(k, r, c, at) {
   var seek = typeof at === 'number';
   if (S.playing === k && !seek) { stop(); render(); return; }
   var was = S.playing;
-  SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; CLOCK = null;
+  silence(); CLOCK = null;
   S.playing = k; if (was !== k) render();
   Promise.all(c.map(function (p) { return load(r, p); })).then(function () {
     return Promise.all(c.map(function (p) { return amped(r, p); }));
@@ -324,10 +326,10 @@ function playList(k, r, c, at) {
     if (S.playing !== k) return;
     var a = ac(); a.resume(); var T = a.currentTime + 0.05, len = 0;
     c.forEach(function (p) { var b = bufFor(r, p); if (b) len = Math.max(len, b.duration); });
-    var from = seek ? ((at % len) + len) % len : 0;
+    var from = seek ? ((at % len) + len) % len : 0, fade = FADE = fadeIn(a, T, a.destination);
     c.forEach(function (p) {
       var b = bufFor(r, p); if (!b) return;
-      var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(a.destination);
+      var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(fade);
       s.start(T, from % b.duration); SRC.push(s);
     });
     CLOCK = { k:k, t0:T - from, len:len };
@@ -594,7 +596,7 @@ function mdPlay() {
   if (S.playing === 'reply') { stop(); mdIdle(); render(); return; }
   stop(); render(); S.playing = 'reply';
   el('md-play').innerHTML = '&#10074;&#10074;'; el('md-play').classList.add('on');
-  var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05; MD.gains = {};
+  var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05, fade = FADE = fadeIn(a, T, a.destination); MD.gains = {};
   var m = mine(), lanes = MD.c.concat(m ? [{ mine:true, buf:m.buf, amp:m.amp }] : []);
   lanes.forEach(function (p, i) {
     var b = p.buf || bufFor(r, p); if (!b) return;
@@ -603,9 +605,9 @@ function mdPlay() {
     g.gain.value = MD.mute[i] ? 0 : 1; src.start(T); SRC.push(src); MD.gains[i] = g;
     /* a fresh take with an amp is heard through it live; the file itself stays dry */
     var la = p.mine && p.amp ? liveAmp(a, p.amp, peakOf(b)) : null;
-    if (la) { src.connect(la.input); la.output.connect(g); SRC.push({ stop:function () { dropAmp(la); } }); }
+    if (la) { src.connect(la.input); la.output.connect(g); SRC.push({ stop:function () { setTimeout(function () { dropAmp(la); }, 50); } }); }
     else src.connect(g);
-    g.connect(a.destination);
+    g.connect(fade);
   });
   MD.t0 = T; el('md-head').hidden = false;
   (function tick() {
