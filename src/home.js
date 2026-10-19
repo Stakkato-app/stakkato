@@ -104,7 +104,8 @@ function build(feed) {
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
-        posts.push(Object.assign(base, { parent:null, kind:'part', layer:'part', pos:t.part_pos, carry:carried(t.carry) }));
+        /* a new part is a reply on the stack it was made on (reply_to), or on the jam */
+        posts.push(Object.assign(base, { parent:t.reply_to || null, kind:'part', layer:'part', pos:t.part_pos, carry:carried(t.carry) }));
         return;
       }
       posts.push(Object.assign(base, { parent:t.reply_to || t.section_id || null, section:t.section_id || null, group:t.group_id || null,
@@ -468,12 +469,13 @@ function node(r, p, cls, aside, body, depth) {
 function partHtml(r, p, depth) {
   var on = sounding(r, p.id), kept = p.status === 'in';
   return node(r, p, 'upd', '<span class="ava upd-ava" aria-hidden="true">&#8596;</span>',
-    '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b><span class="muted">' + (kept ? 'extended the jam' : 'pitched a new part') + '</span>' + metaTime(p) + '</div>' +
+    '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b><span class="muted">made the song longer</span>' + (kept ? '<span class="songtag">In the song</span>' : '') + metaTime(p) + '</div>' +
     (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
     '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip' +
       ((p.carry || []).length ? ', with ' + chainChips(r, p.carry) : '') + '</div></div>' +
-    '<div class="acts">' + (r.open && kept ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
+    '<div class="acts">' + (r.host && r.open && !kept ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
+      (r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
       mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 function goneHtml(r, p, depth) {
@@ -906,7 +908,13 @@ el('r-go').addEventListener('click', function () {
       setTimeout(function () { var n = el('post-' + r.id + '-' + row.id); if (n) n.scrollIntoView({ behavior:'smooth', block:'center' }); }, 60);
       toast('Your take is posted. Anyone can play along on top of it now.');
     });
-  }).catch(function (e) { el('r-go').disabled = false; el('r-err').textContent = (e && e.message) || 'That didn’t work, try again.'; });
+  }).catch(function (e) {
+    el('r-go').disabled = false;
+    /* playing on a new part that isn't in the song yet needs 20261019230000_parts_as_replies.sql */
+    el('r-err').textContent = pp && pp.kind === 'part' && pp.status !== 'in' && /row-level security/i.test(String(e && e.message))
+      ? 'Playing on a new part that isn’t in the song yet needs a database update that isn’t applied yet. Try again later.'
+      : (e && e.message) || 'That didn’t work, try again.';
+  });
 });
 
 /* ---------- start a jam from the upload panel ---------- */
@@ -1036,7 +1044,13 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-expand]'))) { S.expanded[b.dataset.expand] = !S.expanded[b.dataset.expand]; render(); return; }
   if ((b = e.target.closest('[data-letin]'))) {
     b.disabled = true;
-    db.letIn(b.dataset.letin).then(reload).then(function () { toast('It’s in the song now.'); }).catch(function (x) { b.disabled = false; oops(x); });
+    /* a new part brings the tracks its author sent with it */
+    var lr = RIFFS.filter(function (x) { return postOf(x, b.dataset.letin); })[0], lp = lr && postOf(lr, b.dataset.letin);
+    var withIt = lp && lp.kind === 'part' ? kids(lr, lp.id).filter(function (k) { return k.layer && !k.isComment && k.uid === lp.uid && k.status === 'waiting'; })
+      .reduce(function (a, k) { return a.concat([k.id], (k.stems || []).map(function (x) { return x.id; })); }, []) : [];
+    db.letIn(b.dataset.letin).then(function () {
+      return withIt.reduce(function (p, id) { return p.then(function () { return db.letIn(id); }); }, Promise.resolve());
+    }).then(reload).then(function () { toast('It’s in the song now.'); }).catch(function (x) { b.disabled = false; oops(x); });
     return;
   }
   if ((b = e.target.closest('[data-playsong]'))) { playSong(b.dataset.playsong); return; }
