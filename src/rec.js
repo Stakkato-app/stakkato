@@ -30,6 +30,26 @@ export function newContext() {
   var C = window.AudioContext || window.webkitAudioContext;
   try { return new C({ latencyHint:0 }); } catch (e) { return new C(); }
 }
+/* Pressing play: a gain that rises from silence over 5 ms from audio time T, so audio that starts
+   mid-waveform doesn't click. Connect the sources to it; it goes to dest. fadeOut() is the other
+   end: pausing or stopping takes the gain g down to silence over the same 5 ms, then stops srcs. */
+export var FADE_IN = 0.005;
+export function fadeIn(a, T, dest) {
+  var g = a.createGain();
+  g.gain.setValueAtTime(0, T);
+  g.gain.linearRampToValueAtTime(1, T + FADE_IN);
+  g.connect(dest);
+  return g;
+}
+export function fadeOut(a, g, srcs) {
+  var t = a.currentTime, end = t + FADE_IN;
+  if (g) {
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.linearRampToValueAtTime(0, end);
+  }
+  (srcs || []).forEach(function (s) { try { s.stop(end); } catch (e) {} });
+}
 /* The amps are captured at 48 kHz; at 44.1 kHz the live amp resamples, which costs a few ms. */
 export function rateTip(a) {
   return a && a.sampleRate && a.sampleRate !== 48000
