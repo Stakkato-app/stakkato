@@ -205,18 +205,22 @@ var WANT = (function () { try { return new URLSearchParams(location.search).get(
 window.__stackId = function () { return S.stack || null; };
 /* wait until the audio is in and the page has its final height, then show the tracks */
 /* jump to a new part in the tracks: the song plays from where the part starts */
-function goPart(pid, n, gesture) {
+/* whole: play the whole song with the part in it, from the top, instead of from where the part starts */
+function goPart(pid, n, gesture, whole) {
   n = n || 0;
-  if ((loadingCount() || !tracks().length) && n < 60) return setTimeout(function () { goPart(pid, n + 1, gesture); }, 150);
+  if ((loadingCount() || !tracks().length) && n < 60) return setTimeout(function () { goPart(pid, n + 1, gesture, whole); }, 150);
   var p = TAKES[pid]; if (!p) return;
-  stopAll(true); S.override = null; S.trial = null; S.view = 'lineup'; S.stack = null; refreshGains(); render();
-  var at = startOf(p); offset = at; render();
+  stopAll(true); S.override = null; S.trial = null; S.view = 'lineup'; S.stack = null;
+  if (p.status === 'waiting') S.trialPitch = p.id;   /* a new part that isn't in the song yet: hear it in place */
+  if (!(S.drafts || []).length) S.recSec = p.id;      /* the grey track records on it */
+  refreshGains(); render();
+  var at = whole ? 0 : startOf(p); offset = at; render();
   setTimeout(function () { var h = el('mix-head'); if (h) h.scrollIntoView({ block:'start', behavior: gesture ? 'smooth' : 'auto' }); }, 80);
   if (gesture) { play(at); return; }
   try { ac().resume(); } catch (e) {}
   setTimeout(function () {
     if (ac().state === 'running') play(at);
-    else flash('Press Play to hear ' + p.by + '’s new part. The song starts where the part begins.');
+    else flash(whole ? 'Press Play to hear the whole song with ' + p.by + '’s new part.' : 'Press Play to hear ' + p.by + '’s new part. The song starts where the part begins.');
   }, 250);
 }
 function scrollToMix(n) {
@@ -350,7 +354,7 @@ function tFilter() { return S.tFilter || 'all'; }
 function wordTarget(w) {
   if (w.toWord) return S.words.some(function (x) { return x.id === w.toWord; }) ? 'w:' + w.toWord : 'jam';
   var t = w.toTake && TAKES[w.toTake];
-  if (t && live(t) && t.roleId === 'part' && t.status === 'in') return 'p:' + t.dbId;
+  if (t && live(t) && t.roleId === 'part' && (t.status === 'in' || t.status === 'waiting')) return 'p:' + t.dbId;
   if (t && live(t) && threadTakes().indexOf(t) > -1) return 't:' + lead(t).dbId;
   return 'jam';
 }
@@ -515,7 +519,7 @@ function updatePost(o) {
         : '<span class="tiny muted">' + (o.part ? 'Plays where it sits in the song' : '') + '</span>') + '</div></div>' +
     '<div class="acts">' + (isOpen() ? '<button class="tlink" type="button" data-treply="' + o.reply + '">Reply with audio</button>' : '') +
       (o.stack ? (last ? '' : '<button class="tlink" type="button" data-tstack="' + o.id + '">Show in the tracks</button>') : '') +
-      (o.part ? '<button class="tlink" type="button" data-tpart="' + o.part + '">Show in the tracks</button><button class="tlink" type="button" data-wopen="part:' + o.part + '">Reply</button>' : '') + '</div>' +
+      (o.part ? '<button class="tlink" type="button" data-twhole="' + o.part + '">Play the whole song</button><button class="tlink" type="button" data-tpart="' + o.part + '">Show in the tracks</button><button class="tlink" type="button" data-wopen="part:' + o.part + '">Reply</button>' : '') + '</div>' +
     (o.part ? wordBox('part:' + o.part) : '') + kidsBlock(o.id, kids, open) + '</div></div>';
 }
 function threadUpdates() {
@@ -524,6 +528,14 @@ function threadUpdates() {
     list.push({ at:p.joinedAt || p.created || '', html:updatePost({ id:'part-' + p.id, at:p.joinedAt || p.created, by:S.seed.by || 'The author', uid:S.session && S.session.host_id, icon:'&#8596;',
       what:'extended the track', note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long' +
         (carryNames(p).length ? ', with ' + esc(carryNames(p).join(', ')) + ' playing on' : '') + '. Play on it, it’s part of the song now.',
+      reply:'part:' + p.id, part:p.id }) });
+  });
+  S.pitches.forEach(function (p) {
+    var with2 = carryNames(p).concat(layerNames(p));
+    list.push({ at:p.created || '', html:updatePost({ id:'part-' + p.id, at:p.created, by:p.by, uid:p.authorId, icon:'&#8596;',
+      what:'made the song longer', tag:isOpen() ? '<span class="badge wait">' + (isHost() ? 'To review' : 'Not in the song yet') + '</span>' : '',
+      note:'A new part ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip, ' + fmt(p.len) + ' long' + (with2.length ? ', with ' + esc(with2.join(', ')) : '') +
+        '. Hear it in place and play on it.' + (p.note ? ' “' + esc(p.note) + '”' : ''),
       reply:'part:' + p.id, part:p.id }) });
   });
   var made = S.members.filter(onKeptSection);
@@ -647,6 +659,11 @@ function trialPitchTake() {
   return S.pitches.filter(function (t) { return t.id === S.trialPitch; })[0] || null;
 }
 function partTakes() { return S.parts; }
+/* the takes people played on a new part (it may not be in the song yet) */
+function layersOn(p) {
+  return p ? S.members.concat(S.applicants).filter(function (t) { return t.sec === p.id && live(t); }) : [];
+}
+function layerNames(p) { return layersOn(p).map(function (t) { return t.by + '’s ' + role(t.roleId).label.toLowerCase(); }); }
 /* ---------- tracks carried into a new part (takes.carry) ----------
    A new part can keep tracks of the original track playing under it: the original track itself
    or takes on it. They play again from the part's start, repeated to fill the part and cut at
@@ -724,7 +741,7 @@ function startOf(tk) {
 }
 function tracks() {
   var extra = S.stack === '__seed' && !S.override && S.view !== 'build' ? [] : partTakes().slice(), tp = trialPitchTake();
-  if (tp) extra.push(tp);
+  if (tp) extra = extra.concat([tp], layersOn(tp));
   var core;
   if (S.override) core = [S.seed].concat(byIds(S.override.picks));
   else if (S.view === 'build') core = [S.seed].concat(byIds(S.build.picks));
@@ -985,12 +1002,24 @@ function sections() {
   S.parts.forEach(function (p) {
     out.push({ id:p.id, label:p.by + '\'s part', start:a.starts[p.id], len:p.len, pos:p.pos });
   });
+  /* a new part that isn't in the song yet can be played on while you hear it in place */
+  var tp = trialPitchTake();
+  if (tp && a.starts[tp.id] !== undefined) out.push({ id:tp.id, label:tp.by + '\'s new part', start:a.starts[tp.id], len:tp.len, pos:tp.pos, pitched:true });
   return out.sort(function (x, y) { return x.start - y.start; });
 }
 function section(id) { return sections().filter(function (s) { return s.id === (id || 'core'); })[0] || null; }
 function secLen(id) { var s = section(id); return s ? s.len : target(); }
 function secOf(t) { return t.sec || 'core'; }
-function onKeptSection(t) { return secOf(t) === 'core' || S.parts.some(function (p) { return p.id === t.sec; }); }
+/* where the grey track at the bottom records: the original track or a part you can see in the tracks */
+function recSec() {
+  if ((S.drafts || []).length) return S.draftSec || 'core';
+  return S.recSec && section(S.recSec) ? S.recSec : 'core';
+}
+function secName(id) { var s = section(id); return s ? s.label : 'the original track'; }
+function onKeptSection(t) {
+  if (secOf(t) === 'core' || S.parts.some(function (p) { return p.id === t.sec; })) return true;
+  var tp = trialPitchTake(); return !!(tp && t.sec === tp.id);   /* layers on the new part you hear in place */
+}
 function secTag(t) {
   if (secOf(t) === 'core' || t.roleId === 'part') return '';
   var p = findTake(t.sec);
@@ -1479,11 +1508,14 @@ function recBacking() {
 /* what can play under a recording: the project, or for your own version the takes you picked */
 function hearable() {
   var layers = M.mode === 'own' ? byIds(S.build.picks) : S.members;
-  return [S.seed].concat(layers.filter(onKeptSection), partTakes()).filter(function (t) { return t.buf; });
+  /* a new part you hear in place, and what was played on it, are heard while you record on it */
+  var tp = M.mode === 'own' ? null : trialPitchTake(), pitched = tp ? [tp].concat(layersOn(tp).filter(function (t) { return S.members.indexOf(t) < 0; })) : [];
+  return [S.seed].concat(layers.filter(onKeptSection), partTakes(), pitched).filter(function (t) { return t.buf; });
 }
 /* play backing so that the chosen section starts at audio time T */
 function playBacking(list, T, into, from, dest) {
-  var a = ac(), s0 = (section(M.sec) || section('core')).start + (from || 0);
+  var sec = REC.where === 'daw' && REC.sec ? REC.sec : M.sec;
+  var a = ac(), s0 = (section(sec) || section('core')).start + (from || 0);
   list.forEach(function (t) {
     var rel = startOf(t) - s0, off = rel < 0 ? -rel : 0;
     if (off >= t.len) return;
@@ -1506,7 +1538,7 @@ function playBacking(list, T, into, from, dest) {
         if (off >= dur) continue;
         var cs = a.createBufferSource(), cg = a.createGain();
         cs.buffer = b; cg.gain.value = volOf(src);
-        cs.connect(cg); cg.connect(master); cs.start(T + Math.max(0, rel), off, dur - off);
+        cs.connect(cg); cg.connect(dest || master); cs.start(T + Math.max(0, rel), off, dur - off);
         into.push(cs); REC.nodes.push(cg);
       }
     });
@@ -1674,8 +1706,8 @@ function dawRecStart() {
   var own = dawRecMode() === 'own';
   if (!own && !isOpen()) { flash('This song is released, so the stack is final.'); return; }
   if (el('scrim').classList.contains('on')) return;
-  M.mode = own ? 'own' : 'layer'; M.sec = 'core';
-  recReset(); REC.where = 'daw'; REC.hear = {}; if (REC.click === undefined) REC.click = true;
+  M.mode = own ? 'own' : 'layer'; M.sec = own ? 'core' : recSec();
+  recReset(); REC.where = 'daw'; REC.sec = M.sec; REC.hear = {}; if (REC.click === undefined) REC.click = true;
   recStart();
 }
 /* the finished take goes into the send window, already loaded: add a name and send */
@@ -1683,13 +1715,16 @@ function dawRecSend() {
   if (!REC.buf) return;
   var own = dawRecMode() === 'own';
   REC.where = 'modal'; REC.fromDaw = true;
+  var sec = REC.sec || 'core';
   openModal(S.recRole || ROLES[0].id, null, own, true);
+  if (sec !== 'core' && el('take-sec')) { el('take-sec').value = sec; el('take-sec').dispatchEvent(new Event('change')); }
 }
 /* from the send-a-take window to the grey track: same instrument, right view, ready to record */
 function recordInDaw() {
-  var own = M.mode === 'own', rid = el('take-role').value;
+  var own = M.mode === 'own', rid = el('take-role').value, sec = M.sec || 'core';
   closeModal();
   S.recRole = rid;
+  if (!own && !(S.drafts || []).length) S.recSec = sec;
   if (REC.state === 'recording' || REC.state === 'asking') recCancel();
   stopAll();
   S.override = null; S.trial = null; S.view = own ? 'build' : 'lineup';
@@ -1700,7 +1735,7 @@ function recordInDaw() {
     row.classList.add('ready');
     setTimeout(function () { var r2 = el('addrow'); if (r2) r2.classList.remove('ready'); }, 2600);
   }
-  flash('Record your ' + role(rid).label.toLowerCase() + ' right here on the grey track: press "Record here". Wear headphones.');
+  flash('Record your ' + role(rid).label.toLowerCase() + ' right here on the grey track' + (!own && sec !== 'core' ? ', on ' + secName(sec) : '') + ': press "Record here". Wear headphones.');
 }
 function dawRecDiscard() { recReset(); REC.where = null; REC.fromDaw = false; renderDaw(); }
 function renderDawRec() {
@@ -1722,7 +1757,8 @@ function drawRecLane() {
   var g = c.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  var s0 = startOf(S.seed), L = S.seed.len || 1, mid = h / 2;
+  var rs = section(REC.where === 'daw' && REC.state !== 'idle' && REC.sec ? REC.sec : recSec()) || section('core');
+  var s0 = rs ? rs.start : startOf(S.seed), L = (rs ? rs.len : S.seed.len) || 1, mid = h / 2;
   var r = role(S.recRole || ROLES[0].id), color = cvar(r.color);
   /* the stretch you are recording over */
   g.fillStyle = color; g.globalAlpha = .08;
@@ -1921,8 +1957,12 @@ function keepPart(t) {
   if (!t || !isHost()) return;
   stopAll();
   if (S.trialPitch === t.id) S.trialPitch = null;
+  /* the tracks its author sent with it come along; other takes on it wait for you as usual */
+  var withIt = layersOn(t).filter(function (l) { return l.status === 'waiting' && l.authorId === t.authorId; });
   db.letIn(t.dbId).then(function () {
-    flash('The song just got longer. It’s in the thread too, so people can play on the new part.');
+    return withIt.reduce(function (p, l) { return p.then(function () { return db.letIn(l.dbId); }); }, Promise.resolve());
+  }).then(function () {
+    flash('The new part is in the song now' + (withIt.length ? ', with the ' + withIt.length + ' track' + (withIt.length > 1 ? 's' : '') + ' sent with it' : '') + '.');
     return refresh();
   }).catch(oops);
 }
@@ -2431,7 +2471,7 @@ function renderDaw() {
     var isTrial = lineupView && S.trial === t.id;
     var isPart = t.roleId === 'part', isPitch = isPart && S.pitches.indexOf(t) > -1;
     var status = '';
-    if (isPart) status = isPitch ? 'pitch, ' + t.pos : t.pos;
+    if (isPart) status = isPitch ? 'not in the song yet, ' + t.pos : t.pos;
     else if (!lineupView) {
       if (t.id !== 'seed' && S.members.indexOf(t) < 0) status = isOwn(t) ? 'own' : standing(t);
     }
@@ -2443,7 +2483,7 @@ function renderDaw() {
           '<span class="tiny muted">' + esc(labelOf(t)) + (ampOf(t) ? ' <span class="amptag' + (ampBusy(t) ? ' busy' : '') + '"' + (ampBusy(t) ? ' title="Putting the take through its amp. It plays as soon as that is done."' : '') + '>' + ampLabel(ampOf(t)).toLowerCase() + ' amp' + (ampBusy(t) ? ', loading' : '') + '</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
-          '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
+          '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Add to song</button>' +
           '<button class="btn btn-sm" type="button" data-untrialpitch="1">Take it out</button></div>' : '') +
         (isTrial ? '<div class="t-try">' +
           (host && isOpen() && !seedHolds(t.roleId, secOf(t)) ? '<button class="btn btn-sm btn-main" type="button" data-yes="' + t.id + '">Add to song</button>' : '') +
@@ -2592,11 +2632,17 @@ function postComment() {
 var GUESS = [[/drum|kick|snare|hat|perc|beat/i,'drums'],[/bass/i,'bass'],[/voc|vox|sing|voice/i,'vocals'],[/lead|solo/i,'lead'],[/pad|key|synth|atmo|piano|organ/i,'atmos'],[/gtr|guit/i,'guitar']];
 function guessRole(name) { for (var i = 0; i < GUESS.length; i++) if (GUESS[i][0].test(name || '')) return GUESS[i][1]; return S.recRole || ROLES[0].id; }
 var DRAFT_N = 0;
-function addDraft(file, buf, roleId) {
+function addDraft(file, buf, roleId, sec) {
   S.drafts = S.drafts || [];
   if (S.drafts.length >= 4) { flash('A reply holds up to 4 instruments. Post this one first.'); return; }
-  if (!S.drafts.length) { S.draftBase = (currentStack() || { takes:[] }).takes.filter(function (x) { return !x.mute; }); S.draftOn = currentStack() ? currentStack().name : 'the song'; }
-  var t = { id:'draft-' + (++DRAFT_N), dbId:null, by:'Your draft', roleId:roleId, status:'draft', vol:1, mute:false, solo:false, votes:{}, fin:0, fout:0, xfade:0 };
+  sec = S.drafts.length ? S.draftSec || 'core' : sec || recSec();
+  if (!S.drafts.length) {
+    S.draftSec = sec;
+    /* on a part, the reply sits on that part; on the original track, on the stack you hear */
+    S.draftBase = sec !== 'core' ? [] : (currentStack() || { takes:[] }).takes.filter(function (x) { return !x.mute; });
+    S.draftOn = sec !== 'core' ? secName(sec) : currentStack() ? currentStack().name : 'the song';
+  }
+  var t = { id:'draft-' + (++DRAFT_N), dbId:null, by:'Your draft', roleId:roleId, status:'draft', vol:1, mute:false, solo:false, votes:{}, fin:0, fout:0, xfade:0, sec:sec !== 'core' ? sec : null };
   setBuffer(t, buf);
   S.drafts.push({ t:t, file:file });
   return t;
@@ -2625,14 +2671,18 @@ function postDraft() {
   stopAll(true);
   ds.reduce(function (pr, d, i) {
     return pr.then(function () {
-      return uploadTake(d.file, d.t.buf, { role:d.t.roleId, status:'waiting', name:name, note:note, analyse:false, group:gid, on:on, amp:d.t.amp || '' }).then(function (res) { if (!first) first = res.row.id; });
+      return uploadTake(d.file, d.t.buf, { role:d.t.roleId, status:'waiting', name:name, note:note, analyse:false, group:gid, on:on.length ? on : null, sec:d.t.sec || null, amp:d.t.amp || '' }).then(function (res) { if (!first) first = res.row.id; });
     });
   }, Promise.resolve()).then(function () {
-    S.drafts = []; S.draftBase = null;
-    if (first) { S.sel = first; S.stack = first; }
+    var onPart = S.draftSec && S.draftSec !== 'core';
+    S.drafts = []; S.draftBase = null; S.draftSec = null;
+    if (first && !onPart) { S.sel = first; S.stack = first; }
     flash('Posted as one reply in the thread. The author decides if it goes in the song.');
     return refresh();
-  }).catch(oops);
+  }).catch(function (e) {
+    var sec0 = S.draftSec && S.draftSec !== 'core' ? TAKES[S.draftSec] : null;
+    oops(sec0 && sec0.status === 'waiting' ? needsUpdate(e, '20261019230000_parts_as_replies.sql') || e : e);
+  });
 }
 /* the author, on the song: every take from the thread that isn't in it yet, to add with one click */
 function unusedTakes() {
@@ -2685,11 +2735,14 @@ function addRowInner(building) {
       '<button class="btn btn-sm" type="button" data-dawdrop="1">Throw away</button></div>' +
       (REC.warn ? '<p class="rec-warn lane-warn">' + esc(REC.warn) + '</p>' : '');
   } else {
+    var secs = building ? [] : sections(), rsec = recSec(), locked = !!(S.drafts || []).length;
     head = '<div class="t-name"><span class="add-ico" aria-hidden="true">+</span>' +
-      '<div><b>Your take</b><span class="tiny muted">' + (building ? 'only in your version' : 'on what you hear') + '</span></div></div>' +
+      '<div><b>Your take</b><span class="tiny muted">' + (building ? 'only in your version' : secs.length > 1 ? 'on ' + esc(secName(rsec)) : 'on what you hear') + '</span></div></div>' +
       '<select class="rec-role" id="daw-rec-role" aria-label="Which layer your take is for">' +
         ROLES.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rid ? ' selected' : '') + '>' + x.label + '</option>'; }).join('') +
-      '</select>';
+      '</select>' +
+      (secs.length > 1 ? '<select class="rec-role" id="daw-rec-sec" aria-label="Which part of the song you play on"' + (locked ? ' disabled title="Your draft is on ' + esc(secName(rsec)) + '. Post it or throw it away to play on another part."' : '') + '>' +
+        secs.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rsec ? ' selected' : '') + '>On ' + esc(x.label) + '</option>'; }).join('') + '</select>' : '');
     lane = '<div class="a-lane"><span><span class="a-long">' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
         : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
@@ -2761,19 +2814,20 @@ function renderPitches() {
   box.style.display = show ? '' : 'none';
   if (!show) { box.innerHTML = ''; return; }
   var boss = isHost() && isOpen();
-  box.innerHTML = '<div class="pt-head"><b>New parts pitched</b><span class="tiny muted">Someone wants the song to go somewhere new. Hear it in place, then keep it or pass.</span></div>' +
+  box.innerHTML = '<div class="pt-head"><b>New parts</b><span class="tiny muted">Someone made the song longer. Hear it in place and play on it; ' + (boss ? 'you decide' : 'the creator decides') + ' if it goes in the song.</span></div>' +
     S.pitches.map(function (t) {
       var on = only === t.id, tr = S.trialPitch === t.id;
       return '<div class="pt-row">' +
         '<button class="play sm' + (on ? ' on' : '') + '" type="button" data-prev="' + t.id + '" aria-label="Hear the part by ' + esc(t.by) + ' on its own"' + (t.buf ? '' : ' disabled') + '>' + (on ? I_PAUSE : I_PLAY) + '</button>' +
         '<div class="pt-who"><b>' + esc(t.by) + '</b><span class="tiny muted">' + fmt(t.len) + ', ' + (t.pos === 'before' ? 'before' : 'after') + ' the track' +
-          (carryNames(t).length ? ', with ' + esc(carryNames(t).join(', ')) : '') + '</span>' +
+          (carryNames(t).concat(layerNames(t)).length ? ', with ' + esc(carryNames(t).concat(layerNames(t)).join(', ')) : '') + '</span>' +
         (t.note ? '<span class="note">&ldquo;' + esc(t.note) + '&rdquo;</span>' : '') + '</div>' +
         (tr ? mixToggle('this part') : '') +
         '<button class="btn btn-sm' + (tr ? ' trybtn on' : '') + '" type="button" data-trypitch="' + t.id + '"' + (t.buf ? '' : ' disabled') + '>' + (tr ? 'Take it out' : 'Hear it in place') + '</button>' +
+        (isOpen() ? '<button class="btn btn-sm" type="button" data-treply="part:' + t.id + '">Play on it</button>' : '') +
         delBtn(t.id) +
-        (boss ? '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Keep it</button>' +
-        '<button class="btn btn-sm btn-veto" type="button" data-passpitch="' + t.id + '">Pass</button>' : '<span class="tiny muted">The creator decides</span>') + '</div>';
+        (boss ? '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Add to song</button>' +
+        '<button class="btn btn-sm btn-veto" type="button" data-passpitch="' + t.id + '">Pass</button>' : '') + '</div>';
     }).join('');
 }
 
@@ -3334,7 +3388,7 @@ function secHint() {
   el('file-name').textContent = el('take-file').files.length ? el('take-file').files[0].name : 'wav or mp3, dry, ' + fmt(s.len) + ' long';
   if (REC.state === 'idle') renderRec();
 }
-function sendLabel() { return M.mode === 'extend' ? 'Pitch it to the creator' : M.mode === 'own' ? 'Add it to my version' : 'Add my take →'; }
+function sendLabel() { return M.mode === 'extend' ? 'Post the new part' : M.mode === 'own' ? 'Add it to my version' : 'Add my take →'; }
 function setSrc(src) {
   M.src = src;
   [].forEach.call(document.querySelectorAll('[data-src]'), function (b) {
@@ -3363,14 +3417,15 @@ function openModal(roleId, extendPos, own, keepRec) {
   el('role-field').hidden = ext;
   el('carry-field').hidden = !ext;
   if (ext) fillCarry();
+  if (ext) el('take-file').setAttribute('multiple', ''); else el('take-file').removeAttribute('multiple');
   if (ext) el('sec-field').hidden = true;
   el('countin-field').hidden = ext;
   if (ext) {
     el('modal-ico').innerHTML = ico('part', 'var(--part)');
-    el('modal-head').textContent = 'Convince the creator';
-    el('modal-sub').textContent = 'Write a new part that plays ' + (M.pos === 'before' ? 'before' : 'after') +
-      ' the song. Any length. The creator hears it in place and decides whether the song gets longer.';
-    el('note-label').textContent = 'Why the song needs this';
+    el('modal-head').textContent = 'Make the song longer';
+    el('modal-sub').textContent = 'A new part that plays ' + (M.pos === 'before' ? 'before' : 'after') +
+      ' the song, any length. It goes in the thread right away, so anyone can play on it; the creator decides if it goes in the song.';
+    el('note-label').textContent = 'About the new part (optional)';
     el('take-note').placeholder = 'e.g. it needs a quiet intro before the riff kicks in';
   } else {
     el('modal-head').textContent = own ? 'Add your own take' : 'Add a take';
@@ -3383,9 +3438,9 @@ function openModal(roleId, extendPos, own, keepRec) {
     countInLabel();
   }
   el('modal-err').classList.remove('on');
-  el('take-file').value = ''; el('take-as').innerHTML = postingAs(); el('take-note').value = '';
+  el('take-file').value = ''; renderExtFiles(); el('take-as').innerHTML = postingAs(); el('take-note').value = '';
   el('take-countin').checked = false;
-  el('file-name').textContent = ext ? 'wav or mp3, any length' : 'wav or mp3, dry, starting at bar 1';
+  el('file-name').textContent = ext ? 'wav or mp3, any length; up to four files, one per instrument' : 'wav or mp3, dry, starting at bar 1';
   el('modal-send').disabled = false;
   if (keepRec && REC.buf) { REC.where = 'modal'; setSrc('rec'); }
   else { recReset(); REC.where = null; REC.fromDaw = false; REC.hear = {}; REC.click = true; setSrc('file'); }
@@ -3405,8 +3460,9 @@ function closeModal() {
 el('take-role').addEventListener('change', function () { roleHint(); rearm(); });
 el('take-sec').addEventListener('change', function () { M.sec = this.value; fillRoles(el('take-role').value); secHint(); });
 el('take-file').addEventListener('change', function () {
-  el('file-name').textContent = this.files.length ? this.files[0].name
-    : (M.mode === 'extend' ? 'wav or mp3, any length' : 'wav or mp3, dry, starting at bar 1');
+  renderExtFiles();
+  el('file-name').textContent = this.files.length > 1 ? this.files.length + ' files' : this.files.length ? this.files[0].name
+    : (M.mode === 'extend' ? 'wav or mp3, any length; up to four files, one per instrument' : 'wav or mp3, dry, starting at bar 1');
 });
 el('modal-cancel').addEventListener('click', closeModal);
 el('scrim').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
@@ -3432,9 +3488,49 @@ function carryPicked() {
   return [].map.call(document.querySelectorAll('#carry-list [data-carry]:checked'), function (c) { return c.dataset.carry; });
 }
 /* a part that only repeats tracks has no audio of its own: a silent file as long as the original track */
-function silentPart() {
-  var sr = 8000, len = S.seed.len || 0, b = ac().createBuffer(1, Math.max(1, Math.round(len * sr)), sr);
+function silentPart(len) {
+  var sr = 8000; len = len || S.seed.len || 0; var b = ac().createBuffer(1, Math.max(1, Math.round(len * sr)), sr);
   return { file:new File([encodeWav(b)], 'repeat.wav', { type:'audio/wav' }), buf:b, silent:true };
+}
+/* ---------- a new part in several files: one instrument each, posted as one reply ----------
+   The part itself is a silent file as long as the files; every file is a layer on it, so each
+   instrument stays its own track in the mixer. Anyone can play on it before it is in the song. */
+function renderExtFiles() {
+  var box = el('ext-files'); if (!box) return;
+  var fs = M.mode === 'extend' ? [].slice.call(el('take-file').files) : [];
+  box.hidden = fs.length < 2;
+  if (fs.length < 2) { box.innerHTML = ''; return; }
+  box.innerHTML = '<span class="lbl">Which instrument is each file?</span>' + fs.map(function (f, i) {
+    var g = guessRole(f.name);
+    return '<label class="ext-row"><span class="ext-name">' + esc(f.name) + '</span><select data-extrole="' + i + '">' +
+      '<option value=""' + (g ? '' : ' selected') + '>Pick one</option>' + ROLES.map(function (r) { return '<option value="' + r.id + '"' + (r.id === g ? ' selected' : '') + '>' + esc(r.label) + '</option>'; }).join('') +
+      '</select></label>';
+  }).join('') + '<span class="tiny muted">They play together as one new part, each on its own track. Keep them the same length.</span>';
+}
+function extendFiles(fail) {
+  var fs = [].slice.call(el('take-file').files);
+  if (fs.length > 4) { fail('Up to four files at once.'); return null; }
+  var roles = fs.map(function (f, i) { var s = document.querySelector('[data-extrole="' + i + '"]'); return s ? s.value : ''; });
+  if (roles.some(function (r) { return !r; })) { fail('Pick the instrument of every file first.'); return null; }
+  return Promise.all(fs.map(decode)).then(function (bufs) {
+    var lens = bufs.map(function (b) { return b.duration; }), len = Math.max.apply(null, lens);
+    if (lens.some(function (l) { return Math.abs(l - len) > TOL; }))
+      throw new Error('The files are ' + lens.map(fmt).join(', ') + '. Give them the same length, so they line up.');
+    var part = silentPart(len);
+    part.layers = fs.map(function (f, i) { return { file:f, buf:bufs[i], role:roles[i] }; });
+    return part;
+  });
+}
+function postPartWithLayers(src, o) {
+  return uploadTake(src.file, src.buf, { role:'part', status:'waiting', name:o.name, note:o.note, pos:o.pos, analyse:false, carry:o.carry, on:o.on && o.on.length ? o.on : null })
+    .then(function (res) {
+      var gid = crypto.randomUUID(), pid = res.row.id;
+      return src.layers.reduce(function (pr, l) {
+        return pr.then(function () { return uploadTake(l.file, l.buf, { role:l.role, status:'waiting', name:o.name, note:'', sec:pid, group:gid, analyse:false }); });
+      }, Promise.resolve()).then(function () {
+        flash('Your new part is in the thread, with ' + src.layers.length + ' tracks. Anyone can play on it now; the creator decides if it goes in the song.');
+      });
+    });
 }
 function takeSource(fail) {
   if (M.src === 'rec') {
@@ -3442,6 +3538,7 @@ function takeSource(fail) {
     return Promise.resolve({ file:REC.file, buf:REC.buf, rec:true });
   }
   var f = el('take-file').files[0];
+  if (M.mode === 'extend' && el('take-file').files.length > 1) return extendFiles(fail);
   if (!f && M.mode === 'extend' && carryPicked().length) return Promise.resolve(silentPart());
   if (!f) { fail(M.mode === 'extend' ? 'Pick an audio file first, or tick tracks to repeat under the new part.' : 'Pick an audio file first.'); return null; }
   return decode(f).then(function (buf) {
@@ -3458,7 +3555,9 @@ el('modal-send').addEventListener('click', function () {
   function fail(m){ el('modal-err').textContent = m; el('modal-err').classList.add('on'); btn.disabled = false; btn.textContent = sendLabel(); }
   function upFail(e){
     console.error(e);
-    var nu = M.mode === 'own' ? needsUpdate(e, '20261004120000_own_takes.sql') : null;
+    var sec0 = M.sec && M.sec !== 'core' ? TAKES[M.sec] : null;
+    var nu = M.mode === 'own' ? needsUpdate(e, '20261004120000_own_takes.sql')
+      : (M.mode === 'extend' && el('take-file').files.length > 1) || (sec0 && sec0.status === 'waiting') ? needsUpdate(e, '20261019230000_parts_as_replies.sql') : null;
     fail((nu || e).message || 'The upload failed. Try again.');
   }
   if (!me) { need('play').then(function () { el('take-as').innerHTML = postingAs(); btn.click(); }); return; }
@@ -3471,11 +3570,13 @@ el('modal-send').addEventListener('click', function () {
     if (M.mode === 'extend') {
       if (len < 1) return fail('That is under a second. A new part needs a bit more.');
       if (len > 240) return fail('Keep a new part under four minutes.');
-      var pos = M.pos, carry = carryPicked();
-      return uploadTake(src.file, src.buf, { role:'part', status:'waiting', name:name, note:note, pos:pos, analyse:!src.silent, carry:carry })
+      var pos = M.pos, carry = carryPicked(), cs0 = currentStack();
+      var onStack = cs0 ? cs0.takes.filter(function (x) { return !x.mute && x.dbId; }).map(function (x) { return x.dbId; }) : [];
+      if (src.layers) return postPartWithLayers(src, { name:name, note:note, pos:pos, carry:carry, on:onStack }).then(function () { closeModal(); return refresh(); }, upFail);
+      return uploadTake(src.file, src.buf, { role:'part', status:'waiting', name:name, note:note, pos:pos, analyse:!src.silent, carry:carry, on:onStack.length ? onStack : null })
         .then(function () {
           closeModal();
-          flash('Pitched a new part ' + (pos === 'before' ? 'before' : 'after') + ' the track' + (carry.length ? ', with ' + carry.length + ' track' + (carry.length > 1 ? 's' : '') + ' carried into it' : '') + '. The creator decides.');
+          flash('Your new part is in the thread' + (carry.length ? ', with ' + carry.length + ' track' + (carry.length > 1 ? 's' : '') + ' carried into it' : '') + '. Anyone can play on it now; the creator decides if it goes in the song.');
           return refresh();
         }, upFail);
     }
@@ -3529,13 +3630,13 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('[data-draftkeep]')) {
-    if (REC.buf && REC.file) { var dr = addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id); if (dr) dr.amp = recAmpFor(S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
+    if (REC.buf && REC.file) { var dr = addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id, REC.sec || 'core'); if (dr) dr.amp = recAmpFor(S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
     return;
   }
   if (e.target.closest('[data-draftup]')) { el('draft-files').click(); return; }
   var ddel = e.target.closest('[data-draftdel]');
-  if (ddel) { S.drafts = (S.drafts || []).filter(function (d) { return d.t.id !== ddel.dataset.draftdel; }); if (!S.drafts.length) S.draftBase = null; stopAll(true); renderDaw(); return; }
-  if (e.target.closest('[data-draftclear]')) { S.drafts = []; S.draftBase = null; stopAll(true); renderDaw(); return; }
+  if (ddel) { S.drafts = (S.drafts || []).filter(function (d) { return d.t.id !== ddel.dataset.draftdel; }); if (!S.drafts.length) { S.draftBase = null; S.draftSec = null; } stopAll(true); renderDaw(); return; }
+  if (e.target.closest('[data-draftclear]')) { S.drafts = []; S.draftBase = null; S.draftSec = null; stopAll(true); renderDaw(); return; }
   if (e.target.closest('[data-draftpost]')) { postDraft(); return; }
   var tt = e.target.closest('[data-ttoggle]');
   if (tt) {
@@ -3578,6 +3679,8 @@ document.addEventListener('click', function (e) {
     likeStack();
     return;
   }
+  var twh = e.target.closest('[data-twhole]');
+  if (twh) { goPart(twh.dataset.twhole, 0, true, true); return; }
   var tpt = e.target.closest('[data-tpart]'), tpb = e.target.closest('button, a, input, select');
   if (tpt && (!tpb || tpb.hasAttribute('data-tpart'))) { goPart(tpt.dataset.tpart, 0, true); return; }
   var stb = e.target.closest('[data-stack], [data-tplay], [data-tstack], [data-treply], [data-makecreation]');
@@ -3602,7 +3705,7 @@ document.addEventListener('click', function (e) {
     if (d.tplay || d.tstack || (d.stack && was)) play(0);
     if (d.tstack || d.tplay) { var dw = el('mix-head'); if (dw && (d.tstack || stb.closest && stb.closest('#thread'))) dw.scrollIntoView({ behavior:'smooth', block:'start' }); }
     if (d.treply) {
-      if (/^part:/.test(d.treply)) { S.stack = null; openModal(null); var sp = d.treply.slice(5); if (el('take-sec')) { el('take-sec').value = sp; el('take-sec').dispatchEvent(new Event('change')); } }
+      if (/^part:/.test(d.treply)) { var wp2 = TAKES[d.treply.slice(5)]; if (wp2 && wp2.status === 'waiting') S.trialPitch = wp2.id; S.stack = null; if (wp2 && !(S.drafts || []).length) S.recSec = wp2.id; openModal(null); var sp = d.treply.slice(5); if (el('take-sec')) { el('take-sec').value = sp; el('take-sec').dispatchEvent(new Event('change')); } }
       else openModal(null);
     }
     return;
@@ -3623,8 +3726,8 @@ document.addEventListener('click', function (e) {
   if (ex) { e.stopPropagation(); openModal(null, ex.dataset.extend); return; }
   var sr = e.target.closest('[data-src]');
   if (sr) {
-    /* a layer on the original track is recorded on the grey track in the DAW, like a real DAW */
-    if (sr.dataset.src === 'rec' && (M.mode === 'layer' || M.mode === 'own') && M.sec === 'core') { recordInDaw(); return; }
+    /* a layer (on the original track or on a part in the tracks) is recorded on the grey track in the DAW, like a real DAW */
+    if (sr.dataset.src === 'rec' && (M.mode === 'layer' && section(M.sec) || M.mode === 'own' && M.sec === 'core')) { recordInDaw(); return; }
     setSrc(sr.dataset.src); return;
   }
   if (e.target.closest('[data-dawrec]')) { dawRecStart(); return; }
@@ -3654,6 +3757,7 @@ document.addEventListener('click', function (e) {
     S.override = null; S.view = 'lineup';
     render();
     if (S.trialPitch) {
+      if (!(S.drafts || []).length) S.recSec = pid2;
       var pt = findTake(pid2);
       play(Math.max(0, startOf(pt) - (pt.pos === 'after' ? 4 : 0)));
       flash('Playing the new part where it would sit in the song.');
@@ -3902,6 +4006,7 @@ document.addEventListener('change', function (e) {
     if (el('countin-text')) countInLabel();
     return;
   }
+  if (e.target.id === 'daw-rec-sec') { S.recSec = e.target.value; renderDaw(); return; }
   if (e.target.id === 'daw-rec-role') { S.recRole = e.target.value; showAmpPick(e.target.value); rearm(); return; }
   if (e.target.classList.contains('amp-pick')) {
     rememberAmp(e.target.value);
@@ -3938,11 +4043,11 @@ document.addEventListener('change', function (e) {
   var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.multiple = true; inp.id = 'draft-files'; inp.hidden = true;
   document.body.appendChild(inp);
   inp.addEventListener('change', function () {
-    var files = [].slice.call(inp.files || []).slice(0, 4 - (S.drafts || []).length), want = secLen('core');
+    var dsec = recSec(), files = [].slice.call(inp.files || []).slice(0, 4 - (S.drafts || []).length), want = secLen(dsec);
     Promise.all(files.map(function (f) { return decode(f).then(function (b) { return { f:f, b:b }; }); })).then(function (list) {
       var bad = list.filter(function (x) { return want && Math.abs(x.b.duration - want) > TOL; });
-      list.filter(function (x) { return bad.indexOf(x) < 0; }).forEach(function (x) { addDraft(x.f, x.b, guessRole(x.f.name)); });
-      if (bad.length) flash(bad.map(function (x) { return x.f.name; }).join(', ') + ': not ' + fmt(want) + ' long, so left out. Every track has to be as long as the clip.');
+      list.filter(function (x) { return bad.indexOf(x) < 0; }).forEach(function (x) { addDraft(x.f, x.b, guessRole(x.f.name), dsec); });
+      if (bad.length) flash(bad.map(function (x) { return x.f.name; }).join(', ') + ': not ' + fmt(want) + ' long, so left out. Every track has to be as long as ' + (dsec === 'core' ? 'the clip' : secName(dsec)) + '.');
       inp.value = ''; refreshGains(); renderDaw();
     }).catch(function () { flash('One of those files could not be read. Try wav or mp3.'); inp.value = ''; });
   });
@@ -4038,7 +4143,7 @@ function boot() {
       S.session = sess;
       watch(sess.id);
       return refresh().then(function () {
-        flash(isHost() ? 'You started this session. Copy the invite link to bring people in.' : 'You are in. Add a take on any layer, or pitch a new part.');
+        flash(isHost() ? 'You started this session. Copy the invite link to bring people in.' : 'You are in. Add a take on any layer, or make the song longer.');
       });
     });
   }).catch(oops);
