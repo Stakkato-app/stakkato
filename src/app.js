@@ -263,6 +263,14 @@ if (WALLP) (function () {
   '}';
   document.head.appendChild(st);
 })();
+/* preview: every link to the homepage or a project keeps ?wall, so you never land on the old version */
+if (WALLP) document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href]'); if (!a) return;
+  var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
+  if (u.origin !== location.origin || u.searchParams.has('wall')) return;
+  if (u.pathname !== '/' && u.pathname.indexOf('/s/') !== 0) return;
+  u.searchParams.set('wall', ''); a.href = u.pathname + u.search.replace('wall=', 'wall') + u.hash;
+}, true);
 if (WALLP) window.addEventListener('message', function (e) {
   if (e.origin !== location.origin || !e.data || !e.data.stk) return;
   var f = el('wallframe');

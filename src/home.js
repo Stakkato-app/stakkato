@@ -176,6 +176,8 @@ function land() {
   var r = LANDING && riff(LANDING.open); if (!r) { LANDING = null; return; }
   var hit = LANDING.tid ? postOf(r, LANDING.tid) || r.posts.filter(function (p) { return (p.stems || []).some(function (x) { return x.id === LANDING.tid; }); })[0] : null;
   LANDING = null;
+  /* preview: back from the project, the jam opens in its panel on the stack you had open */
+  if (WALL && !EMBED) { openJam(r.id); if (hit) { S.wsel[r.id] = hit.id; render(); } return; }
   S.expanded[r.id] = true; if (hit) openTo(r, hit);
   render();
   setTimeout(function () {
@@ -660,6 +662,14 @@ if (EMBED) {
   });
   if (window.ResizeObserver) new ResizeObserver(function () { toProject({ h:embedH() }); }).observe(document.documentElement);
 }
+/* preview: every link to the homepage or a project keeps ?wall, so you never land on the old version */
+if (WALL) document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href]'); if (!a) return;
+  var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
+  if (u.origin !== location.origin || u.searchParams.has('wall')) return;
+  if (u.pathname !== '/' && u.pathname.indexOf('/s/') !== 0) return;
+  u.searchParams.set('wall', ''); a.href = u.pathname + u.search.replace('wall=', 'wall') + u.hash;
+}, true);
 if (WALL) {
   var wst = document.createElement('style');
   wst.textContent =
