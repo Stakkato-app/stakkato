@@ -556,6 +556,7 @@ function riffMeta(r) {
   return esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + (r.dur ? ' · ' + mmss(r.dur) : '');
 }
 function riffHtml(r) {
+  if (WALL) return wallHtml(r);
   var on = sounding(r, null), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
   var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
@@ -577,6 +578,179 @@ function riffHtml(r) {
   html += '</div>' + threadBar(r, open);
   if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
+}
+/* ---------- preview: the thread as a wall of stacks (/?wall, read-only, not in the live site) ----------
+   The original track is the bottom block; every take sits on top of the take it was played on,
+   and takes played on the same take share its width. A new part is its own little wall, before
+   or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
+var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
+S.wsel = {}; S.wtalk = {};
+if (WALL) {
+  var wst = document.createElement('style');
+  wst.textContent =
+    '@keyframes wb-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}' +
+    '.wpre{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;color:var(--wait-ink);background:var(--wait-bg);padding:3px 10px;border-radius:99px;vertical-align:middle}' +
+    '.wwrap{overflow-x:auto;padding:2px 2px 6px;margin-top:4px}' +
+    '.wrow{display:flex;align-items:flex-end;min-width:max-content}' +
+    '.wsec{display:flex;flex-direction:column;gap:6px}' +
+    '.wsec.wsec-core.wsec-shut{flex:1 1 auto;min-width:0;width:100%}' +
+    '.wsec small{font-size:12px;color:var(--muted);padding-left:2px;white-space:nowrap}' +
+    '.warrow{width:44px;flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;padding-bottom:30px;color:var(--part);font-size:20px}' +
+    '.wgrid{display:grid;gap:4px}' +
+    '.wb{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:10px;min-width:0;font-size:13px;--c:var(--wild);background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 75%,var(--ink))}' +
+    '.wb.wb-rise{animation:wb-rise .35s ease both}' +
+    '.wb.wb-lit{background:var(--c);color:#fff}' +
+    '.wb.wb-root{background:color-mix(in srgb,var(--ink) 72%,var(--paper));color:var(--paper)}.wb.wb-root.wb-lit{background:var(--ink)}' +
+    '.wb.wb-part{--c:var(--part);border:1.5px dashed var(--part)}.wb.wb-part.wb-lit{border-color:#fff}' +
+    '.wb.wb-gone{background:transparent;border:1.5px dashed var(--line-strong);color:var(--muted)}' +
+    '.wb.wb-picked{box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--ink)}' +
+    '.wb .wsolo{width:30px;height:30px;border-radius:50%;border:0;flex:none;cursor:pointer;font-size:11px;background:var(--paper);color:var(--c)}' +
+    '.wb.wb-lit .wsolo,.wb.wb-root .wsolo{background:rgba(255,255,255,.22);color:#fff}' +
+    '.wb .wsolo.on{background:var(--sound);color:#fff}' +
+    '.wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}' +
+    '.wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
+    '.wb .wbadge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;flex:none;background:var(--paper);color:var(--c)}' +
+    '.wb.wb-lit .wbadge,.wb.wb-root .wbadge{background:rgba(255,255,255,.92);color:var(--ink)}' +
+    '.wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;animation:wb-rise .35s ease both}' +
+    '.wplus button{width:28px;height:28px;border-radius:50%;border:0;background:var(--action);color:var(--on-action);font:700 17px/1 var(--body);cursor:pointer}' +
+    '.wnow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:13.5px;color:var(--muted)}' +
+    '.wtalk{display:flex;align-items:center;gap:12px;width:100%;padding:14px 24px;border:0;border-top:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;text-align:left;cursor:pointer}' +
+    '.wtalk .wlast{flex:1 1 auto;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.wtalk .wgo{flex:none;font-weight:700;font-size:14px;border:1px solid var(--line-strong);border-radius:99px;padding:8px 14px}' +
+    '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px;animation:wb-rise .3s ease both}' +
+    '.wword{display:flex;gap:10px}.wword .ava{flex:none}' +
+    '.wword b{font-size:14px}.wword .muted{font-size:12px;margin-left:6px}' +
+    '.wword p{margin:3px 0 0;font-size:15px;line-height:1.45}' +
+    '.wchip{display:inline-block;margin-top:3px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;border:0;cursor:pointer;--c:var(--muted);background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 75%,var(--ink))}';
+  document.head.appendChild(wst);
+}
+function wallTree(r) {
+  var takes = r.posts.filter(function (p) { return !p.isComment && (p.layer || p.deleted); }), byId = {};
+  takes.forEach(function (p) { byId[p.id] = p; });
+  function up(p) { return p.parent && byId[p.parent] ? byId[p.parent] : null; }
+  function secOf(p) { if (p.kind === 'part') return p.id; for (var x = up(p); x; x = up(x)) if (x.kind === 'part') return x.id; return 'core'; }
+  var root = { id:'riff', isRiff:true, by:r.by, layer:r.layer, kids:[] }, nodes = { riff:root };
+  takes.forEach(function (p) { nodes[p.id] = { id:p.id, p:p, kids:[] }; });
+  var parts = [];
+  takes.forEach(function (p) {
+    var n = nodes[p.id], par = up(p);
+    if (p.kind === 'part') { n.madeOn = par ? par.id : 'riff'; parts.push(n); return; }
+    (par ? nodes[par.id] : root).kids.push(n);
+  });
+  var words = {};
+  r.posts.forEach(function (c) { if (c.isComment && !c.deleted && c.parent) words[c.parent] = (words[c.parent] || 0) + 1; });
+  function parentOf(id) {
+    if (id === 'riff') return null;
+    var n = nodes[id]; if (n.p.kind === 'part') return n.madeOn;
+    var par = up(n.p); return par ? par.id : 'riff';
+  }
+  var before = parts.filter(function (n) { return n.p.pos === 'before'; }).reverse(), after = parts.filter(function (n) { return n.p.pos !== 'before'; });
+  var secs = before.map(function (n) { return { root:n, part:true } }).concat([{ root:root, core:true }], after.map(function (n) { return { root:n, part:true }; }));
+  var maxD = 0;
+  secs.forEach(function (sx) {
+    var cols = 0;
+    (function walk(n, d) {
+      n.d = d; maxD = Math.max(maxD, d);
+      if (!n.kids.length) { n.c0 = n.c1 = cols++; return; }
+      n.kids.forEach(function (k) { walk(k, d + 1); });
+      n.c0 = n.kids[0].c0; n.c1 = n.kids[n.kids.length - 1].c1;
+    })(sx.root, 0);
+    sx.cols = cols;
+  });
+  return { secs:secs, nodes:nodes, maxD:maxD, words:words, parentOf:parentOf, parts:parts.length, takes:takes.filter(function (p) { return p.kind !== 'part' && !p.deleted; }).length };
+}
+function wallLabel(n) {
+  if (n.isRiff) return 'Original track' + (n.layer !== 'seed' ? ' · ' + lay(n.layer).label : '');
+  var p = n.p;
+  if (p.deleted) return 'deleted take';
+  if (p.kind === 'part') return '↦ new part';
+  return stemsOf(p).map(function (x) { return lay(x.layer).label; }).join(' + ');
+}
+function wallWhose(r, id) {
+  if (id === 'riff') return r.by + '’s original track';
+  var p = postOf(r, id); if (!p) return 'a take';
+  return (p.mine ? 'your ' : p.by + '’s ') + (p.kind === 'part' ? 'new part' : stemsOf(p).map(function (x) { return lay(x.layer).label; }).join(' + '));
+}
+function wallHtml(r) {
+  var open = !!S.expanded[r.id], T = wallTree(r), sel = S.wsel[r.id] || null, STEP = 0.16;
+  var lit = {};
+  for (var x = sel; x; x = T.parentOf(x)) lit[x] = true;
+  var rows = open ? T.maxD + 2 : 1;
+  function block(n, sx) {
+    var d = n.d + (sx.part ? 1 : 0);   /* a new part came after the jam started: it rises with the first row */
+    if (!open && !(sx.core && n.isRiff)) return '';
+    var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
+    var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (open && d ? ' wb-rise' : '');
+    var soloK = r.id + ':solo:' + n.id, soloOn = S.playing === soloK, w = T.words[n.id] || 0;
+    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (open && d ? ';animation-delay:' + (d * STEP).toFixed(2) + 's' : '');
+    if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
+    var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
+    return '<div class="' + cls + '" style="' + style + '">' +
+      '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Stop ' : 'Hear ') + esc(wallWhose(r, n.id)) + ' on its own">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      '<button class="wname" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" title="Hear the stack up to ' + esc(wallWhose(r, n.id)) + '"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span></button>' +
+      (open && w ? '<span class="wbadge">&#128172; ' + w + '</span>' : '') + '</div>';
+  }
+  function plusCells(n) {
+    if (!open) return '';
+    if (n.kids.length) return n.kids.map(plusCells).join('');
+    return '<div class="wplus" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + ((T.maxD + 2) * STEP).toFixed(2) + 's">' +
+      '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + esc(wallWhose(r, n.id)) + '">+</button></div>';
+  }
+  function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
+  var secHtml = T.secs.map(function (sx, i) {
+    if (!open && !sx.core) return '';
+    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',' + (open ? '124px' : 'minmax(0,1fr)') + ');grid-template-rows:repeat(' + rows + ',44px)">' + plusCells(sx.root) + all(sx.root, sx) + '</div>';
+    var cap = !open ? '' : sx.core ? '<small>The original track · ' + mmss(r.dur) + '</small>' :
+      '<small>' + esc(sx.root.p.mine ? 'Your' : sx.root.p.by + '’s') + ' new part · ' + (sx.root.p.pos === 'before' ? 'before' : 'after') + ' the original, made on ' + esc(wallWhose(r, sx.root.madeOn)) + (sx.root.p.status === 'in' ? ' · in the song' : '') + '</small>';
+    var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
+    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '">' + grid + cap + '</div>';
+  }).join('');
+  var playingStack = S.playing && S.playing.indexOf(r.id + ':') === 0 && S.playing.indexOf(':solo:') < 0 && sel;
+  var now = open && sel ? '<div class="wnow"><button class="btn btn-sm btn-sound" type="button" data-wpick="' + r.id + '" data-post="' + sel + '">' + (playingStack ? '&#10074;&#10074; Pause' : '&#9654; Play the stack') + '</button>' +
+    '<span>Up to ' + esc(wallWhose(r, sel)) + '</span></div>' : '';
+
+  /* talk about this song: every written reply, newest first, with what it is about */
+  var ws = r.posts.filter(function (p) { return p.isComment && !p.deleted; }).sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
+  var talkOpen = !!S.wtalk[r.id];
+  function about(c) {
+    var t = c.parent ? postOf(r, c.parent) : null;
+    if (!t) return '<span class="wchip" style="cursor:default">on the jam</span>';
+    if (t.isComment) return '<span class="wchip" style="cursor:default">reply to ' + esc(t.mine ? 'you' : t.by) + '</span>';
+    return '<button class="wchip" type="button" data-wshow="' + r.id + '" data-post="' + t.id + '" style="--c:' + lay(t.kind === 'part' ? 'part' : t.layer).c + '">on ' + esc(wallWhose(r, t.id)) + '</button>';
+  }
+  var talk = ws.length ? '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '"><span aria-hidden="true">&#128172;</span>' +
+      '<span><b>Talk about this song</b> · ' + ws.length + (ws.length > 1 ? ' comments' : ' comment') + '</span>' +
+      '<span class="wlast">' + (talkOpen ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
+      '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span></button>' +
+    (talkOpen ? '<div class="wwords">' + ws.map(function (c) {
+      return '<div class="wword">' + ava(c.mine ? 'You' : c.by, null, true) + '<div><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span><br>' + about(c) + '<p>' + esc(c.text) + '</p></div></div>';
+    }).join('') + '</div>' : '') : '';
+
+  var n = T.takes + T.parts;
+  var bar = n ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
+    '<span class="tb-txt"><b>' + n + (n > 1 ? ' reactions' : ' reaction') + '</b> · ' + T.takes + (T.takes === 1 ? ' take' : ' takes') + (T.parts ? ', ' + T.parts + (T.parts > 1 ? ' new parts' : ' new part') : '') + '</span>' +
+    '<span class="tb-go">' + (open ? 'Hide reactions <i aria-hidden="true">&#9652;</i>' : 'Show reactions <i aria-hidden="true">&#9662;</i>') + '</span></button>' : '';
+
+  return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
+    '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
+      '<small>' + riffMeta(r) + '</small></div></div>' +
+    '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
+    '<div class="wwrap"><div class="wrow">' + secHtml + '</div></div>' + now +
+    '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>' +
+    '</div>' + talk + bar + '</article>';
+}
+function wallSolo(rid, id) {
+  var r = riff(rid), k = rid + ':solo:' + id;
+  if (S.playing === k) { stop(); render(); return; }
+  var p = id === 'riff' ? null : postOf(r, id);
+  playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }]);
+}
+function wallPick(rid, id) {
+  var r = riff(rid);
+  if (S.wsel[rid] === id && S.playing && S.playing.indexOf(rid + ':') === 0 && S.playing.indexOf(':solo:') < 0) { stop(); render(); return; }
+  S.wsel[rid] = id;
+  playList(key(r, id === 'riff' ? null : id), r, chainOf(r, id === 'riff' ? null : id));
+  render();
 }
 function render() {
   var list = RIFFS.slice();
@@ -1070,6 +1244,11 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
+  if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
+  if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
+  if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
+  if ((b = e.target.closest('[data-wtalk]'))) { S.wtalk[b.dataset.wtalk] = !S.wtalk[b.dataset.wtalk]; render(); return; }
+  if ((b = e.target.closest('[data-wshow]'))) { S.expanded[b.dataset.wshow] = true; wallPick(b.dataset.wshow, b.dataset.post); return; }
   if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
   if ((b = e.target.closest('[data-reply]'))) { openReply(b.dataset.reply, b.dataset.post); return; }
