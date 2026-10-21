@@ -1084,7 +1084,7 @@ if (WALL) {
       '.wdots button[aria-current="true"]{width:22px;background:var(--ink)}' +
       '.wswipe{font-size:18px;color:var(--muted);line-height:1}.wswipe-t{font-size:12.5px;color:var(--muted);margin-left:4px}' +
       /* the first screen is the pitch only; "Or play along with one below" scrolls to the jams */
-      '.hero{min-height:calc(100svh - var(--hdrh,64px) - 24px);align-content:center}.hero h1{font-size:44px}.hero-lead{font-size:18px}.hero .steps{display:none}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
+      '.wide:has(>.hero){min-height:calc(100svh - var(--hdrh,64px));display:flex;flex-direction:column;justify-content:center}.hero{margin:12px 0;padding:22px 20px}.hero h1{font-size:40px}.hero-lead{font-size:17px}.hero .steps{display:none}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
       /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
       '.wgrid{position:relative;margin-left:14px}' +
       '.wgrid::before{content:"";position:absolute;left:-11px;top:14px;bottom:10px;width:2px;border-radius:2px;background:linear-gradient(to top,color-mix(in srgb,var(--muted) 70%,transparent),color-mix(in srgb,var(--muted) 8%,transparent))}' +
