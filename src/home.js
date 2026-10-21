@@ -136,6 +136,16 @@ function build(feed) {
         again = true; return false;
       });
     }
+    /* preview only (?wall): in these two jams every take was meant to go on the one before it, but was
+       sent on the original track; stack them in the order they came in */
+    if (WALL && /krentenbol|jurgocal/i.test(title)) {
+      var prevTake = null;
+      posts.forEach(function (p) {
+        if (p.isComment || p.deleted || !p.layer || p.kind === 'part' || p.section) return;
+        if (prevTake) p.parent = prevTake.id;
+        prevTake = p;
+      });
+    }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
       time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '',
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
@@ -415,7 +425,9 @@ function tickHeads() {
   [].forEach.call(document.querySelectorAll('.phead'), function (h) { h.hidden = true; });
   if (!CLOCK || S.playing !== CLOCK.k) return;
   var pos = ((ac().currentTime - CLOCK.t0) % CLOCK.len + CLOCK.len) % CLOCK.len, f = CLOCK.len ? pos / CLOCK.len : 0;
+  wallHead(pos, CLOCK.len);
   [].forEach.call(document.querySelectorAll('canvas[data-wave]'), function (cv) {
+    if (cv.closest('.wm-wave')) return;
     if (S.playing !== cv.dataset.wave && S.playing !== cv.dataset.of) return;
     var h = headOf(cv, 'phead'); h.hidden = false; h.style.left = (cv.offsetLeft + cv.offsetWidth * f) + 'px';
   });
@@ -640,6 +652,8 @@ if (WALL) {
     '.wm-wave div{position:relative;flex:1 1 0;min-width:0;background:color-mix(in srgb,var(--paper) 55%,transparent);border-radius:10px;padding:4px 8px 16px}' +
     '.wm-wave canvas{width:100%;height:100%;display:block}' +
     '.wm-wave small{position:absolute;left:8px;bottom:2px;font-size:11px;font-weight:700;color:var(--sound-ink)}' +
+    '.wm-wave{cursor:pointer}.wm-head{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--ink);border-radius:1px;pointer-events:none}' +
+    '.wm-hover{position:absolute;top:0;bottom:0;width:1px;background:var(--sound-ink);opacity:.5;pointer-events:none}' +
     '.wm-acts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--sound-ink)}' +
     '.wtalk{display:flex;align-items:center;gap:12px;width:100%;padding:14px 24px;border:0;border-top:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;text-align:left;cursor:pointer}' +
     '.wtalk .wlast{flex:1 1 auto;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
@@ -750,10 +764,10 @@ function wallHtml(r) {
         '<button class="play' + (mOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + ms + '" aria-label="' + (mOn ? 'Pause' : 'Play the master track') + '">' + (mOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + esc(wallWhose(r, ms))) + '</b>' +
           '<div class="wm-chips">' + people.map(function (x) { return '<span><i style="background:' + lay(x.isPart ? 'part' : x.layer).c + '"></i>' + esc(x.isRiff ? r.by + ' · original' : (x.mine ? 'You' : x.by) + ' · ' + chipLabel(x)) + '</span>'; }).join('') + '</div></div></div>' +
-      '<div class="wm-wave">' + segs.map(function (sg, i) {
+      '<div class="wm-wave" data-wseek="' + r.id + '" data-post="' + ms + '" title="Click to play from there">' + segs.map(function (sg, i) {
         return '<div style="flex:' + Math.max(1, Math.round(sg.len * 10)) + ' 1 0"><canvas data-wave="wmix:' + r.id + ':' + ms + ':' + i + '" data-of="' + mk + '" aria-hidden="true"></canvas>' +
           (segs.length > 1 ? '<small>' + esc(sg.label) + '</small>' : '') + '</div>';
-      }).join('') + '</div>' +
+      }).join('') + '<span class="wm-head" hidden></span></div>' +
       '<div class="wm-acts"><span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
         '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '">Open this stack in the project</a></div></div>';
   }
@@ -795,6 +809,22 @@ function wallHtml(r) {
     '</div>' + bar + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
+/* the master track's playhead: where in the stack you are, across both parts of a long one */
+function wallHead(pos, len) {
+  [].forEach.call(document.querySelectorAll('.wm-wave'), function (w) {
+    var h = w.querySelector('.wm-head'); if (!h) return;
+    var k = wallKey({ id:w.dataset.wseek }, w.dataset.post);
+    if (S.playing !== k || !len) { h.hidden = true; return; }
+    h.hidden = false; h.style.left = (pos / len * w.clientWidth) + 'px';
+  });
+}
+function wallSeek(rid, id, f) {
+  var r = riff(rid), k = wallKey(r, id), T = wallTree(r), segs = wallSegs(r, id, T);
+  S.wsel[rid] = id;
+  var total = segs.reduce(function (n, sg) { return n + sg.len; }, 0), at = Math.max(0, Math.min(.999, f)) * total;
+  if (segs.length === 1) { playList(k, r, segs[0].list, at); render(); return; }
+  playSeq(k, r, segs.map(function (sg) { return sg.list; }), at);
+}
 function wallSolo(rid, id) {
   var r = riff(rid), k = rid + ':solo:' + id;
   if (S.playing === k) { stop(); render(); return; }
@@ -834,8 +864,9 @@ function wallPick(rid, id) {
   var base = chainOf(r, part.madeOn === 'riff' ? null : part.madeOn), on = chainOf(r, id);
   playSeq(k, r, part.p.pos === 'before' ? [on, base] : [base, on]);
 }
-function playSeq(k, r, segs) {
+function playSeq(k, r, segs, from) {
   var all = segs[0].concat(segs[1]);
+  from = from || 0;
   silence(); CLOCK = null;
   S.playing = k; render();
   Promise.all(all.map(function (x) { return load(r, x); })).then(function () {
@@ -843,16 +874,20 @@ function playSeq(k, r, segs) {
   }).then(function () {
     (function round() {
       if (S.playing !== k) return;
-      var a = ac(); a.resume(); var T0 = a.currentTime + 0.05, T = T0, fade = FADE = fadeIn(a, T0, a.destination);
+      var a = ac(); a.resume(); var T0 = a.currentTime + 0.05, T = T0, fade = FADE = fadeIn(a, T0, a.destination), skip = from, total = 0;
+      segs.forEach(function (seg) { var lead = bufFor(r, seg[0]); total += lead ? lead.duration : 0; });
+      CLOCK = { k:k, t0:T0 - from, len:total }; tickHeads();
       segs.forEach(function (seg) {
         var lead = bufFor(r, seg[0]), len = lead ? lead.duration : 0;
+        if (skip >= len) { skip -= len; return; }   /* a segment before the place you clicked */
         seg.forEach(function (x) {
           var b = bufFor(r, x); if (!b || !len) return;
           var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(fade);
-          s.start(T); s.stop(T + len); SRC.push(s);
+          s.start(T, skip % b.duration); s.stop(T + len - skip); SRC.push(s);
         });
-        T += len;
+        T += len - skip; skip = 0;
       });
+      from = 0;
       setTimeout(function () { if (S.playing === k) { SRC = []; round(); } }, Math.max(0, (T - a.currentTime) * 1000) - 30);
     })();
   });
@@ -1510,6 +1545,7 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
   if ((b = e.target.closest('[data-wclose]'))) { closeJam(); return; }
+  if ((b = e.target.closest('[data-wseek]'))) { var wr = b.getBoundingClientRect(); wallSeek(b.dataset.wseek, b.dataset.post, (e.clientX - wr.left) / wr.width); return; }
   if ((b = e.target.closest('[data-jopen]'))) { openJam(b.dataset.jopen); return; }
   if ((b = e.target.closest('[data-jplay]'))) { cardPlay(b.dataset.jplay); return; }
   if ((b = e.target.closest('[data-jmode]'))) { S.jmode = b.dataset.jmode; if (S.playing && /:card$/.test(S.playing)) stop(); drawJamTools(); render(); return; }
