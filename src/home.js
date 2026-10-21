@@ -627,6 +627,8 @@ if (WALL) {
     '.wb .wsolo{width:30px;height:30px;border-radius:50%;border:0;flex:none;cursor:pointer;font-size:11px;background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 80%,var(--ink))}' +
     '.wb .wsolo.on{background:var(--sound);color:#fff}' +
     '.wb .wsolo1{width:24px;height:24px;border-radius:6px;border:1px solid var(--line-strong);flex:none;cursor:pointer;font:700 11px/1 var(--body);background:var(--paper);color:var(--muted)}' +
+    '.wb .wadd{width:24px;height:24px;border-radius:50%;border:0;flex:none;cursor:pointer;font:700 15px/1 var(--body);background:var(--action);color:var(--on-action)}' +
+    '.wb .wadd:hover{background:var(--action-hover)}' +
     '.wb .wsolo1:hover{color:var(--ink);border-color:var(--ink)}.wb .wsolo1.on{background:#E5B53B;border-color:#E5B53B;color:#121212}' +
     '.wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;gap:8px;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}' +
     '.wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}' +
@@ -736,6 +738,7 @@ function wallHtml(r) {
       '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + esc(wallWhose(r, n.id)) + ' below"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
         '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '" aria-hidden="true"></canvas></button>' +
       '<button class="wsolo1' + (S.playing === r.id + ':solo:' + n.id ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + (S.playing === r.id + ':solo:' + n.id) + '" aria-label="Solo: ' + esc(wallWhose(r, n.id)) + ' on its own" title="Solo: hear only this take">S</button>' +
+      (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+</button>' : '') +
       (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
   }
   function plusCells(n) {
@@ -1009,7 +1012,7 @@ function renderOverlay() {
 function openJam(rid) {
   var r = riff(rid); if (!r) return;
   var card = el('card-' + rid), from = card ? card.getBoundingClientRect() : null;
-  if (S.playing && S.playing !== cardKey(r)) stop();
+  if (S.playing) stop();   /* what played from the grid (hover, ▶) stops when the jam opens */
   S.ov = rid; S.expanded[rid] = true; delete S.wopen[rid];
   var o = overlay(), panel = o.querySelector('.wov-panel');
   o.hidden = false; document.body.classList.add('ov-open');
