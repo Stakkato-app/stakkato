@@ -557,7 +557,7 @@ function partHtml(r, p, depth) {
     '<div class="acts">' + (r.host && r.open && !kept ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
       '<button class="ghost accent' + (S.playing === wholeKey(r, p.id) ? ' on' : '') + '" type="button" data-whole="' + r.id + '" data-post="' + p.id + '">' + (S.playing === wholeKey(r, p.id) ? '&#10074;&#10074; Stop the song' : '&#9654; Play the whole song') + '</button>' +
       (r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
-      mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
+      mixLink('Open this stack in project view', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 function goneHtml(r, p, depth) {
   return node(r, p, 'gone', '<span class="ava words" aria-hidden="true"></span>',
@@ -578,7 +578,7 @@ function replyHtml(r, p, depth) {
     '<div class="acts">' +
       (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
       (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
-      commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Show in the project', r, p.id) : '') +
+      commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Open this stack in project view', r, p.id) : '') +
       (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
 }
 /* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
@@ -613,7 +613,7 @@ function riffHtml(r) {
     '<div class="well"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas><span class="wtime">' + mmss(r.dur) + '</span></div>' +
     '<div class="racts">' + (r.open ? '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' : '') +
-      '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a>' +
+      '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a>' +
       (song.length ? '<button class="btn btn-soft" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '') +
       commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
       '<span class="grow"></span>' +
@@ -834,7 +834,7 @@ function wallHtml(r) {
       }).join('') + '<span class="wm-head" hidden></span></div>' +
       '<div class="wm-acts"><span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
         (EMBED ? '<button class="btn btn-sm" type="button" data-wfullclose="' + r.id + '">Hide the master track</button>' :
-          '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '&amp;wall">Open this stack in the project</a>') + '</div></div>';
+          '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '&amp;wall">Open this stack in project view</a>') + '</div></div>';
   }
 
   /* talk about this song: every written reply, newest first, with what it is about */
@@ -873,7 +873,7 @@ function wallHtml(r) {
       '<small>' + riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
-    (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>') +
+    (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a></div>') +
     '</div>' + bar + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
@@ -1083,6 +1083,14 @@ if (WALL) {
       '.wdots button{width:9px;height:9px;padding:0;border:0;border-radius:99px;background:var(--line-strong);cursor:pointer;transition:width .2s,background .2s}' +
       '.wdots button[aria-current="true"]{width:22px;background:var(--ink)}' +
       '.wswipe{font-size:18px;color:var(--muted);line-height:1}.wswipe-t{font-size:12.5px;color:var(--muted);margin-left:4px}' +
+      /* the first screen is the pitch only; "Or play along with one below" scrolls to the jams */
+      '.hero{min-height:calc(100svh - var(--hdrh,64px) - 24px);align-content:center}.hero h1{font-size:44px}.hero-lead{font-size:18px}.hero .steps{display:none}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
+      /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
+      '.wgrid{position:relative;margin-left:14px}' +
+      '.wgrid::before{content:"";position:absolute;left:-11px;top:14px;bottom:10px;width:2px;border-radius:2px;background:linear-gradient(to top,color-mix(in srgb,var(--muted) 70%,transparent),color-mix(in srgb,var(--muted) 8%,transparent))}' +
+      '.wgrid::after{content:"";position:absolute;left:-14px;top:6px;border:4px solid transparent;border-bottom:6px solid color-mix(in srgb,var(--muted) 35%,transparent);border-top:0}' +
+      '.wsec>small::after{content:" \\00B7  builds up from here \\2191"}' +
+      '.wb.wb-root{position:relative}' +
       '.wov{padding:0}.wov-panel{max-height:100vh;max-height:100dvh;border-radius:0;height:100%}' +
       /* the panel on a phone: the jam small at the top, tiles a bit lower, the master track always in view at the bottom */
       '.wov .riff{overflow:visible}.wov .rmain{padding:12px 14px 0;gap:8px}.wov .rwho{font-size:13px}' +
@@ -1098,6 +1106,8 @@ if (WALL) {
       '.wov .wfull{margin-top:6px}' +
     '}';
   document.head.appendChild(cst);
+  var hdrH = function () { var h = document.querySelector('header.top'); if (h) document.documentElement.style.setProperty('--hdrh', h.offsetHeight + 'px'); };
+  hdrH(); document.addEventListener('DOMContentLoaded', hdrH); window.addEventListener('resize', hdrH);
   document.addEventListener('DOMContentLoaded', jamTools);
   if (document.readyState !== 'loading') setTimeout(jamTools, 0);
 }
