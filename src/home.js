@@ -592,7 +592,7 @@ function riffHtml(r) {
    and takes played on the same take share its width. A new part is its own little wall, before
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
-S.wsel = {}; S.wtalk = {}; S.wsay = {};
+S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {};
 if (WALL) {
   var wst = document.createElement('style');
   wst.textContent =
@@ -623,13 +623,26 @@ if (WALL) {
     '.wsay label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}' +
     '.wsay select{min-height:40px;border-radius:12px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink);max-width:100%}' +
     '.wsay .wsay-row{display:flex;gap:8px}.wsay textarea{flex:1 1 auto;min-width:0;min-height:44px;border-radius:12px;border:1px solid var(--line-strong);padding:10px 12px;font:inherit;resize:vertical;background:var(--paper);color:var(--ink)}' +
-    '.wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;animation:wb-rise .35s ease both}' +
+    '.wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px}.wplus.wp-rise{animation:wb-rise .35s ease both}' +
     '.wplus button{width:28px;height:28px;border-radius:50%;border:0;background:var(--action);color:var(--on-action);font:700 17px/1 var(--body);cursor:pointer}' +
-    '.wnow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:13.5px;color:var(--muted)}' +
+    '.wb{cursor:pointer}.wb:hover{border-color:var(--ink)}' +
+    '.wmaster{margin-top:14px;border-radius:16px;background:var(--sound-soft);padding:12px 14px;display:flex;flex-direction:column;gap:10px}' +
+    '.wm-top{display:flex;align-items:center;gap:12px}' +
+    '.wm-top .play{flex:none}' +
+    '.wm-what{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto}' +
+    '.wm-what b{font-size:15px}' +
+    '.wm-chips{display:flex;gap:6px;flex-wrap:wrap}' +
+    '.wm-chips span{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;background:var(--paper);border-radius:99px;padding:2px 9px}' +
+    '.wm-chips i{width:8px;height:8px;border-radius:50%;display:inline-block}' +
+    '.wm-wave{position:relative;display:flex;gap:6px;height:56px}' +
+    '.wm-wave div{position:relative;flex:1 1 0;min-width:0;background:color-mix(in srgb,var(--paper) 55%,transparent);border-radius:10px;padding:4px 8px 16px}' +
+    '.wm-wave canvas{width:100%;height:100%;display:block}' +
+    '.wm-wave small{position:absolute;left:8px;bottom:2px;font-size:11px;font-weight:700;color:var(--sound-ink)}' +
+    '.wm-acts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--sound-ink)}' +
     '.wtalk{display:flex;align-items:center;gap:12px;width:100%;padding:14px 24px;border:0;border-top:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;text-align:left;cursor:pointer}' +
     '.wtalk .wlast{flex:1 1 auto;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.wtalk .wgo{flex:none;font-weight:700;font-size:14px;border:1px solid var(--line-strong);border-radius:99px;padding:8px 14px}' +
-    '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px;animation:wb-rise .3s ease both}' +
+    '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}' +
     '.wword{display:flex;gap:10px}.wword .ava{flex:none}' +
     '.wword b{font-size:14px}.wword .muted{font-size:12px;margin-left:6px}' +
     '.wword p{margin:3px 0 0;font-size:15px;line-height:1.45}' +
@@ -687,6 +700,9 @@ function wallWhose(r, id) {
 }
 function wallHtml(r) {
   var open = !!S.expanded[r.id], T = wallTree(r), sel = S.wsel[r.id] || null, STEP = 0.16;
+  /* the rows rise in only right after "Show reactions", not on every redraw */
+  if (!open) delete S.wopen[r.id]; else if (!S.wopen[r.id]) S.wopen[r.id] = Date.now();
+  var anim = open && Date.now() - S.wopen[r.id] < 400;
   var lit = {};
   for (var x = sel; x; x = T.parentOf(x)) lit[x] = true;
   var rows = open ? T.maxD + 2 : 1;
@@ -694,21 +710,21 @@ function wallHtml(r) {
     var d = n.d + (sx.part ? 1 : 0);   /* a new part came after the jam started: it rises with the first row */
     if (!open && !(sx.core && n.isRiff)) return '';
     var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
-    var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (open && d ? ' wb-rise' : '');
+    var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (anim && d ? ' wb-rise' : '');
     var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0;
-    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (open && d ? ';animation-delay:' + (d * STEP).toFixed(2) + 's' : '');
+    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (anim && d ? ';animation-delay:' + (d * STEP).toFixed(2) + 's' : '');
     if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
-    return '<div class="' + cls + '" style="' + style + '">' +
+    return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<button class="wname" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" title="Hear the stack up to ' + esc(wallWhose(r, n.id)) + '"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
+      '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + esc(wallWhose(r, n.id)) + ' below"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
         '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '" aria-hidden="true"></canvas></button>' +
       (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
   }
   function plusCells(n) {
     if (!open) return '';
     if (n.kids.length) return n.kids.map(plusCells).join('');
-    return '<div class="wplus" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + ((T.maxD + 2) * STEP).toFixed(2) + 's">' +
+    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + ((T.maxD + 2) * STEP).toFixed(2) + 's">' +
       '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + esc(wallWhose(r, n.id)) + '">+</button></div>';
   }
   function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
@@ -721,8 +737,23 @@ function wallHtml(r) {
     return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '" style="--n:' + sx.cols + '">' + grid + cap + '</div>';
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
-  var now = open && sel ? '<div class="wnow"><button class="btn btn-sm btn-sound" type="button" data-wpick="' + r.id + '" data-post="' + sel + '">' + (playingStack ? '&#10074;&#10074; Pause' : '&#9654; Play the stack') + '</button>' +
-    '<span>Up to ' + esc(wallWhose(r, sel)) + '</span></div>' : '';
+  var now = '';
+  if (open) {
+    var ms = sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
+    wallMix(r, ms, segs);
+    var people = [];
+    segs.forEach(function (sg) { sg.list.forEach(function (x) { people.push(x); }); });
+    now = '<div class="wmaster"><div class="wm-top">' +
+        '<button class="play' + (mOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + ms + '" aria-label="' + (mOn ? 'Pause' : 'Play the master track') + '">' + (mOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+        '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + esc(wallWhose(r, ms))) + '</b>' +
+          '<div class="wm-chips">' + people.map(function (x) { return '<span><i style="background:' + lay(x.isPart ? 'part' : x.layer).c + '"></i>' + esc(x.isRiff ? r.by + ' · original' : (x.mine ? 'You' : x.by) + ' · ' + chipLabel(x)) + '</span>'; }).join('') + '</div></div></div>' +
+      '<div class="wm-wave">' + segs.map(function (sg, i) {
+        return '<div style="flex:' + Math.max(1, Math.round(sg.len * 10)) + ' 1 0"><canvas data-wave="wmix:' + r.id + ':' + ms + ':' + i + '" data-of="' + mk + '" aria-hidden="true"></canvas>' +
+          (segs.length > 1 ? '<small>' + esc(sg.label) + '</small>' : '') + '</div>';
+      }).join('') + '</div>' +
+      '<div class="wm-acts"><span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
+        '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '">Open this stack in the project</a></div></div>';
+  }
 
   /* talk about this song: every written reply, newest first, with what it is about */
   var ws = r.posts.filter(function (p) { return p.isComment && !p.deleted; }).sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
@@ -739,10 +770,11 @@ function wallHtml(r) {
       opts.map(function (o) { return '<option value="' + o.id + '"' + (o.id === target ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select></label>' +
     '<div class="wsay-row"><textarea id="wsay-' + r.id + '" rows="1" maxlength="1000" placeholder="Say something about ' + esc(target ? wallWhose(r, target) : 'the song') + '"></textarea>' +
     '<button class="btn btn-main" type="submit">Post</button></div></form>';
-  var talk = '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '"><span aria-hidden="true">&#128172;</span>' +
+  var talk = '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '">' +
+      '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span><span aria-hidden="true">&#128172;</span>' +
       '<span><b>Talk about this song</b> · ' + (ws.length ? ws.length + (ws.length > 1 ? ' comments' : ' comment') : 'no comments yet') + '</span>' +
       '<span class="wlast">' + (talkOpen || !ws.length ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
-      '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span></button>' +
+      '</button>' +
     (talkOpen ? '<div class="wwords">' + ws.map(function (c) {
       return '<div class="wword">' + ava(c.mine ? 'You' : c.by, null, true) + '<div><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span><br>' + about(c) + '<p>' + esc(c.text) + '</p></div></div>';
     }).join('') + say + '</div>' : '');
@@ -757,10 +789,32 @@ function wallHtml(r) {
       '<small>' + riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="wwrap"><div class="wrow">' + secHtml + '</div></div>' + now +
-    '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>' +
+    (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>') +
     '</div>' + talk + bar + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
+function wallSegs(r, id, T) {
+  var part = T.partOf[id];
+  if (!part) return [{ list:chainOf(r, id === 'riff' ? null : id), len:r.dur || 1, label:'The original track' }];
+  var base = { list:chainOf(r, part.madeOn === 'riff' ? null : part.madeOn), len:r.dur || 1, label:'Up to ' + wallWhose(r, part.madeOn) },
+      on = { list:chainOf(r, id), len:part.p.dur || 1, label:wallWhose(r, part.id) };
+  return part.p.pos === 'before' ? [on, base] : [base, on];
+}
+/* the master track's waveform: every track of a segment summed, once all of them are in */
+function wallMix(r, id, segs) {
+  segs.forEach(function (sg, i) {
+    var k = 'wmix:' + r.id + ':' + id + ':' + i;
+    if (BUF[k] || BUF[k + ':busy']) return;
+    BUF[k + ':busy'] = true;
+    Promise.all(sg.list.map(function (x) { return load(r, x); })).then(function () {
+      var bs = sg.list.map(function (x) { return BUF[bufKey(r, x)]; }).filter(Boolean);
+      if (!bs.length) { delete BUF[k + ':busy']; return; }
+      var len = bs[0].length, out = ac().createBuffer(1, len, bs[0].sampleRate), d = out.getChannelData(0);
+      bs.forEach(function (b) { var c = b.getChannelData(0), n = Math.min(len, c.length); for (var j = 0; j < n; j++) d[j] += c[j]; });
+      BUF[k] = out; drawWaves();
+    });
+  });
+}
 /* Picking a take plays its stack: the take and everything under it. On a new part, what the part
    was made on plays first (or after, for a part before), then the part with its takes, and round again. */
 function wallPick(rid, id) {
@@ -1296,11 +1350,16 @@ document.addEventListener('click', function (e) {
     var ww = document.querySelector('#riff-' + wr + ' .wwrap'); if (ww) ww.scrollIntoView({ behavior:'smooth', block:'center' });
     return;
   }
-  if ((b = e.target.closest('[data-wsay]'))) {
+  if ((b = e.target.closest('[data-wsay]')) && !e.target.closest('[data-wpick]')) {
     /* 💬 on a take: open the comments, about that take */
     var sr = b.dataset.wsay; S.wtalk[sr] = true; S.wsay[sr] = b.dataset.post; render();
     var ta = el('wsay-' + sr); if (ta) { ta.scrollIntoView({ behavior:'smooth', block:'center' }); ta.focus({ preventScroll:true }); }
     return;
+  }
+  if ((b = e.target.closest('[data-wsel]'))) {
+    var xr = b.dataset.wsel, was = S.playing && S.playing.indexOf(xr + ':wall:') === 0;
+    if (was) { if (S.playing !== xr + ':wall:' + b.dataset.post) wallPick(xr, b.dataset.post); return; }
+    S.wsel[xr] = b.dataset.post; render(); return;
   }
   if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
