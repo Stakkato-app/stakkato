@@ -241,6 +241,14 @@ document.addEventListener('input', function (e) {
   if (e.target.id === 'c-text') S.cmt.text = e.target.value;
 });
 document.addEventListener('submit', function (e) { if (e.target.id === 'c-form') { e.preventDefault(); postComment(); } });
+/* the wall preview only reads: a comment there is not posted */
+document.addEventListener('submit', function (e) {
+  var f = e.target.closest && e.target.closest('[data-wsayform]'); if (!f) return;
+  e.preventDefault(); toast('This is a read-only preview, so the comment isn’t posted. Without ?wall you can comment as usual.');
+});
+document.addEventListener('change', function (e) {
+  if (e.target.dataset && e.target.dataset.wsaywhat) { S.wsay[e.target.dataset.wsaywhat] = e.target.value; var t = el('wsay-' + e.target.dataset.wsaywhat), v = t ? t.value : ''; render(); t = el('wsay-' + e.target.dataset.wsaywhat); if (t) { t.value = v; t.focus(); } }
+});
 document.addEventListener('keydown', function (e) {
   if (e.target.id === 'c-text' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); postComment(); }
 });
@@ -464,7 +472,7 @@ function drawWaves() {
     var w = cv.dataset.of || cv.dataset.wave, i = w.indexOf(':'), wp = w.slice(i + 1);
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of || sounding(riff(w.slice(0, i)), wp === 'riff' ? null : wp));
     /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
-    var tone = lit ? '--sound' : cv.closest('.take') && cv.dataset.layer ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
+    var tone = lit && !cv.closest('.wb') ? '--sound' : cv.closest('.take, .wb') && cv.dataset.layer && lay(cv.dataset.layer).c.indexOf('var(') === 0 ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
     waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(tone).trim());
   });
 }
@@ -584,7 +592,7 @@ function riffHtml(r) {
    and takes played on the same take share its width. A new part is its own little wall, before
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
-S.wsel = {}; S.wtalk = {};
+S.wsel = {}; S.wtalk = {}; S.wsay = {};
 if (WALL) {
   var wst = document.createElement('style');
   wst.textContent =
@@ -597,20 +605,24 @@ if (WALL) {
     '.wsec small{font-size:12px;line-height:1.35;color:var(--muted);padding-left:2px}' +
     '.warrow{width:44px;flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;padding-bottom:30px;color:var(--part);font-size:20px}' +
     '.wgrid{display:grid;gap:4px}' +
-    '.wb{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:10px;min-width:0;font-size:13px;--c:var(--wild);background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 75%,var(--ink))}' +
+    '.wb{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:10px;min-width:0;font-size:13px;--c:var(--wild);background:var(--paper);border:1px solid var(--line-strong);color:var(--ink)}' +
     '.wb.wb-rise{animation:wb-rise .35s ease both}' +
-    '.wb.wb-lit{background:var(--c);color:#fff}' +
-    '.wb.wb-root{background:color-mix(in srgb,var(--ink) 72%,var(--paper));color:var(--paper)}.wb.wb-root.wb-lit{background:var(--ink)}' +
-    '.wb.wb-part{--c:var(--part);border:1.5px dashed var(--part)}.wb.wb-part.wb-lit{border-color:#fff}' +
+    '.wb.wb-lit{border:2px solid var(--c);background:color-mix(in srgb,var(--c) 7%,var(--paper))}' +
+    '.wb.wb-root{--c:var(--ink);background:color-mix(in srgb,var(--ink) 5%,var(--paper))}' +
+    '.wb.wb-part{--c:var(--part);border-style:dashed}' +
     '.wb.wb-gone{background:transparent;border:1.5px dashed var(--line-strong);color:var(--muted)}' +
-    '.wb.wb-picked{box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--ink)}' +
-    '.wb .wsolo{width:30px;height:30px;border-radius:50%;border:0;flex:none;cursor:pointer;font-size:11px;background:var(--paper);color:var(--c)}' +
-    '.wb.wb-lit .wsolo,.wb.wb-root .wsolo{background:rgba(255,255,255,.22);color:#fff}' +
+    '.wb.wb-picked{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}' +
+    '.wb .wsolo{width:30px;height:30px;border-radius:50%;border:0;flex:none;cursor:pointer;font-size:11px;background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 80%,var(--ink))}' +
     '.wb .wsolo.on{background:var(--sound);color:#fff}' +
-    '.wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}' +
-    '.wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
-    '.wb .wbadge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;flex:none;background:var(--paper);color:var(--c)}' +
-    '.wb.wb-lit .wbadge,.wb.wb-root .wbadge{background:rgba(255,255,255,.92);color:var(--ink)}' +
+    '.wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;gap:8px;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}' +
+    '.wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}' +
+    '.wb .wname canvas{flex:1 1 40px;min-width:24px;height:28px;pointer-events:none}' +
+    '.wb .wbadge{font-size:11px;font-weight:700;padding:3px 7px;border-radius:99px;flex:none;border:0;cursor:pointer;background:color-mix(in srgb,var(--ink) 6%,var(--paper));color:var(--ink)}' +
+    '.wb .wbadge:hover{background:color-mix(in srgb,var(--ink) 12%,var(--paper))}' +
+    '.wsay{display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px solid var(--line)}' +
+    '.wsay label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}' +
+    '.wsay select{min-height:40px;border-radius:12px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink);max-width:100%}' +
+    '.wsay .wsay-row{display:flex;gap:8px}.wsay textarea{flex:1 1 auto;min-width:0;min-height:44px;border-radius:12px;border:1px solid var(--line-strong);padding:10px 12px;font:inherit;resize:vertical;background:var(--paper);color:var(--ink)}' +
     '.wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;animation:wb-rise .35s ease both}' +
     '.wplus button{width:28px;height:28px;border-radius:50%;border:0;background:var(--action);color:var(--on-action);font:700 17px/1 var(--body);cursor:pointer}' +
     '.wnow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:13.5px;color:var(--muted)}' +
@@ -689,8 +701,9 @@ function wallHtml(r) {
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
     return '<div class="' + cls + '" style="' + style + '">' +
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<button class="wname" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" title="Hear the stack up to ' + esc(wallWhose(r, n.id)) + '"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span></button>' +
-      (open && w ? '<span class="wbadge">&#128172; ' + w + '</span>' : '') + '</div>';
+      '<button class="wname" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" title="Hear the stack up to ' + esc(wallWhose(r, n.id)) + '"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
+        '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '" aria-hidden="true"></canvas></button>' +
+      (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
   }
   function plusCells(n) {
     if (!open) return '';
@@ -720,13 +733,19 @@ function wallHtml(r) {
     if (t.isComment) return '<span class="wchip" style="cursor:default">reply to ' + esc(t.mine ? 'you' : t.by) + '</span>';
     return '<button class="wchip" type="button" data-wshow="' + r.id + '" data-post="' + t.id + '" style="--c:' + lay(t.kind === 'part' ? 'part' : t.layer).c + '">on ' + esc(wallWhose(r, t.id)) + '</button>';
   }
-  var talk = ws.length ? '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '"><span aria-hidden="true">&#128172;</span>' +
-      '<span><b>Talk about this song</b> · ' + ws.length + (ws.length > 1 ? ' comments' : ' comment') + '</span>' +
-      '<span class="wlast">' + (talkOpen ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
+  var target = S.wsay[r.id] || '', opts = [{ id:'', label:'the song as a whole' }, { id:'riff', label:r.by + '’s original track' }];
+  r.posts.forEach(function (p) { if (!p.isComment && !p.deleted && (p.layer || p.kind === 'part')) opts.push({ id:p.id, label:wallWhose(r, p.id) }); });
+  var say = '<form class="wsay" data-wsayform="' + r.id + '"><label>Comment on <select data-wsaywhat="' + r.id + '" aria-label="What your comment is about">' +
+      opts.map(function (o) { return '<option value="' + o.id + '"' + (o.id === target ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select></label>' +
+    '<div class="wsay-row"><textarea id="wsay-' + r.id + '" rows="1" maxlength="1000" placeholder="Say something about ' + esc(target ? wallWhose(r, target) : 'the song') + '"></textarea>' +
+    '<button class="btn btn-main" type="submit">Post</button></div></form>';
+  var talk = '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '"><span aria-hidden="true">&#128172;</span>' +
+      '<span><b>Talk about this song</b> · ' + (ws.length ? ws.length + (ws.length > 1 ? ' comments' : ' comment') : 'no comments yet') + '</span>' +
+      '<span class="wlast">' + (talkOpen || !ws.length ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
       '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span></button>' +
     (talkOpen ? '<div class="wwords">' + ws.map(function (c) {
       return '<div class="wword">' + ava(c.mine ? 'You' : c.by, null, true) + '<div><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span><br>' + about(c) + '<p>' + esc(c.text) + '</p></div></div>';
-    }).join('') + '</div>' : '') : '';
+    }).join('') + say + '</div>' : '');
 
   var n = T.takes + T.parts;
   var bar = n ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
@@ -1271,7 +1290,18 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
   if ((b = e.target.closest('[data-wtalk]'))) { S.wtalk[b.dataset.wtalk] = !S.wtalk[b.dataset.wtalk]; render(); return; }
-  if ((b = e.target.closest('[data-wshow]'))) { S.expanded[b.dataset.wshow] = true; wallPick(b.dataset.wshow, b.dataset.post); return; }
+  if ((b = e.target.closest('[data-wshow]'))) {
+    /* a comment about a take: up to the wall, and hear that take's stack */
+    var wr = b.dataset.wshow; S.expanded[wr] = true; wallPick(wr, b.dataset.post);
+    var ww = document.querySelector('#riff-' + wr + ' .wwrap'); if (ww) ww.scrollIntoView({ behavior:'smooth', block:'center' });
+    return;
+  }
+  if ((b = e.target.closest('[data-wsay]'))) {
+    /* 💬 on a take: open the comments, about that take */
+    var sr = b.dataset.wsay; S.wtalk[sr] = true; S.wsay[sr] = b.dataset.post; render();
+    var ta = el('wsay-' + sr); if (ta) { ta.scrollIntoView({ behavior:'smooth', block:'center' }); ta.focus({ preventScroll:true }); }
+    return;
+  }
   if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
   if ((b = e.target.closest('[data-reply]'))) { openReply(b.dataset.reply, b.dataset.post); return; }
