@@ -1460,3 +1460,5 @@ a.pf-name:hover{color:var(--sound-ink);text-decoration:underline}
   .a-lane:not(.a-shut) .a-close{display:inline-flex;border:0;background:none;color:var(--muted);min-height:30px;text-decoration:underline;text-underline-offset:3px}
   .t-head.a-shut select{display:none}
 }
+
+.lst-short{display:none}

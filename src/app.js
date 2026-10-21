@@ -243,7 +243,16 @@ if (WALLP) (function () {
     '.bar{gap:8px;min-height:0;padding-block:8px}.bar .brand .logo{height:20px;width:auto}.bar .hdr-acts{margin-left:auto;gap:6px}.bar #copy-link{display:none}' +
     '.bar .crumbs{order:5;width:auto;flex:0 1 auto;min-width:0}.crumbs a,.crumbs b{font-size:12.5px;padding:3px 9px}.crumbs>a:first-child,.crumbs>a:first-child+span{display:none}' +
     '.bar .phases{order:6;flex:1 1 auto;width:auto;margin:0 0 0 auto;padding:3px}.bar .phase{min-height:30px;font-size:12.5px;padding:0 8px}.bar .phase span{display:none}' +
-    '#mix-head{display:none}#daw>.stacktabs{display:none!important}.daw .listening.build{padding:8px 12px;font-size:12px;line-height:1.35}.daw .listening.build>span{padding:0}.daw .listening span{min-width:0}' +
+    '#mix-head{display:none}#daw>.stacktabs{display:none!important}.daw .listening.build{padding:8px 12px;font-size:13px;line-height:1.35;gap:8px;flex-wrap:nowrap}' +
+    '.daw .listening .lst-long{display:none}.daw .listening .lst-short{display:block;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.lst-short i{font-style:normal;font-size:11.5px;font-weight:700;color:var(--sound-ink);background:var(--sound-soft);border-radius:99px;padding:2px 8px;margin-right:4px}' +
+    '.daw .listening .btn{min-height:32px}' +
+    /* tracks: names stay in their column, the + for a new part sits beside the tracks, not on them */
+    '.daw .t-name{min-width:0}.daw .t-name>div{min-width:0}.daw .t-name b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.daw .track,.daw .ruler{grid-template-columns:var(--headw) 22px minmax(0,1fr) 22px}' +
+    '.daw .track>:nth-child(2),.daw .ruler>:nth-child(2){grid-column:3}.daw .track.addrow>:nth-child(2){grid-column:2 / -1}' +
+    '.daw .t-lane{overflow:visible}.daw .extend{width:22px;height:22px;margin-top:-11px;font-size:14px;opacity:1;background:var(--paper)}' +
+    '.daw .ext-before{left:-22px!important}.daw .ext-after{left:100%!important}' +
     '#daw .daw-bar{padding:8px 10px;gap:6px;flex-wrap:nowrap}.daw-bar .tiny{display:none}.daw-bar #transport{min-height:40px;padding:0 14px}.daw-bar #rewind{min-height:40px;width:40px;padding:0;justify-content:center}.daw-bar .readout{font-size:12.5px;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden}.daw-bar .clickctl{width:auto;flex:none;margin:0}.daw-bar .clickctl .btn{min-height:36px;padding:0 10px;font-size:13px;white-space:nowrap}' +
     '#stage-open>.wrap{padding-top:10px}' +
     '#intro{display:none}#songtop{gap:8px;margin-bottom:8px}#seedpanel{display:none}' +
@@ -2490,11 +2499,11 @@ function renderDaw() {
       'It shows up with the stacks and in the thread, and anyone can play on it.</span></div>';
   }
   if (!S.override && S.view !== 'build' && S.stack === '__seed') {
-    banner = '<div class="listening build"><span>You hear <b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own, the way it was first posted. ' +
+    banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + '<b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own' + '</span>' + '<span class="lst-long">You hear <b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own, the way it was first posted. ' +
       'Record or upload below to start a new branch from scratch, with whatever instruments you like.</span></div>';
   } else if (!S.override && S.view !== 'build' && S.stack && currentStack() && currentStack().partial) {
     var cp = currentStack(), lt = cp.last, grp = groupOf(lt), picked = grp.every(function (g) { return S.members.indexOf(g) > -1; });
-    banner = '<div class="listening build"><span>You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
+    banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + 'up to <b>' + esc(cp.name) + '</b>' + '</span>' + '<span class="lst-long">You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
       'Record below to play on this. Mute a track to leave it out of what you play on.</span>' +
       (isHost() && isOpen() && !picked ? '<button class="btn btn-sm btn-main" type="button" data-yesg="' + lt.dbId + '">Add to song</button>' : '') +
       (picked ? '<span class="tp-in">In the song</span>' : '') + '</div>';
@@ -2509,7 +2518,7 @@ function renderDaw() {
         '</b> ' + (ups.length > 1 ? 'were' : 'was') + ' played on the song. It stays out until you add it.</span>' +
         ups.map(function (t) { return '<button class="btn btn-sm" type="button" data-try="' + t.id + '">Hear it with the song</button><button class="btn btn-sm btn-main" type="button" data-yes="' + t.id + '">Add to song</button>'; }).join('') + '</div>';
     else if (cs && cs.largest && !isHost())
-      banner = '<div class="listening build"><span><b>The author hasn’t picked takes yet.</b> Until then you hear the room’s suggestion: the stack from the thread with the most instruments.</span></div>';
+      banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + '<b>the room’s suggestion</b> · nothing picked yet' + '</span>' + '<span class="lst-long"><b>The author hasn’t picked takes yet.</b> Until then you hear the room’s suggestion: the stack from the thread with the most instruments.</span></div>';
   }
   if (!list.length) {
     el('daw').innerHTML = stacksBar() + banner + '<div class="empty-state"><b>' + (hasSeed() ? 'Loading audio' : 'No audio yet') + '</b>' +
