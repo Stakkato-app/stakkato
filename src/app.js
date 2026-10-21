@@ -206,6 +206,7 @@ function standing(t) {
 var WALLP = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
 function wallFrame() {
   if (!WALLP || !S.session) return;
+  var pb = el('pitches'); if (pb) pb.style.display = 'none';   /* new parts live in the wall here */
   var f = el('wallframe');
   if (!f) {
     var sec = document.querySelector('.threadsec'); if (!sec) return;
