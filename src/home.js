@@ -614,6 +614,8 @@ if (WALL) {
     '.wb.wb-picked{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}' +
     '.wb .wsolo{width:30px;height:30px;border-radius:50%;border:0;flex:none;cursor:pointer;font-size:11px;background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 80%,var(--ink))}' +
     '.wb .wsolo.on{background:var(--sound);color:#fff}' +
+    '.wb .wsolo1{width:24px;height:24px;border-radius:6px;border:1px solid var(--line-strong);flex:none;cursor:pointer;font:700 11px/1 var(--body);background:var(--paper);color:var(--muted)}' +
+    '.wb .wsolo1:hover{color:var(--ink);border-color:var(--ink)}.wb .wsolo1.on{background:#E5B53B;border-color:#E5B53B;color:#121212}' +
     '.wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;gap:8px;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}' +
     '.wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}' +
     '.wb .wname canvas{flex:1 1 40px;min-width:24px;height:28px;pointer-events:none}' +
@@ -628,7 +630,7 @@ if (WALL) {
     '.wb{cursor:pointer}.wb:hover{border-color:var(--ink)}' +
     '.wmaster{margin-top:14px;border-radius:16px;background:var(--sound-soft);padding:12px 14px;display:flex;flex-direction:column;gap:10px}' +
     '.wm-top{display:flex;align-items:center;gap:12px}' +
-    '.wm-top .play{flex:none}' +
+    '.wm-top .play{flex:none;width:52px;height:52px;border-radius:50%;border:0;background:var(--sound);color:#fff;font-size:16px;cursor:pointer}' +
     '.wm-what{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto}' +
     '.wm-what b{font-size:15px}' +
     '.wm-chips{display:flex;gap:6px;flex-wrap:wrap}' +
@@ -719,6 +721,7 @@ function wallHtml(r) {
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + esc(wallWhose(r, n.id)) + ' below"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
         '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '" aria-hidden="true"></canvas></button>' +
+      '<button class="wsolo1' + (S.playing === r.id + ':solo:' + n.id ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + (S.playing === r.id + ':solo:' + n.id) + '" aria-label="Solo: ' + esc(wallWhose(r, n.id)) + ' on its own" title="Solo: hear only this take">S</button>' +
       (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
   }
   function plusCells(n) {
@@ -770,11 +773,10 @@ function wallHtml(r) {
       opts.map(function (o) { return '<option value="' + o.id + '"' + (o.id === target ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select></label>' +
     '<div class="wsay-row"><textarea id="wsay-' + r.id + '" rows="1" maxlength="1000" placeholder="Say something about ' + esc(target ? wallWhose(r, target) : 'the song') + '"></textarea>' +
     '<button class="btn btn-main" type="submit">Post</button></div></form>';
-  var talk = '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '">' +
-      '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span><span aria-hidden="true">&#128172;</span>' +
+  var talk = !open ? '' : '<button class="wtalk" type="button" data-wtalk="' + r.id + '" aria-expanded="' + talkOpen + '"><span aria-hidden="true">&#128172;</span>' +
       '<span><b>Talk about this song</b> · ' + (ws.length ? ws.length + (ws.length > 1 ? ' comments' : ' comment') : 'no comments yet') + '</span>' +
       '<span class="wlast">' + (talkOpen || !ws.length ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
-      '</button>' +
+      '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span></button>' +
     (talkOpen ? '<div class="wwords">' + ws.map(function (c) {
       return '<div class="wword">' + ava(c.mine ? 'You' : c.by, null, true) + '<div><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span><br>' + about(c) + '<p>' + esc(c.text) + '</p></div></div>';
     }).join('') + say + '</div>' : '');
@@ -790,9 +792,15 @@ function wallHtml(r) {
     '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="wwrap"><div class="wrow">' + secHtml + '</div></div>' + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>') +
-    '</div>' + talk + bar + '</article>';
+    '</div>' + bar + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
+function wallSolo(rid, id) {
+  var r = riff(rid), k = rid + ':solo:' + id;
+  if (S.playing === k) { stop(); render(); return; }
+  var p = id === 'riff' ? null : postOf(r, id);
+  playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }]);
+}
 function wallSegs(r, id, T) {
   var part = T.partOf[id];
   if (!part) return [{ list:chainOf(r, id === 'riff' ? null : id), len:r.dur || 1, label:'The original track' }];
@@ -1341,6 +1349,7 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
+  if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
   if ((b = e.target.closest('[data-wtalk]'))) { S.wtalk[b.dataset.wtalk] = !S.wtalk[b.dataset.wtalk]; render(); return; }
