@@ -469,6 +469,15 @@ document.addEventListener('mousemove', function (e) {
 document.addEventListener('mouseleave', function () { [].forEach.call(document.querySelectorAll('.shead'), function (h) { h.hidden = true; }); }, true);
 document.addEventListener('click', function (e) {
   var cv = e.target.closest && e.target.closest('canvas[data-wave]'); if (!cv || !lenOf(cv)) return;
+  if (cv.closest('.wb')) {
+    /* a soloed take in the wall: click its waveform to play it from there */
+    if (cv.dataset.of && S.playing === cv.dataset.of) {
+      e.stopImmediatePropagation();
+      var q = cv.dataset.of.split(':solo:'), rct = cv.getBoundingClientRect();
+      wallSolo(q[0], q[1], Math.min(1, Math.max(0, (e.clientX - rct.left) / rct.width)) * lenOf(cv));
+    }
+    return;
+  }
   var t = seekTarget(cv); if (!t) return;
   var rect = cv.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
   play(t.r.id, t.pid, f * lenOf(cv));
@@ -666,7 +675,7 @@ if (WALL) {
     '.wb .wsolo1:hover{color:var(--ink);border-color:var(--ink)}.wb .wsolo1.on{background:#E5B53B;border-color:#E5B53B;color:#121212}' +
     '.wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;gap:8px;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}' +
     '.wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}' +
-    '.wb .wname canvas{flex:1 1 40px;min-width:24px;height:28px;pointer-events:none}' +
+    '.wb .wname canvas{flex:1 1 40px;min-width:24px;height:28px;pointer-events:none}.wb .wname canvas.wseekable{pointer-events:auto;cursor:text}' +
     '.wb .wbadge{font-size:11px;font-weight:700;padding:3px 7px;border-radius:99px;flex:none;border:0;cursor:pointer;background:color-mix(in srgb,var(--ink) 6%,var(--paper));color:var(--ink)}' +
     '.wb .wbadge:hover{background:color-mix(in srgb,var(--ink) 12%,var(--paper))}' +
     '.wsay{display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px solid var(--line)}' +
@@ -770,7 +779,7 @@ function wallHtml(r) {
     return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + esc(wallWhose(r, n.id)) + ' below"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
-        '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '" aria-hidden="true"></canvas></button>' +
+        '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '"' + (S.playing === r.id + ':solo:' + n.id ? ' data-of="' + r.id + ':solo:' + n.id + '" class="wseekable" title="Click to play from there"' : '') + ' aria-hidden="true"></canvas></button>' +
       '<button class="wsolo1' + (S.playing === r.id + ':solo:' + n.id ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + (S.playing === r.id + ':solo:' + n.id) + '" aria-label="Solo: ' + esc(wallWhose(r, n.id)) + ' on its own" title="Solo: hear only this take">S</button>' +
       (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+</button>' : '') +
       (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
@@ -865,12 +874,12 @@ function wallSeek(rid, id, f) {
   if (segs.length === 1) { playList(k, r, segs[0].list, at); render(); return; }
   playSeq(k, r, segs.map(function (sg) { return sg.list; }), at);
 }
-function wallSolo(rid, id) {
+function wallSolo(rid, id, at) {
   if (EMBED) toProject({ stop:true });   /* the take on its own plays here; the tracks pause */
   var r = riff(rid), k = rid + ':solo:' + id;
-  if (S.playing === k) { stop(); render(); return; }
+  if (S.playing === k && typeof at !== 'number') { stop(); render(); return; }
   var p = id === 'riff' ? null : postOf(r, id);
-  playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }]);
+  playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }], at);
 }
 function wallSegs(r, id, T) {
   var part = T.partOf[id];
