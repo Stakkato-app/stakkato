@@ -809,13 +809,28 @@ function wallHtml(r) {
       '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + esc(wallWhose(r, n.id)) + '">+</button></div>';
   }
   function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
+  /* where each part sits in the song: parts before the original track lead into it, parts after pick up where it ends */
+  var befores = T.secs.filter(function (sx) { return !sx.core && sx.root.p.pos === 'before'; });
+  var preLen = befores.reduce(function (n, sx) { return n + (sx.root.p.dur || 0); }, 0);
+  var order = befores.concat(T.secs.filter(function (sx) { return sx.core; }), T.secs.filter(function (sx) { return !sx.core && sx.root.p.pos !== 'before'; }));
+  function span(sx) {
+    if (sx.core) return [preLen, preLen + (r.dur || 0)];
+    var d = sx.root.p.dur || 0;
+    if (sx.root.p.pos === 'before') { var a = 0; for (var j = 0; befores[j] !== sx; j++) a += befores[j].root.p.dur || 0; return [a, a + d]; }
+    return [preLen + (r.dur || 0), preLen + (r.dur || 0) + d];
+  }
+  function timeHead(sx) {
+    if (!open || T.secs.length < 2) return '';
+    var t = span(sx), n = order.indexOf(sx) + 1;
+    return '<div class="wtime' + (sx.core ? '' : ' wtime-part') + '"><span>' + mmss(t[0]) + '</span><i></i><em>Part ' + n + (sx.core ? ' · the original track' : sx.root.p.pos === 'before' ? ' · leads into it' : ' · picks up where it ends') + '</em><i></i><span>' + mmss(t[1]) + '</span></div>';
+  }
   var secHtml = T.secs.map(function (sx, i) {
     if (!open && !sx.core) return '';
     var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + rowsOf(sx) + ',var(--wrh,44px))">' + plusCells(sx.root, sx) + all(sx.root, sx) + '</div>';
     var cap = !open ? '' : sx.core ? '<small>The original track · ' + mmss(r.dur) + '</small>' :
       '<small>' + esc(sx.root.p.mine ? 'Your' : sx.root.p.by + '’s') + ' new part · ' + (sx.root.p.pos === 'before' ? 'before' : 'after') + ' the original, made on ' + esc(wallWhose(r, sx.root.madeOn)) + (sx.root.p.status === 'in' ? ' · in the song' : '') + '</small>';
     var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
-    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '" style="--n:' + sx.cols + '">' + grid + cap + '</div>';
+    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '" style="--n:' + sx.cols + '">' + timeHead(sx) + grid + cap + '</div>';
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
   var now = '';
@@ -1076,6 +1091,13 @@ if (WALL) {
     '.wgrid::after{content:"";position:absolute;left:-14px;top:calc(var(--rt,0px) + 6px);border:4px solid transparent;border-bottom:6px solid color-mix(in srgb,var(--muted) 35%,transparent);border-top:0}' +
     '.wsec>small::after{content:" \\00B7  builds up from here \\2191"}' +
     '.wb.wb-root{position:relative}' +
+    /* above each part: where it starts and ends in the song */
+    '.wtime{display:flex;align-items:center;gap:8px;margin:0 0 6px 14px;font-size:12px;color:var(--muted);white-space:nowrap;min-width:0}' +
+    '.wtime span{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}' +
+    '.wtime i{flex:1 1 12px;height:2px;border-radius:2px;background:var(--line-strong);min-width:8px}' +
+    '.wtime em{font-style:normal;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
+    '.wtime-part i{background:color-mix(in srgb,var(--part) 45%,transparent)}' +
+    '.wsec{align-self:stretch}.wsec>.wgrid{margin-top:auto}' +
     '';
   cst.textContent += '.wdots{display:none}' +
     '@media (max-width:760px){' +
@@ -1091,7 +1113,7 @@ if (WALL) {
       '.wtalk{padding:12px 16px;gap:10px}.wtalk .wlast{display:none}.wtalk>span:nth-child(2){flex:1 1 auto;min-width:0}' +
       '.wsec{flex:0 0 auto!important;width:max(100cqw,calc(var(--n) * 92px));min-width:0!important;scroll-snap-align:start;scroll-snap-stop:always}' +
       '.wsec.wsec-shut{width:100cqw}' +
-      '.warrow{display:none}' +
+      '.warrow{display:none}.wsec{align-self:auto}.wsec>.wgrid{margin-top:0}' +
       '.wb{gap:4px;padding:0 4px}.wb .wadd,.wb .wbadge{display:none}.wb .wname canvas{min-width:30px}' +
       '.wdots{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px}' +
       '.wdots button{width:9px;height:9px;padding:0;border:0;border-radius:99px;background:var(--line-strong);cursor:pointer;transition:width .2s,background .2s}' +
