@@ -138,13 +138,30 @@ function build(feed) {
     }
     /* preview only (?wall): in these two jams every take was meant to go on the one before it, but was
        sent on the original track; stack them in the order they came in */
+    /* preview only: in "drum regeton" the new part before the original track was a mistake; leave it out, with what was played on it */
+    if (WALL && /drum regeton/i.test(title)) {
+      var gone = {};
+      posts.forEach(function (p) { if (p.kind === 'part' && p.pos === 'before') gone[p.id] = 1; });
+      posts = posts.filter(function (p) { return !gone[p.id] && !gone[p.section] && !gone[p.parent]; });
+    }
     if (WALL && /krentenbol|jurgocal/i.test(title)) {
-      var prevTake = null;
+      /* takes sent together as one reply become takes of their own, each with its own waveform */
+      var flat = [];
       posts.forEach(function (p) {
-        if (p.isComment || p.deleted || !p.layer || p.kind === 'part' || p.section) return;
-        if (prevTake) p.parent = prevTake.id;
-        prevTake = p;
+        flat.push(p);
+        (p.stems || []).forEach(function (x) {
+          flat.push(Object.assign({}, x, { uid:p.uid, time:p.time, created:p.created, likes:0, status:p.status, text:'', parent:p.parent, section:p.section, inSong:p.inSong }));
+        });
+        delete p.stems;
       });
+      posts = flat;
+      /* then one stack in band order: drums, bass, guitars, keys, lead, vocals; the same layer in the order it came in */
+      var ORDER = ['drums', 'bass', 'guitar', 'keys', 'atmos', 'lead', 'vocals', 'wild'];
+      var rank = function (l) { var i = ORDER.indexOf(l); return i < 0 ? ORDER.length : i; };
+      var prevTake = null;
+      posts.filter(function (p) { return !p.isComment && !p.deleted && p.layer && p.kind !== 'part' && !p.section; })
+        .sort(function (a, b) { return rank(a.layer) - rank(b.layer) || String(a.created).localeCompare(String(b.created)); })
+        .forEach(function (p) { p.parent = prevTake ? prevTake.id : null; prevTake = p; });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
       time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '',
