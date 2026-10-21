@@ -2081,21 +2081,21 @@ var I_UP = '<svg class="db-ico" width="46" height="46" viewBox="0 0 24 24" fill=
 
 var STEPS = {
   creator: {
-    lead: 'Your clip, strangers’ instruments. Everything people play lands in the thread; you pick what becomes the song.',
+    lead: 'Your clip, strangers’ instruments. Every take people play sits on the stack it was played on; you pick which stack becomes the song.',
     steps: [
-      ['Drop your clip', 'It sets the tempo, key and length for everyone. Every take on top is exactly as long.'],
-      ['Strangers play along', 'On your clip, on each other’s takes or on the song. Every take is a reply in the thread.'],
-      ['You pick the takes', 'Press “Add to song” on any take in the thread. Until you do, the room’s suggestion plays: the stack with the most instruments.'],
-      ['Release it when it’s ready', 'Shape the song here: fades, new parts, and the release. Every other take stays in the thread.']
+      ['Drop your clip', 'It sets the tempo, key and length for everyone. Every take on it is exactly as long.'],
+      ['People stack on it', 'Each take lands on top of what it was played on: your clip, someone else’s take or a new part. Click any take under the tracks to hear its stack.'],
+      ['You pick the song', 'Open the stack you like and press “Add to song” above the tracks. Until you do, the room’s suggestion plays: the stack with the most instruments.'],
+      ['Make it longer, then release', 'Anyone can add a new part with the + on the song’s edge. Set fades and crossfades, then release the song.']
     ]
   },
   musician: {
-    lead: 'Someone dropped a clip and wants strangers to play on it. Play along on the song; the author decides what goes in.',
+    lead: 'Someone dropped a clip and wants strangers to play on it. Pick a stack, put your instrument on top, and the author decides what becomes the song.',
     steps: [
-      ['Listen to the song', 'This is what the author picked so far, or the room’s suggestion when nothing is picked yet.'],
-      ['Add your instruments', 'Record right here or upload up to four files, on the song or on any take you pick in the thread. They go out as one reply.'],
-      ['Your take is a reply', 'It shows up in the thread with your comment, and it remembers exactly what you played on.'],
-      ['The author decides', 'If it fits, the author adds it to the song. If not, it stays in the thread, and anyone can play on it.']
+      ['Pick a stack', 'Every take under the tracks sits on what it was played on. Click one to hear it with everything below it; the tracks switch to that stack.'],
+      ['Add your instrument', 'Record it right here on the grey track (wear headphones), or upload up to four files. Nothing goes out until you post it.'],
+      ['It lands on top', 'Your take shows up as a new take on the stack you played on, with your comment. The next person can play on yours.'],
+      ['The author decides', 'If it fits, the author adds it to the song. If not, it stays on its stack, and anyone can still use it in their own version.']
     ]
   }
 };
@@ -2804,15 +2804,19 @@ function addRowInner(building) {
       '</select>' +
       (secs.length > 1 ? '<select class="rec-role" id="daw-rec-sec" aria-label="Which part of the song you play on"' + (locked ? ' disabled title="Your draft is on ' + esc(secName(rsec)) + '. Post it or throw it away to play on another part."' : '') + '>' +
         secs.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rsec ? ' selected' : '') + '>On ' + esc(x.label) + '</option>'; }).join('') + '</select>' : '');
-    lane = '<div class="a-lane"><span><span class="a-long">' + (building
+    var shut = !S.recOpen && !err;   /* on a phone: one button first, the choices after it */
+    lane = '<div class="a-lane' + (shut ? ' a-shut' : '') + '">' +
+      '<button class="btn btn-main a-open" type="button" data-recopen="1"><span class="add-ico" aria-hidden="true">+</span> Add your instrument</button>' +
+      '<span class="a-txt"><span class="a-long">' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
         : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
       ' </span><em>Wear headphones.</em></span>' +
       '<button class="btn btn-main" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
-      micPicker() + ampPicker(rid) + monPicker() + err + '</div>';
+      micPicker() + ampPicker(rid) + monPicker() + err +
+      '<button class="btn btn-sm a-close" type="button" data-recclose="1">Not now</button></div>';
   }
-  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' ? ' done' : '') + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
+  return '<div class="t-head' + (st === 'idle' && !S.recOpen && !err ? ' a-shut' : '') + '">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' ? ' done' : '') + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
@@ -3695,6 +3699,8 @@ document.addEventListener('click', function (e) {
     if (REC.buf && REC.file) { var dr = addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id, REC.sec || 'core'); if (dr) dr.amp = recAmpFor(S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
     return;
   }
+  if (e.target.closest('[data-recopen]')) { S.recOpen = true; render(); return; }
+  if (e.target.closest('[data-recclose]')) { S.recOpen = false; render(); return; }
   if (e.target.closest('[data-draftup]')) { el('draft-files').click(); return; }
   var ddel = e.target.closest('[data-draftdel]');
   if (ddel) { S.drafts = (S.drafts || []).filter(function (d) { return d.t.id !== ddel.dataset.draftdel; }); if (!S.drafts.length) { S.draftBase = null; S.draftSec = null; } stopAll(true); renderDaw(); return; }

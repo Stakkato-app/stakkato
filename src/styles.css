@@ -1450,3 +1450,13 @@ a.pf-name:hover{color:var(--sound-ink);text-decoration:underline}
   .ad-find{margin-left:0;width:100%}
   .ad-find input{width:100%}
 }
+
+/* the grey track on a phone: one button first ("Add your instrument"), then recording or uploading */
+.a-lane .a-open,.a-lane .a-close{display:none}
+@media (max-width:600px){
+  .a-lane.a-shut > :not(.a-open){display:none !important}
+  .a-lane.a-shut .a-open{display:inline-flex;gap:8px}
+  .a-lane.a-shut .a-open .add-ico{border-color:currentColor;color:inherit;width:20px;height:20px;font-size:15px}
+  .a-lane:not(.a-shut) .a-close{display:inline-flex;border:0;background:none;color:var(--muted);min-height:30px;text-decoration:underline;text-underline-offset:3px}
+  .t-head.a-shut select{display:none}
+}
