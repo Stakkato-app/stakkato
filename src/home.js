@@ -591,10 +591,10 @@ if (WALL) {
     '@keyframes wb-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}' +
     '.wpre{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;color:var(--wait-ink);background:var(--wait-bg);padding:3px 10px;border-radius:99px;vertical-align:middle}' +
     '.wwrap{overflow-x:auto;padding:2px 2px 6px;margin-top:4px}' +
-    '.wrow{display:flex;align-items:flex-end;min-width:max-content}' +
-    '.wsec{display:flex;flex-direction:column;gap:6px}' +
-    '.wsec.wsec-core.wsec-shut{flex:1 1 auto;min-width:0;width:100%}' +
-    '.wsec small{font-size:12px;color:var(--muted);padding-left:2px;white-space:nowrap}' +
+    '.wrow{display:flex;align-items:flex-end;width:100%}' +
+    '.wsec{display:flex;flex-direction:column;gap:6px;flex:var(--n) 1 0;min-width:calc(var(--n) * 104px)}' +
+    '.wsec.wsec-shut{min-width:0}' +
+    '.wsec small{font-size:12px;line-height:1.35;color:var(--muted);padding-left:2px}' +
     '.warrow{width:44px;flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;padding-bottom:30px;color:var(--part);font-size:20px}' +
     '.wgrid{display:grid;gap:4px}' +
     '.wb{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:10px;min-width:0;font-size:13px;--c:var(--wild);background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 75%,var(--ink))}' +
@@ -657,7 +657,9 @@ function wallTree(r) {
     })(sx.root, 0);
     sx.cols = cols;
   });
-  return { secs:secs, nodes:nodes, maxD:maxD, words:words, parentOf:parentOf, parts:parts.length, takes:takes.filter(function (p) { return p.kind !== 'part' && !p.deleted; }).length };
+  var partOf = {};
+  parts.forEach(function (pn) { (function mark(n) { partOf[n.id] = pn; n.kids.forEach(mark); })(pn); });
+  return { secs:secs, nodes:nodes, maxD:maxD, partOf:partOf, words:words, parentOf:parentOf, parts:parts.length, takes:takes.filter(function (p) { return p.kind !== 'part' && !p.deleted; }).length };
 }
 function wallLabel(n) {
   if (n.isRiff) return 'Original track' + (n.layer !== 'seed' ? ' · ' + lay(n.layer).label : '');
@@ -681,12 +683,12 @@ function wallHtml(r) {
     if (!open && !(sx.core && n.isRiff)) return '';
     var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
     var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (open && d ? ' wb-rise' : '');
-    var soloK = r.id + ':solo:' + n.id, soloOn = S.playing === soloK, w = T.words[n.id] || 0;
+    var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0;
     var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (open && d ? ';animation-delay:' + (d * STEP).toFixed(2) + 's' : '');
     if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
     return '<div class="' + cls + '" style="' + style + '">' +
-      '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Stop ' : 'Hear ') + esc(wallWhose(r, n.id)) + ' on its own">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<button class="wname" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" title="Hear the stack up to ' + esc(wallWhose(r, n.id)) + '"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span></button>' +
       (open && w ? '<span class="wbadge">&#128172; ' + w + '</span>' : '') + '</div>';
   }
@@ -699,13 +701,13 @@ function wallHtml(r) {
   function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
   var secHtml = T.secs.map(function (sx, i) {
     if (!open && !sx.core) return '';
-    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',' + (open ? '124px' : 'minmax(0,1fr)') + ');grid-template-rows:repeat(' + rows + ',44px)">' + plusCells(sx.root) + all(sx.root, sx) + '</div>';
+    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + rows + ',44px)">' + plusCells(sx.root) + all(sx.root, sx) + '</div>';
     var cap = !open ? '' : sx.core ? '<small>The original track · ' + mmss(r.dur) + '</small>' :
       '<small>' + esc(sx.root.p.mine ? 'Your' : sx.root.p.by + '’s') + ' new part · ' + (sx.root.p.pos === 'before' ? 'before' : 'after') + ' the original, made on ' + esc(wallWhose(r, sx.root.madeOn)) + (sx.root.p.status === 'in' ? ' · in the song' : '') + '</small>';
     var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
-    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '">' + grid + cap + '</div>';
+    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '" style="--n:' + sx.cols + '">' + grid + cap + '</div>';
   }).join('');
-  var playingStack = S.playing && S.playing.indexOf(r.id + ':') === 0 && S.playing.indexOf(':solo:') < 0 && sel;
+  var playingStack = sel && S.playing === wallKey(r, sel);
   var now = open && sel ? '<div class="wnow"><button class="btn btn-sm btn-sound" type="button" data-wpick="' + r.id + '" data-post="' + sel + '">' + (playingStack ? '&#10074;&#10074; Pause' : '&#9654; Play the stack') + '</button>' +
     '<span>Up to ' + esc(wallWhose(r, sel)) + '</span></div>' : '';
 
@@ -739,18 +741,40 @@ function wallHtml(r) {
     '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>' +
     '</div>' + talk + bar + '</article>';
 }
-function wallSolo(rid, id) {
-  var r = riff(rid), k = rid + ':solo:' + id;
-  if (S.playing === k) { stop(); render(); return; }
-  var p = id === 'riff' ? null : postOf(r, id);
-  playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }]);
-}
+function wallKey(r, id) { return r.id + ':wall:' + id; }
+/* Picking a take plays its stack: the take and everything under it. On a new part, what the part
+   was made on plays first (or after, for a part before), then the part with its takes, and round again. */
 function wallPick(rid, id) {
-  var r = riff(rid);
-  if (S.wsel[rid] === id && S.playing && S.playing.indexOf(rid + ':') === 0 && S.playing.indexOf(':solo:') < 0) { stop(); render(); return; }
+  var r = riff(rid), k = wallKey(r, id);
   S.wsel[rid] = id;
-  playList(key(r, id === 'riff' ? null : id), r, chainOf(r, id === 'riff' ? null : id));
-  render();
+  if (S.playing === k) { stop(); render(); return; }
+  var T = wallTree(r), part = T.partOf[id];
+  if (!part) { playList(k, r, chainOf(r, id === 'riff' ? null : id)); render(); return; }
+  var base = chainOf(r, part.madeOn === 'riff' ? null : part.madeOn), on = chainOf(r, id);
+  playSeq(k, r, part.p.pos === 'before' ? [on, base] : [base, on]);
+}
+function playSeq(k, r, segs) {
+  var all = segs[0].concat(segs[1]);
+  silence(); CLOCK = null;
+  S.playing = k; render();
+  Promise.all(all.map(function (x) { return load(r, x); })).then(function () {
+    return Promise.all(all.map(function (x) { return amped(r, x); }));
+  }).then(function () {
+    (function round() {
+      if (S.playing !== k) return;
+      var a = ac(); a.resume(); var T0 = a.currentTime + 0.05, T = T0, fade = FADE = fadeIn(a, T0, a.destination);
+      segs.forEach(function (seg) {
+        var lead = bufFor(r, seg[0]), len = lead ? lead.duration : 0;
+        seg.forEach(function (x) {
+          var b = bufFor(r, x); if (!b || !len) return;
+          var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(fade);
+          s.start(T); s.stop(T + len); SRC.push(s);
+        });
+        T += len;
+      });
+      setTimeout(function () { if (S.playing === k) { SRC = []; round(); } }, Math.max(0, (T - a.currentTime) * 1000) - 30);
+    })();
+  });
 }
 function render() {
   var list = RIFFS.slice();
@@ -1244,7 +1268,6 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
-  if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
   if ((b = e.target.closest('[data-wtalk]'))) { S.wtalk[b.dataset.wtalk] = !S.wtalk[b.dataset.wtalk]; render(); return; }
