@@ -605,6 +605,23 @@ function riffHtml(r) {
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
 S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {};
+/* /?wall&embed=<jam id>: the project shows this page in a frame under its tracks; the tracks are the
+   master track there, so picking a stack tells the project, and the project says which stack it plays */
+var EMBED = WALL && (function () { try { return new URLSearchParams(location.search).get('embed'); } catch (e) { return null; } })();
+function embedH() { var l = el('list'); return l ? Math.ceil(l.getBoundingClientRect().bottom + window.scrollY + 12) : 400; }
+function toProject(msg) { try { parent.postMessage(Object.assign({ stk:1 }, msg), location.origin); } catch (e) {} }
+if (EMBED) {
+  document.documentElement.classList.add('wembed');
+  var est = document.createElement('style');
+  est.textContent = 'html.wembed body{background:var(--paper)}html.wembed header.top,html.wembed .wide:not(#feed),html.wembed footer,html.wembed .sitefoot,html.wembed .feedhead,html.wembed #jtools,html.wembed [class*="viewas"]{display:none!important}' +
+    'html.wembed #feed{padding:0;max-width:none}html.wembed #list{display:block}html.wembed .riff{border:0;box-shadow:none;border-radius:0;background:transparent}html.wembed .rmain{padding:4px 2px 8px}';
+  document.head.appendChild(est);
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || !e.data.stk) return;
+    if (e.data.sel !== undefined && S.wsel[EMBED] !== e.data.sel) { S.wsel[EMBED] = e.data.sel; render(); }
+  });
+  if (window.ResizeObserver) new ResizeObserver(function () { toProject({ h:embedH() }); }).observe(document.documentElement);
+}
 if (WALL) {
   var wst = document.createElement('style');
   wst.textContent =
@@ -758,7 +775,7 @@ function wallHtml(r) {
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
   var now = '';
-  if (open) {
+  if (open && !EMBED) {
     var ms = sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
     wallMix(r, ms, segs);
     var people = [];
@@ -772,7 +789,7 @@ function wallHtml(r) {
           (segs.length > 1 ? '<small>' + esc(sg.label) + '</small>' : '') + '</div>';
       }).join('') + '<span class="wm-head" hidden></span></div>' +
       '<div class="wm-acts"><span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
-        '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '">Open this stack in the project</a></div></div>';
+        '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '&amp;wall">Open this stack in the project</a></div></div>';
   }
 
   /* talk about this song: every written reply, newest first, with what it is about */
@@ -799,10 +816,13 @@ function wallHtml(r) {
     }).join('') + say + '</div>' : '');
 
   var n = T.takes + T.parts;
-  var bar = n && S.ov !== r.id ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
+  var bar = n && S.ov !== r.id && !EMBED ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
     '<span class="tb-txt"><b>' + n + (n > 1 ? ' reactions' : ' reaction') + '</b> · ' + T.takes + (T.takes === 1 ? ' take' : ' takes') + (T.parts ? ', ' + T.parts + (T.parts > 1 ? ' new parts' : ' new part') : '') + '</span>' +
     '<span class="tb-go">' + (open ? 'Hide reactions <i aria-hidden="true">&#9652;</i>' : 'Show reactions <i aria-hidden="true">&#9662;</i>') + '</span></button>' : '';
 
+  if (EMBED) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
+    '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
+    '<div class="wwrap"><div class="wrow">' + secHtml + '</div></div></div>' + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
@@ -829,6 +849,7 @@ function wallSeek(rid, id, f) {
   playSeq(k, r, segs.map(function (sg) { return sg.list; }), at);
 }
 function wallSolo(rid, id) {
+  if (EMBED) toProject({ stop:true });   /* the take on its own plays here; the tracks pause */
   var r = riff(rid), k = rid + ':solo:' + id;
   if (S.playing === k) { stop(); render(); return; }
   var p = id === 'riff' ? null : postOf(r, id);
@@ -859,6 +880,7 @@ function wallMix(r, id, segs) {
 /* Picking a take plays its stack: the take and everything under it. On a new part, what the part
    was made on plays first (or after, for a part before), then the part with its takes, and round again. */
 function wallPick(rid, id) {
+  if (EMBED) { if (S.playing) stop(); S.wsel[rid] = id; render(); toProject({ pick:id, play:true }); return; }
   var r = riff(rid), k = wallKey(r, id);
   S.wsel[rid] = id;
   if (S.playing === k) { stop(); render(); return; }
@@ -1055,6 +1077,13 @@ document.addEventListener('mouseout', function (e) {
   var r = riff(c.dataset.jcard); if (r && S.playing === cardKey(r)) { stop(); render(); }
 });
 function render() {
+  if (EMBED) {
+    var er = riff(EMBED);
+    el('list').innerHTML = !S.loaded ? '<p class="empty">Loading…</p>' : er ? (S.expanded[er.id] = true, wallHtml(er)) : '<p class="empty">This jam isn’t in the feed.</p>';
+    if (er) { load(er, { isRiff:true, url:er.url }); er.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { load(er, x); }); }); }
+    drawWaves(); toProject({ h:embedH() });
+    return;
+  }
   var list = RIFFS.slice();
   if (S.tab === 'hot') list.sort(function (a, b) { return players(b).length - players(a).length || score(b.likes, b.id) - score(a.likes, a.id); });
   if (S.tab === 'songs') list = list.filter(function (r) { return r.song; });
@@ -1569,6 +1598,7 @@ document.addEventListener('click', function (e) {
     var ta = el('wsay-' + sr); if (ta) { ta.scrollIntoView({ behavior:'smooth', block:'center' }); ta.focus({ preventScroll:true }); }
     return;
   }
+  if ((b = e.target.closest('[data-wsel]')) && EMBED) { if (S.playing) stop(); S.wsel[EMBED] = b.dataset.post; render(); toProject({ pick:b.dataset.post, play:false }); return; }
   if ((b = e.target.closest('[data-wsel]'))) {
     var xr = b.dataset.wsel, was = S.playing && S.playing.indexOf(xr + ':wall:') === 0;
     if (was) { if (S.playing !== xr + ':wall:' + b.dataset.post) wallPick(xr, b.dataset.post); return; }

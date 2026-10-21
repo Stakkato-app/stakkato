@@ -201,6 +201,48 @@ function standing(t) {
    Every take remembers the takes it was played on (on_takes). Following them gives a path from the
    original track to that take; a path nobody played on yet is a stack. The author's creation is the
    line-up (the takes "in" the song). Without one, the stack with the most instruments plays first. */
+/* ---------- preview only (?wall): the wall from the homepage under the tracks, instead of the thread ----------
+   It runs in a frame (/?wall&embed=<jam id>); picking a stack there switches the tracks, which are the master track. */
+var WALLP = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
+function wallFrame() {
+  if (!WALLP || !S.session) return;
+  var f = el('wallframe');
+  if (!f) {
+    var sec = document.querySelector('.threadsec'); if (!sec) return;
+    sec.style.display = 'none';
+    f = document.createElement('iframe'); f.id = 'wallframe'; f.title = 'The jam: every stack, and the comments';
+    f.src = '/?wall&embed=' + encodeURIComponent(S.session.id);
+    f.style.cssText = 'display:block;width:100%;height:520px;border:0;margin-top:24px;border-radius:18px;background:var(--paper)';
+    sec.parentNode.insertBefore(f, sec);
+  }
+  var cur = S.wallSel && S.stack === S.wallStack ? S.wallSel : S.stack === '__seed' ? 'riff' : S.stack ? S.stack : S.trialPitch || null;
+  if (f.__sel !== cur) { f.__sel = cur; try { f.contentWindow.postMessage({ stk:1, sel:cur }, location.origin); } catch (e) {} }
+}
+function wallSwitch(id, playIt) {
+  var t = id === 'riff' ? null : TAKES[id];
+  if (id !== 'riff' && !t) return;
+  var part = t && (t.roleId === 'part' ? t : t.sec && TAKES[t.sec] && TAKES[t.sec].roleId === 'part' ? TAKES[t.sec] : null);
+  var was = running;
+  stopAll(true); S.override = null; S.trial = null; S.view = 'lineup'; offset = 0;
+  if (part) {
+    /* a new part plays after the stack it was made on, with what was played on it */
+    if (part.status === 'waiting') S.trialPitch = part.id;
+    var base = part.on && part.on.length ? part.on[part.on.length - 1] : null;
+    S.stack = base && TAKES[base] ? base : '__seed'; S.sel = base && TAKES[base] ? lead(TAKES[base]).dbId : '__seed';
+  }
+  else if (!t) { S.stack = '__seed'; S.sel = '__seed'; } else { S.stack = id; S.sel = lead(t).dbId; }
+  S.wallSel = id; S.wallStack = S.stack;
+  refreshGains(); render();
+  if (playIt || was) play(0);
+}
+if (WALLP) window.addEventListener('message', function (e) {
+  if (e.origin !== location.origin || !e.data || !e.data.stk) return;
+  var f = el('wallframe');
+  if (e.data.h && f) f.style.height = Math.max(200, e.data.h) + 'px';
+  if (e.data.stop) { stopAll(true); render(); }
+  if (e.data.pick) { f.__sel = e.data.pick; wallSwitch(e.data.pick, !!e.data.play); }
+  if (e.data.pick === undefined && !e.data.h && !e.data.stop) return;
+});
 var WANT = (function () { try { return new URLSearchParams(location.search).get('stack'); } catch (e) { return null; } })();
 window.__stackId = function () { return S.stack || null; };
 /* wait until the audio is in and the page has its final height, then show the tracks */
@@ -3134,6 +3176,7 @@ window.addEventListener('stackato:theme', function () { render(); });
 function render() {
   keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderThreadSide(); renderArchive(); renderLock(); renderVersionLists(); });
   if (S.menu) placeMenus();
+  if (WALLP) wallFrame();
 }
 function renderAll() {
   render();
