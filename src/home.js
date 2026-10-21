@@ -472,7 +472,7 @@ function drawWaves() {
     var w = cv.dataset.of || cv.dataset.wave, i = w.indexOf(':'), wp = w.slice(i + 1);
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of || sounding(riff(w.slice(0, i)), wp === 'riff' ? null : wp));
     /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
-    var tone = lit && !cv.closest('.wb') ? '--sound' : cv.closest('.take, .wb') && cv.dataset.layer && lay(cv.dataset.layer).c.indexOf('var(') === 0 ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
+    var tone = lit && !cv.closest('.wb, .jcard') ? '--sound' : cv.closest('.take, .wb, .jcard') && cv.dataset.layer && lay(cv.dataset.layer).c.indexOf('var(') === 0 ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
     waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(tone).trim());
   });
 }
@@ -564,7 +564,7 @@ function riffMeta(r) {
   return esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + (r.dur ? ' · ' + mmss(r.dur) : '');
 }
 function riffHtml(r) {
-  if (WALL) return wallHtml(r);
+  if (WALL) return cardHtml(r);
   var on = sounding(r, null), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
   var top = r.posts.filter(function (p) { return !p.parent; });
   var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
@@ -596,7 +596,7 @@ S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {};
 if (WALL) {
   var wst = document.createElement('style');
   wst.textContent =
-    '@keyframes wb-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}' +
+    '@keyframes wb-rise{from{opacity:0;transform:translateY(18px) scale(.9)}to{opacity:1;transform:none}}' +
     '.wpre{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;color:var(--wait-ink);background:var(--wait-bg);padding:3px 10px;border-radius:99px;vertical-align:middle}' +
     '.wwrap{overflow-x:auto;padding:2px 2px 6px;margin-top:4px}' +
     '.wrow{display:flex;align-items:flex-end;width:100%}' +
@@ -704,7 +704,7 @@ function wallHtml(r) {
   var open = !!S.expanded[r.id], T = wallTree(r), sel = S.wsel[r.id] || null, STEP = 0.16;
   /* the rows rise in only right after "Show reactions", not on every redraw */
   if (!open) delete S.wopen[r.id]; else if (!S.wopen[r.id]) S.wopen[r.id] = Date.now();
-  var anim = open && Date.now() - S.wopen[r.id] < 400;
+  var anim = open && Date.now() - S.wopen[r.id] < 700, LAND = S.ov === r.id ? 0.32 : 0;
   var lit = {};
   for (var x = sel; x; x = T.parentOf(x)) lit[x] = true;
   var rows = open ? T.maxD + 2 : 1;
@@ -714,7 +714,7 @@ function wallHtml(r) {
     var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
     var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (anim && d ? ' wb-rise' : '');
     var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0;
-    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (anim && d ? ';animation-delay:' + (d * STEP).toFixed(2) + 's' : '');
+    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
     if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
     return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
@@ -727,7 +727,7 @@ function wallHtml(r) {
   function plusCells(n) {
     if (!open) return '';
     if (n.kids.length) return n.kids.map(plusCells).join('');
-    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + ((T.maxD + 2) * STEP).toFixed(2) + 's">' +
+    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
       '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + esc(wallWhose(r, n.id)) + '">+</button></div>';
   }
   function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
@@ -782,7 +782,7 @@ function wallHtml(r) {
     }).join('') + say + '</div>' : '');
 
   var n = T.takes + T.parts;
-  var bar = n ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
+  var bar = n && S.ov !== r.id ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
     '<span class="tb-txt"><b>' + n + (n > 1 ? ' reactions' : ' reaction') + '</b> · ' + T.takes + (T.takes === 1 ? ' take' : ' takes') + (T.parts ? ', ' + T.parts + (T.parts > 1 ? ' new parts' : ' new part') : '') + '</span>' +
     '<span class="tb-go">' + (open ? 'Hide reactions <i aria-hidden="true">&#9652;</i>' : 'Show reactions <i aria-hidden="true">&#9662;</i>') + '</span></button>' : '';
 
@@ -857,6 +857,165 @@ function playSeq(k, r, segs) {
     })();
   });
 }
+/* ---------- preview: the homepage as a grid of jams (after Yarne's "A1 · Grid, play on hover") ----------
+   Every jam is a card with its latest stack (or only its original track) as lanes of waveforms.
+   Hold the mouse over a card to hear it; "Play along" opens the jam's wall in a panel in the
+   middle of the screen, over a blurred page, until you close it with the X. */
+S.jmode = 'latest'; S.jhover = true; S.ov = null;
+if (WALL) {
+  var cst = document.createElement('style');
+  cst.textContent =
+    '.steps{display:none}.hero{grid-template-columns:1fr}' +
+    '#list.feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:28px 24px}' +
+    '.jtools{display:flex;align-items:center;gap:12px 20px;flex-wrap:wrap;margin:-6px 0 18px}' +
+    '.jseg{display:inline-flex;gap:4px;padding:4px;border:1px solid var(--line-strong);border-radius:99px;background:var(--paper)}' +
+    '.jseg button{min-height:36px;padding:0 14px;border:0;border-radius:99px;background:transparent;font:700 14px var(--body);color:var(--muted);cursor:pointer}' +
+    '.jseg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}' +
+    '.jsw{display:inline-flex;align-items:center;gap:10px;border:0;background:none;font:700 14px var(--body);color:var(--ink);cursor:pointer;min-height:44px;padding:0}' +
+    '.jsw i{width:40px;height:24px;border-radius:99px;background:var(--line-strong);position:relative;display:inline-block}' +
+    '.jsw i::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:left .15s}' +
+    '.jsw[aria-checked="true"] i{background:var(--ink)}.jsw[aria-checked="true"] i::after{left:19px}' +
+    '.jhint{font-size:13.5px;color:var(--muted)}' +
+    '.jcard{background:var(--paper);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:8px 8px 14px;display:flex;flex-direction:column;gap:12px;transition:box-shadow .15s,transform .15s}' +
+    '.jcard.on{box-shadow:0 0 0 2px var(--sound),0 18px 40px -18px rgba(18,18,18,.35);transform:translateY(-2px)}' +
+    '.jcover{position:relative;height:196px;border-radius:12px;background:color-mix(in srgb,var(--ink) 5%,var(--paper));overflow:hidden}' +
+    '.jpill{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px 0 9px;background:var(--paper);border-radius:99px;font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(18,18,18,.1)}' +
+    '.jpill i{width:9px;height:9px;border-radius:50%;display:inline-block}' +
+    '.jnow{position:absolute;top:10px;right:10px;height:28px;padding:0 11px;display:inline-flex;align-items:center;background:var(--sound);color:#fff;border-radius:99px;font-size:12.5px;font-weight:700}' +
+    '.jwv{position:absolute;left:14px;right:14px;top:48px;bottom:50px;display:flex;flex-direction:column;justify-content:center;gap:4px}' +
+    '.jwv canvas{display:block;width:100%;height:16px}.jwv canvas.big{height:80px}' +
+    '.jbot{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:8px}' +
+    '.jplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--paper);color:var(--sound-ink);cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(18,18,18,.1);font-size:12px}' +
+    '.jplay.on{background:var(--sound);color:#fff}' +
+    '.jcap{font-size:12.5px;font-weight:700;color:var(--muted);background:color-mix(in srgb,var(--paper) 85%,transparent);border-radius:99px;padding:3px 9px}' +
+    '.jdur{margin-left:auto;font-size:12.5px;font-weight:700;color:#fff;background:rgba(18,18,18,.82);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}' +
+    '.jmeta{display:flex;gap:12px;padding:0 8px;align-items:flex-start}.jmeta .ava{flex:none}' +
+    '.jtext{flex:1;min-width:0}.jtext h3{margin:0;font-size:19px;line-height:1.15}' +
+    '.jtext h3 button{border:0;background:none;padding:0;font:inherit;color:var(--ink);cursor:pointer;text-align:left}.jtext h3 button:hover{text-decoration:underline;text-underline-offset:3px}' +
+    '.jtext p{margin:3px 0 0;font-size:14px;color:var(--muted)}' +
+    '.jdots{display:inline-flex;gap:3px;margin-right:6px;vertical-align:1px}.jdots i{width:8px;height:8px;border-radius:50%;display:block}' +
+    /* the panel over the blurred page */
+    '.wov{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:24px;background:color-mix(in srgb,var(--bg) 35%,transparent);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}' +
+    '.wov[hidden]{display:none}' +
+    '.wov-panel{position:relative;width:min(1180px,100%);max-height:calc(100vh - 48px);overflow:auto;border-radius:24px;background:var(--paper);box-shadow:0 30px 80px -20px rgba(18,18,18,.45);transform-origin:top left}' +
+    '.wov-panel .riff{border:0;box-shadow:none;border-radius:0}' +
+    '.wov-x{position:sticky;top:12px;float:right;margin:12px 12px -56px 0;z-index:3;width:44px;height:44px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font-size:22px;line-height:1;cursor:pointer}' +
+    '.wov-x:hover{border-color:var(--ink)}' +
+    'body.ov-open{overflow:hidden}';
+  document.head.appendChild(cst);
+  document.addEventListener('DOMContentLoaded', jamTools);
+  if (document.readyState !== 'loading') setTimeout(jamTools, 0);
+}
+/* the switches above the grid: what a card plays, and play on hover */
+function jamTools() {
+  if (el('jtools') || !el('list')) return;
+  var d = document.createElement('div'); d.id = 'jtools'; d.className = 'jtools';
+  el('list').parentNode.insertBefore(d, el('list'));
+  drawJamTools();
+}
+function drawJamTools() {
+  var d = el('jtools'); if (!d) return;
+  d.innerHTML = '<div class="jseg" role="group" aria-label="What a card plays"><button type="button" data-jmode="orig" aria-pressed="' + (S.jmode === 'orig') + '">Original track</button>' +
+    '<button type="button" data-jmode="latest" aria-pressed="' + (S.jmode === 'latest') + '">Latest stack</button></div>' +
+    '<button class="jsw" type="button" role="switch" data-jhover="1" aria-checked="' + S.jhover + '"><i></i>Play on hover</button>' +
+    '<span class="jhint">' + (S.jhover ? 'Hold your mouse over a jam to hear it. Click anywhere once first, so your browser lets it play.' : 'Press ▶ on a jam to hear it.') + '</span>';
+}
+/* the newest take of a jam: the top of its latest stack */
+function latestOf(r) {
+  var takes = r.posts.filter(function (p) { return !p.isComment && !p.deleted && p.layer && p.kind !== 'part'; });
+  return takes.sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); })[0] || null;
+}
+function cardKey(r) { return r.id + ':card'; }
+function cardChain(r) { var l = S.jmode === 'latest' ? latestOf(r) : null; return l ? chainOf(r, l.id) : chainOf(r, null); }
+function cardHtml(r) {
+  var chain = cardChain(r), on = S.playing === cardKey(r), n = livePosts(r);
+  chain.forEach(function (x) { load(r, x); });
+  var seen = {}, dots = [];
+  r.posts.forEach(function (p) { if (p.layer && !p.isComment && !p.deleted && p.kind !== 'part' && !seen[p.layer]) { seen[p.layer] = 1; dots.push(p.layer); } });
+  var takes = r.posts.filter(function (p) { return p.layer && !p.isComment && !p.deleted; }).length, words = n.filter(function (p) { return p.isComment; }).length;
+  var lanes = S.jmode === 'latest' && chain.length > 1
+    ? chain.map(function (x) { return '<canvas data-wave="' + (x.isRiff ? r.id + ':riff' : r.id + ':' + x.id) + '" data-layer="' + (x.isPart ? 'part' : x.layer) + '" aria-hidden="true"></canvas>'; }).join('')
+    : '<canvas class="big" data-wave="' + r.id + ':riff" data-layer="' + r.layer + '" aria-hidden="true"></canvas>';
+  var cap = S.jmode === 'latest' ? (chain.length > 1 ? 'Latest stack · ' + chain.length + ' layers' : 'Only the original track so far') : 'Original track';
+  return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
+    '<div class="jcover"><span class="jpill"><i style="background:' + lay(r.layer).c + '"></i>' + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
+      (on ? '<span class="jnow">Playing</span>' : '') +
+      '<div class="jwv">' + lanes + '</div>' +
+      '<div class="jbot"><button class="jplay' + (on ? ' on' : '') + '" type="button" data-jplay="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+        '<span class="jcap">' + cap + '</span><span class="jdur">' + mmss(r.dur) + '</span></div></div>' +
+    '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
+      '<p>' + esc(r.by) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + '</p>' +
+      '<p><span class="jdots" aria-hidden="true">' + dots.map(function (l) { return '<i style="background:' + lay(l).c + '"></i>'; }).join('') + '</span>' +
+        takes + (takes === 1 ? ' take' : ' takes') + ' · ' + words + (words === 1 ? ' comment' : ' comments') + ' · ' + esc(r.time) + '</p></div>' +
+      '<button class="btn btn-main btn-sm" type="button" data-jopen="' + r.id + '">Play along</button></div></article>';
+}
+function cardPlay(rid) {
+  var r = riff(rid); if (!r) return;
+  if (S.playing === cardKey(r)) { stop(); render(); return; }
+  playList(cardKey(r), r, cardChain(r));
+}
+/* the panel: open from the card, close only with the X */
+function overlay() {
+  var o = el('wall-ov');
+  if (!o) {
+    o = document.createElement('div'); o.id = 'wall-ov'; o.className = 'wov'; o.hidden = true;
+    o.innerHTML = '<div class="wov-panel" role="dialog" aria-modal="true" aria-label="The jam"><button class="wov-x" type="button" data-wclose="1" aria-label="Close">&times;</button><div class="wov-body"></div></div>';
+    document.body.appendChild(o);
+  }
+  return o;
+}
+function renderOverlay() {
+  if (!WALL || !S.ov) return;
+  var r = riff(S.ov); if (!r) return;
+  var b = overlay().querySelector('.wov-body'), keep = b.querySelector('textarea'), val = keep ? keep.value : '';
+  b.innerHTML = wallHtml(r);
+  var t = b.querySelector('textarea'); if (t && val) t.value = val;
+}
+function openJam(rid) {
+  var r = riff(rid); if (!r) return;
+  var card = el('card-' + rid), from = card ? card.getBoundingClientRect() : null;
+  if (S.playing && S.playing !== cardKey(r)) stop();
+  S.ov = rid; S.expanded[rid] = true; delete S.wopen[rid];
+  var o = overlay(), panel = o.querySelector('.wov-panel');
+  o.hidden = false; document.body.classList.add('ov-open');
+  render();
+  panel.scrollTop = 0;
+  var to = panel.getBoundingClientRect();
+  if (from && panel.animate) {
+    var sx = from.width / to.width, sy = Math.min(1, from.height / to.height);
+    panel.animate([{ transform:'translate(' + (from.left - to.left) + 'px,' + (from.top - to.top) + 'px) scale(' + sx + ',' + sy + ')', opacity:.4, borderRadius:'18px' },
+                   { transform:'none', opacity:1, borderRadius:'24px' }], { duration:420, easing:'cubic-bezier(.2,.8,.2,1)' });
+    o.animate([{ opacity:0 }, { opacity:1 }], { duration:260, easing:'ease-out' });
+  }
+  o.querySelector('.wov-x').focus({ preventScroll:true });
+}
+function closeJam() {
+  var rid = S.ov, o = el('wall-ov'); if (!o || !rid) return;
+  var panel = o.querySelector('.wov-panel'), card = el('card-' + rid), done = function () {
+    o.hidden = true; document.body.classList.remove('ov-open'); S.ov = null;
+    if (S.playing && S.playing.indexOf(rid + ':') === 0 && S.playing !== cardKey(riff(rid))) stop();
+    render(); if (card) card.querySelector('[data-jopen]').focus({ preventScroll:true });
+  };
+  if (card && panel.animate) {
+    var from = panel.getBoundingClientRect(), to = card.getBoundingClientRect();
+    var a = panel.animate([{ transform:'none', opacity:1 }, { transform:'translate(' + (to.left - from.left) + 'px,' + (to.top - from.top) + 'px) scale(' + (to.width / from.width) + ',' + Math.min(1, to.height / from.height) + ')', opacity:0 }], { duration:300, easing:'cubic-bezier(.4,0,.6,1)' });
+    o.animate([{ opacity:1 }, { opacity:0 }], { duration:300 });
+    a.onfinish = done;
+  } else done();
+}
+/* hover: hear a card while the mouse is over it */
+document.addEventListener('mouseover', function (e) {
+  if (!WALL || !S.jhover || S.ov) return;
+  var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c) return;
+  var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r)) return;
+  if (e.relatedTarget && c.contains(e.relatedTarget)) return;
+  playList(cardKey(r), r, cardChain(r));
+});
+document.addEventListener('mouseout', function (e) {
+  if (!WALL || !S.jhover || S.ov) return;
+  var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c || (e.relatedTarget && c.contains(e.relatedTarget))) return;
+  var r = riff(c.dataset.jcard); if (r && S.playing === cardKey(r)) { stop(); render(); }
+});
 function render() {
   var list = RIFFS.slice();
   if (S.tab === 'hot') list.sort(function (a, b) { return players(b).length - players(a).length || score(b.likes, b.id) - score(a.likes, a.id); });
@@ -872,6 +1031,7 @@ function render() {
     load(r, { isRiff:true, url:r.url });
     if (S.expanded[r.id]) r.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { load(r, x); }); });
   });
+  renderOverlay();
   drawWaves();
 }
 
@@ -1349,6 +1509,11 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
+  if ((b = e.target.closest('[data-wclose]'))) { closeJam(); return; }
+  if ((b = e.target.closest('[data-jopen]'))) { openJam(b.dataset.jopen); return; }
+  if ((b = e.target.closest('[data-jplay]'))) { cardPlay(b.dataset.jplay); return; }
+  if ((b = e.target.closest('[data-jmode]'))) { S.jmode = b.dataset.jmode; if (S.playing && /:card$/.test(S.playing)) stop(); drawJamTools(); render(); return; }
+  if ((b = e.target.closest('[data-jhover]'))) { S.jhover = !S.jhover; drawJamTools(); return; }
   if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
