@@ -1819,9 +1819,11 @@ document.addEventListener('click', function (e) {
   }
   if ((b = e.target.closest('[data-wsel]')) && EMBED) { if (S.playing) stop(); delete S.wfull[EMBED]; S.wsel[EMBED] = b.dataset.post; if (!wallTree(riff(EMBED)).partOf[b.dataset.post]) S.wcore[EMBED] = b.dataset.post; render(); toProject({ pick:b.dataset.post, play:false }); return; }
   if ((b = e.target.closest('[data-wsel]'))) {
-    var xr = b.dataset.wsel, was = S.playing && S.playing.indexOf(xr + ':wall:') === 0;
-    if (was) { if (S.playing !== xr + ':wall:' + b.dataset.post) wallPick(xr, b.dataset.post); return; }
-    S.wsel[xr] = b.dataset.post; var xT = wallTree(riff(xr)); if (!xT.partOf[b.dataset.post]) S.wcore[xr] = b.dataset.post; render(); return;
+    /* clicking a stack plays it straight away (or switches to it), and the master track shows it */
+    var xr = b.dataset.wsel;
+    if (S.playing !== wallKey(riff(xr), b.dataset.post)) wallPick(xr, b.dataset.post);
+    var fm = document.querySelector('#riff-' + xr + ' .wmaster'); if (fm) fm.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    return;
   }
   if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
