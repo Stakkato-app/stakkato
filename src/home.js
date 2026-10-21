@@ -1044,7 +1044,7 @@ if (WALL) {
     '.jpill i{width:9px;height:9px;border-radius:50%;display:inline-block}' +
     '.jnow{position:absolute;top:10px;right:10px;height:28px;padding:0 11px;display:inline-flex;align-items:center;background:var(--sound);color:#fff;border-radius:99px;font-size:12.5px;font-weight:700}' +
     '.jwv{position:absolute;left:14px;right:14px;top:48px;bottom:50px;display:flex;flex-direction:column;justify-content:center;gap:4px}' +
-    '.jwv canvas{display:block;width:100%;height:16px}.jwv canvas.big{height:80px}' +
+    '.jwv canvas{display:block;width:100%;flex:1 1 0;min-height:4px;max-height:16px}.jwv canvas.big{flex:none;height:80px;max-height:80px}' +
     '.jbot{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:8px}' +
     '.jplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--paper);color:var(--sound-ink);cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(18,18,18,.1);font-size:12px}' +
     '.jplay.on{background:var(--sound);color:#fff}' +
@@ -1066,7 +1066,7 @@ if (WALL) {
   cst.textContent += '.wdots{display:none}' +
     '@media (max-width:760px){' +
       '#tabs [data-tab="songs"]{display:none}' +
-      '.feedhead h2{font-size:22px}.feedhead .kicker{font-size:12px}' +
+      '.feedhead h2{font-size:27px}.feedhead .kicker{font-size:12.5px}' +
       '#tabs button{font-size:13px;padding:0 12px;min-height:34px}' +
       '.jtools{gap:8px 12px;margin:-4px 0 14px}.jseg button{font-size:12.5px;min-height:32px;padding:0 11px}' +
       '.jsw{font-size:12.5px;min-height:36px}.jsw i{width:34px;height:20px}.jsw i::after{width:14px;height:14px}.jsw[aria-checked="true"] i::after{left:17px}' +
@@ -1078,7 +1078,7 @@ if (WALL) {
       '.wsec{flex:0 0 auto!important;width:max(100cqw,calc(var(--n) * 92px));min-width:0!important;scroll-snap-align:start;scroll-snap-stop:always}' +
       '.wsec.wsec-shut{width:100cqw}' +
       '.warrow{display:none}' +
-      '.wb{gap:4px;padding:0 4px}.wb .wadd,.wb .wbadge,.wb .wname canvas{display:none}' +
+      '.wb{gap:4px;padding:0 4px}.wb .wadd,.wb .wbadge{display:none}.wb .wname canvas{min-width:30px}' +
       '.wdots{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px}' +
       '.wdots button{width:9px;height:9px;padding:0;border:0;border-radius:99px;background:var(--line-strong);cursor:pointer;transition:width .2s,background .2s}' +
       '.wdots button[aria-current="true"]{width:22px;background:var(--ink)}' +
