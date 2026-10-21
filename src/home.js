@@ -353,7 +353,8 @@ function amped(r, p) {
 }
 function bufFor(r, p) { return (p.amp && BUF[ampKey(r, p)]) || BUF[bufKey(r, p)]; }
 /* FADE: the gain everything that plays goes through; stopping takes it down over 5 ms first */
-function silence() { if (SRC.length) fadeOut(ac(), FADE, SRC); SRC = []; FADE = null; }
+var SEQ = 0;   /* bumps with every stop or start, so a stack that plays round and round knows it is over */
+function silence() { SEQ++; if (SRC.length) fadeOut(ac(), FADE, SRC); SRC = []; FADE = null; }
 function stop() { silence(); S.playing = null; CLOCK = null; }
 /* CLOCK: when the loop that is playing started and how long it is, for the playhead */
 var CLOCK = null;
@@ -637,6 +638,8 @@ document.addEventListener('scroll', function (e) {
   S.wscroll[w.dataset.wr] = w.scrollLeft;
   var i = wallPageOf(w); if (S.wpage[w.dataset.wr] === i) return;
   S.wpage[w.dataset.wr] = i; wallFit(w);
+  var fb = w.parentNode.querySelector('.wfull'), cur = w.querySelectorAll('.wsec')[i];
+  if (fb) fb.hidden = !(fb.dataset.keep || (cur && !cur.classList.contains('wsec-core')));
   var box = w.parentNode.querySelector('.wdots');
   if (box) [].forEach.call(box.querySelectorAll('[data-wdot]'), function (b) { b.setAttribute('aria-current', String(+b.dataset.i === i)); });
 }, true);
@@ -886,7 +889,9 @@ function wallFullId(r, T) {
 }
 function wallFullBtn(r, T, open) {
   if (!open || T.secs.length < 2) return '';
-  return '<div class="wfull"><button class="btn btn-sm btn-sound" type="button" data-wfull="' + r.id + '">&#9654; Play the whole song from the start</button></div>';
+  var sel = S.wsel[r.id], pg = T.secs[S.wpage[r.id] || 0], MOBV = window.matchMedia && matchMedia('(max-width:760px)').matches;
+  var on = !!(sel && T.partOf[sel]) || !!(MOBV && pg && pg.part);
+  return '<div class="wfull"' + (on ? '' : ' hidden') + (sel && T.partOf[sel] ? ' data-keep="1"' : '') + '><button class="btn btn-sm btn-sound" type="button" data-wfull="' + r.id + '">&#9654; Play the whole song from the start</button></div>';
 }
 function wallDots(r, T, open) {
   if (!open || T.secs.length < 2) return '';
@@ -981,18 +986,20 @@ function wallPick(rid, id) {
   if (S.playing === k) { stop(); render(); return; }
   var T = wallTree(r), part = T.partOf[id];
   if (!part) { S.wcore[rid] = id; playList(k, r, chainOf(r, id === 'riff' ? null : id)); render(); return; }
-  playSeq(k, r, wallSegs(r, id, T).map(function (sg) { return sg.list; }));
+  var segs = wallSegs(r, id, T);
+  playSeq(k, r, segs.map(function (sg) { return sg.list; }), part.p.pos === 'before' ? 0 : segs[0].len);
 }
 function playSeq(k, r, segs, from) {
   var all = segs[0].concat(segs[1]);
   from = from || 0;
   silence(); CLOCK = null;
+  var mine = SEQ;
   S.playing = k; render();
   Promise.all(all.map(function (x) { return load(r, x); })).then(function () {
     return Promise.all(all.map(function (x) { return amped(r, x); }));
   }).then(function () {
     (function round() {
-      if (S.playing !== k) return;
+      if (S.playing !== k || SEQ !== mine) return;
       var a = ac(); a.resume(); var T0 = a.currentTime + 0.05, T = T0, fade = FADE = fadeIn(a, T0, a.destination), skip = from, total = 0;
       segs.forEach(function (seg) { var lead = bufFor(r, seg[0]); total += lead ? lead.duration : 0; });
       CLOCK = { k:k, t0:T0 - from, len:total }; tickHeads();
@@ -1007,7 +1014,7 @@ function playSeq(k, r, segs, from) {
         T += len - skip; skip = 0;
       });
       from = 0;
-      setTimeout(function () { if (S.playing === k) { SRC = []; round(); } }, Math.max(0, (T - a.currentTime) * 1000) - 30);
+      setTimeout(function () { if (S.playing === k && SEQ === mine) round(); }, Math.max(0, (T - a.currentTime) * 1000) - 30);
     })();
   });
 }
@@ -1059,6 +1066,11 @@ if (WALL) {
   cst.textContent += '.wdots{display:none}' +
     '@media (max-width:760px){' +
       '#tabs [data-tab="songs"]{display:none}' +
+      '.feedhead h2{font-size:22px}.feedhead .kicker{font-size:12px}' +
+      '#tabs button{font-size:13px;padding:0 12px;min-height:34px}' +
+      '.jtools{gap:8px 12px;margin:-4px 0 14px}.jseg button{font-size:12.5px;min-height:32px;padding:0 11px}' +
+      '.jsw{font-size:12.5px;min-height:36px}.jsw i{width:34px;height:20px}.jsw i::after{width:14px;height:14px}.jsw[aria-checked="true"] i::after{left:17px}' +
+      '.jhint{font-size:12px}' +
       '.wwrap{padding-inline:0;container-type:inline-size;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;overscroll-behavior-x:contain}.wwrap::-webkit-scrollbar{display:none}' +
       '.wrow{width:auto;min-width:100%;align-items:flex-start}' +
       '.wwrap{transition:height .25s ease;overflow-y:hidden}' +
