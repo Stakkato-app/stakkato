@@ -1119,10 +1119,17 @@ function openJam(rid) {
   var card = el('card-' + rid), from = card ? card.getBoundingClientRect() : null;
   if (S.playing) stop();   /* what played from the grid (hover, ▶) stops when the jam opens */
   S.ov = rid; S.expanded[rid] = true; delete S.wopen[rid];
+  /* the grid played the latest stack: open on that stack */
+  var lt = S.jmode === 'latest' ? latestOf(r) : null;
+  S.wsel[rid] = lt ? lt.id : null;
+  delete S.wscroll[rid];
   var o = overlay(), panel = o.querySelector('.wov-panel');
   o.hidden = false; document.body.classList.add('ov-open');
   render();
   panel.scrollTop = 0;
+  /* on a phone, turn to the part that stack is in */
+  var pk = panel.querySelector('.wb-picked'), pw = pk && pk.closest('.wwrap'), ps = pk && pk.closest('.wsec');
+  if (pw && ps) { pw.scrollLeft += ps.getBoundingClientRect().left - pw.getBoundingClientRect().left; S.wscroll[rid] = pw.scrollLeft; wallFit(pw); }
   var to = panel.getBoundingClientRect();
   if (from && panel.animate) {
     var sx = from.width / to.width, sy = Math.min(1, from.height / to.height);
