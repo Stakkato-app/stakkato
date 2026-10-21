@@ -911,8 +911,15 @@ function wallScrolls() {
   [].forEach.call(document.querySelectorAll('.wwrap[data-wr]'), function (w) {
     var rid = w.dataset.wr;
     if (S.wscroll[rid] !== undefined) w.scrollLeft = S.wscroll[rid];
+    [].forEach.call(w.querySelectorAll('.wgrid'), railTop);
     wallFit(w);
   });
+}
+/* the rail left of a stack starts at its highest take, not at the top of the (taller) grid */
+function railTop(g) {
+  var top = Infinity, gt = g.getBoundingClientRect().top;
+  [].forEach.call(g.querySelectorAll('.wb,.wplus button'), function (b) { var t = b.getBoundingClientRect().top - gt; if (t < top) top = t; });
+  if (top < Infinity) g.style.setProperty('--rt', Math.max(0, top) + 'px');
 }
 function wallFit(w) {
   if (!(window.matchMedia && matchMedia('(max-width:760px)').matches)) { w.style.height = ''; return; }
@@ -1026,8 +1033,7 @@ S.jmode = 'latest'; S.jhover = true; S.ov = null;
 if (WALL) {
   var cst = document.createElement('style');
   cst.textContent =
-    '.steps{display:none}.hero{grid-template-columns:1fr}' +
-    '#list.feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:28px 24px}' +
+        '#list.feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:28px 24px}' +
     '.jtools{display:flex;align-items:center;gap:12px 20px;flex-wrap:wrap;margin:-6px 0 18px}' +
     '.jseg{display:inline-flex;gap:4px;padding:4px;border:1px solid var(--line-strong);border-radius:99px;background:var(--paper)}' +
     '.jseg button{min-height:36px;padding:0 14px;border:0;border-radius:99px;background:transparent;font:700 14px var(--body);color:var(--muted);cursor:pointer}' +
@@ -1063,6 +1069,14 @@ if (WALL) {
     '.wov-x{position:sticky;top:12px;float:right;margin:12px 12px -56px 0;z-index:3;width:44px;height:44px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font-size:22px;line-height:1;cursor:pointer}' +
     '.wov-x:hover{border-color:var(--ink)}' +
     'body.ov-open{overflow:hidden}';
+  cst.textContent +=
+    /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
+    '.wgrid{position:relative;margin-left:14px}' +
+    '.wgrid::before{content:"";position:absolute;left:-11px;top:calc(var(--rt,0px) + 14px);bottom:10px;width:2px;border-radius:2px;background:linear-gradient(to top,color-mix(in srgb,var(--muted) 70%,transparent),color-mix(in srgb,var(--muted) 8%,transparent))}' +
+    '.wgrid::after{content:"";position:absolute;left:-14px;top:calc(var(--rt,0px) + 6px);border:4px solid transparent;border-bottom:6px solid color-mix(in srgb,var(--muted) 35%,transparent);border-top:0}' +
+    '.wsec>small::after{content:" \\00B7  builds up from here \\2191"}' +
+    '.wb.wb-root{position:relative}' +
+    '';
   cst.textContent += '.wdots{display:none}' +
     '@media (max-width:760px){' +
       '#tabs [data-tab="songs"]{display:none}' +
@@ -1084,13 +1098,7 @@ if (WALL) {
       '.wdots button[aria-current="true"]{width:22px;background:var(--ink)}' +
       '.wswipe{font-size:18px;color:var(--muted);line-height:1}.wswipe-t{font-size:12.5px;color:var(--muted);margin-left:4px}' +
       /* the first screen is the pitch only; "Or play along with one below" scrolls to the jams */
-      '.wide:has(>.hero){min-height:calc(100svh - var(--hdrh,64px));display:flex;flex-direction:column;justify-content:center}.hero{margin:12px 0;padding:22px 20px}.hero h1{font-size:40px}.hero-lead{font-size:17px}.hero .steps{display:none}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
-      /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
-      '.wgrid{position:relative;margin-left:14px}' +
-      '.wgrid::before{content:"";position:absolute;left:-11px;top:14px;bottom:10px;width:2px;border-radius:2px;background:linear-gradient(to top,color-mix(in srgb,var(--muted) 70%,transparent),color-mix(in srgb,var(--muted) 8%,transparent))}' +
-      '.wgrid::after{content:"";position:absolute;left:-14px;top:6px;border:4px solid transparent;border-bottom:6px solid color-mix(in srgb,var(--muted) 35%,transparent);border-top:0}' +
-      '.wsec>small::after{content:" \\00B7  builds up from here \\2191"}' +
-      '.wb.wb-root{position:relative}' +
+      '.wide:has(>.hero){min-height:calc(100svh - var(--hdrh,64px));display:flex;flex-direction:column;justify-content:center}.hero{margin:12px 0;padding:22px 20px}.hero h1{font-size:40px}.hero-lead{font-size:17px}.hero-copy{gap:14px}.hero{gap:16px}.hero .steps li{padding:9px 12px}.hero .steps span:not(.n){font-size:13px;line-height:1.4}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
       '.wov{padding:0}.wov-panel{max-height:100vh;max-height:100dvh;border-radius:0;height:100%}' +
       /* the panel on a phone: the jam small at the top, tiles a bit lower, the master track always in view at the bottom */
       '.wov .riff{overflow:visible}.wov .rmain{padding:12px 14px 0;gap:8px}.wov .rwho{font-size:13px}' +
