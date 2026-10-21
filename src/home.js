@@ -1097,7 +1097,7 @@ if (WALL) {
     '.wtime i{flex:1 1 12px;height:2px;border-radius:2px;background:var(--line-strong);min-width:8px}' +
     '.wtime em{font-style:normal;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
     '.wtime-part i{background:color-mix(in srgb,var(--part) 45%,transparent)}' +
-    '.wsec{align-self:stretch}.wsec>.wgrid{margin-top:auto}' +
+    '.wsec{align-self:stretch}.wsec>.wgrid{margin-top:auto}.hero .steps span.st-short{display:none}' +
     '';
   cst.textContent += '.wdots{display:none}' +
     '@media (max-width:760px){' +
@@ -1120,7 +1120,9 @@ if (WALL) {
       '.wdots button[aria-current="true"]{width:22px;background:var(--ink)}' +
       '.wswipe{font-size:18px;color:var(--muted);line-height:1}.wswipe-t{font-size:12.5px;color:var(--muted);margin-left:4px}' +
       /* the first screen is the pitch only; "Or play along with one below" scrolls to the jams */
-      '.wide:has(>.hero){min-height:calc(100svh - var(--hdrh,64px));display:flex;flex-direction:column;justify-content:center}.hero{margin:12px 0;padding:22px 20px}.hero h1{font-size:40px}.hero-lead{font-size:17px}.hero-copy{gap:14px}.hero{gap:16px}.hero .steps li{padding:9px 12px}.hero .steps span:not(.n){font-size:13px;line-height:1.4}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
+      '.wide:has(>.hero){min-height:calc(100svh - var(--hdrh,64px));display:flex;flex-direction:column;justify-content:center}.hero{margin:10px 0;padding:20px 18px;gap:14px}.hero h1{font-size:clamp(30px,5.4vh,40px)}.hero-lead{font-size:16px}.hero-copy{gap:12px}.hero .cta-row{gap:10px 16px}.hero .cta-row .btn-lg{min-height:46px;font-size:16px;padding:0 22px}' +
+      '.hero .steps{padding:4px;gap:4px;border-radius:16px}.hero .steps li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:12px}.hero .steps .n{width:26px;height:26px;font-size:12px;flex:none}' +
+      '.hero .steps li>b,.hero .steps li>span:not(.n):not(.st-short){display:none}.hero .steps span.st-short{display:block;font-size:13px;line-height:1.35;color:var(--muted)}.hero .steps span.st-short b{color:var(--ink);font-size:13.5px}#feed{scroll-margin-top:calc(var(--hdrh,64px) + 6px)}' +
       '.wov{padding:0}.wov-panel{max-height:100vh;max-height:100dvh;border-radius:0;height:100%}' +
       /* the panel on a phone: the jam small at the top, tiles a bit lower, the master track always in view at the bottom */
       '.wov .riff{overflow:visible}.wov .rmain{padding:12px 14px 0;gap:8px}.wov .rwho{font-size:13px}' +
@@ -1136,6 +1138,16 @@ if (WALL) {
       '.wov .wfull{margin-top:6px}' +
     '}';
   document.head.appendChild(cst);
+  /* the three steps in a few words, for phones */
+  var shortSteps = function () {
+    var sh = [['Upload a clip.', 'It sets the tempo, key and length.'], ['Strangers stack on top.', 'Every take plays on the ones below it.'], ['You shape the song.', 'Pick the best takes; every stack stays.']];
+    [].forEach.call(document.querySelectorAll('.hero .steps li'), function (li, i) {
+      if (!sh[i] || li.querySelector('.st-short')) return;
+      var x = document.createElement('span'), b = document.createElement('b'); x.className = 'st-short';
+      b.textContent = sh[i][0]; x.appendChild(b); x.appendChild(document.createTextNode(' ' + sh[i][1])); li.appendChild(x);
+    });
+  };
+  shortSteps(); document.addEventListener('DOMContentLoaded', shortSteps);
   var hdrH = function () { var h = document.querySelector('header.top'); if (h) document.documentElement.style.setProperty('--hdrh', h.offsetHeight + 'px'); };
   hdrH(); document.addEventListener('DOMContentLoaded', hdrH); window.addEventListener('resize', hdrH);
   document.addEventListener('DOMContentLoaded', jamTools);
