@@ -630,7 +630,7 @@ function riffHtml(r) {
    and takes played on the same take share its width. A new part is its own little wall, before
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
-S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {};
+S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {};
 /* keep each wall where it was scrolled to, through every redraw, and move its dots along */
 document.addEventListener('scroll', function (e) {
   var w = e.target; if (!w.classList || !w.classList.contains('wwrap') || !w.dataset.wr) return;
@@ -694,6 +694,7 @@ if (WALL) {
     '.wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px}.wplus.wp-rise{animation:wb-rise .35s ease both}' +
     '.wplus button{width:28px;height:28px;border-radius:50%;border:0;background:var(--action);color:var(--on-action);font:700 17px/1 var(--body);cursor:pointer}' +
     '.wb{cursor:pointer}.wb:hover{border-color:var(--ink)}' +
+    '.wfull{display:flex;justify-content:center;margin-top:10px}' +
     '.wmaster{margin-top:14px;border-radius:16px;background:var(--sound-soft);padding:12px 14px;display:flex;flex-direction:column;gap:10px}' +
     '.wm-top{display:flex;align-items:center;gap:12px}' +
     '.wm-top .play{flex:none;width:52px;height:52px;border-radius:50%;border:0;background:var(--sound);color:#fff;font-size:16px;cursor:pointer}' +
@@ -814,8 +815,8 @@ function wallHtml(r) {
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
   var now = '';
-  if (open && !EMBED) {
-    var ms = sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
+  if (open && (!EMBED || S.wfull[r.id])) {
+    var ms = EMBED ? S.wfull[r.id] : sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
     wallMix(r, ms, segs);
     var people = [];
     segs.forEach(function (sg) { sg.list.forEach(function (x) { people.push(x); }); });
@@ -828,7 +829,8 @@ function wallHtml(r) {
           (segs.length > 1 ? '<small>' + esc(sg.label) + '</small>' : '') + '</div>';
       }).join('') + '<span class="wm-head" hidden></span></div>' +
       '<div class="wm-acts"><span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
-        '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '&amp;wall">Open this stack in the project</a></div></div>';
+        (EMBED ? '<button class="btn btn-sm" type="button" data-wfullclose="' + r.id + '">Hide the master track</button>' :
+          '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '&amp;wall">Open this stack in the project</a>') + '</div></div>';
   }
 
   /* talk about this song: every written reply, newest first, with what it is about */
@@ -861,17 +863,30 @@ function wallHtml(r) {
 
   if (EMBED) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + '</div>' + talk + '</article>';
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now + '</div>' + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + now +
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a></div>') +
     '</div>' + bar + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
 /* phones: one part of the song at a time, swipe for the next; the dots say where you are */
+/* the whole song from the top: the stack you picked if it is on a new part, else the part you look at, else the first new part */
+function wallFullId(r, T) {
+  var sel = S.wsel[r.id];
+  if (sel && T.partOf[sel]) return sel;
+  var pg = T.secs[S.wpage[r.id] || 0];
+  if (pg && pg.part) return pg.root.id;
+  var first = T.secs.filter(function (x) { return x.part; })[0];
+  return first ? first.root.id : null;
+}
+function wallFullBtn(r, T, open) {
+  if (!open || T.secs.length < 2) return '';
+  return '<div class="wfull"><button class="btn btn-sm btn-sound" type="button" data-wfull="' + r.id + '">&#9654; Play the whole song from the start</button></div>';
+}
 function wallDots(r, T, open) {
   if (!open || T.secs.length < 2) return '';
   var at = S.wpage[r.id] || 0;
@@ -947,7 +962,7 @@ function wallMix(r, id, segs) {
 /* Picking a take plays its stack: the take and everything under it. On a new part, what the part
    was made on plays first (or after, for a part before), then the part with its takes, and round again. */
 function wallPick(rid, id) {
-  if (EMBED) { if (S.playing) stop(); S.wsel[rid] = id; render(); toProject({ pick:id, play:true }); return; }
+  if (EMBED) { if (S.playing) stop(); delete S.wfull[rid]; S.wsel[rid] = id; render(); toProject({ pick:id, play:true }); return; }
   var r = riff(rid), k = wallKey(r, id);
   S.wsel[rid] = id;
   if (S.playing === k) { stop(); render(); return; }
@@ -1669,6 +1684,15 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
   if ((b = e.target.closest('[data-wclose]'))) { closeJam(); return; }
+  if ((b = e.target.closest('[data-wfull]'))) {
+    var fr = b.dataset.wfull, fRiff = riff(fr), fid = fRiff && wallFullId(fRiff, wallTree(fRiff));
+    if (!fid) return;
+    if (EMBED) { toProject({ stop:true }); S.wfull[fr] = fid; } else S.wsel[fr] = fid;
+    wallSeek(fr, fid, 0);
+    var fm = document.querySelector('#riff-' + fr + ' .wmaster'); if (fm) fm.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    return;
+  }
+  if ((b = e.target.closest('[data-wfullclose]'))) { var fc = b.dataset.wfullclose; if (S.playing && S.playing.indexOf(fc + ':wall:') === 0) stop(); delete S.wfull[fc]; render(); return; }
   if ((b = e.target.closest('[data-wdot]'))) {
     var dw = document.querySelector('.wwrap[data-wr="' + b.dataset.wdot + '"]'), ds = dw && dw.querySelectorAll('.wsec')[+b.dataset.i];
     if (ds) dw.scrollTo({ left:dw.scrollLeft + ds.getBoundingClientRect().left - dw.getBoundingClientRect().left, behavior:'smooth' });
@@ -1695,7 +1719,7 @@ document.addEventListener('click', function (e) {
     var ta = el('wsay-' + sr); if (ta) { ta.scrollIntoView({ behavior:'smooth', block:'center' }); ta.focus({ preventScroll:true }); }
     return;
   }
-  if ((b = e.target.closest('[data-wsel]')) && EMBED) { if (S.playing) stop(); S.wsel[EMBED] = b.dataset.post; render(); toProject({ pick:b.dataset.post, play:false }); return; }
+  if ((b = e.target.closest('[data-wsel]')) && EMBED) { if (S.playing) stop(); delete S.wfull[EMBED]; S.wsel[EMBED] = b.dataset.post; render(); toProject({ pick:b.dataset.post, play:false }); return; }
   if ((b = e.target.closest('[data-wsel]'))) {
     var xr = b.dataset.wsel, was = S.playing && S.playing.indexOf(xr + ':wall:') === 0;
     if (was) { if (S.playing !== xr + ':wall:' + b.dataset.post) wallPick(xr, b.dataset.post); return; }
