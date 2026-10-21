@@ -630,7 +630,7 @@ function riffHtml(r) {
    and takes played on the same take share its width. A new part is its own little wall, before
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
-S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {};
+S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {}; S.wcore = {};
 /* keep each wall where it was scrolled to, through every redraw, and move its dots along */
 document.addEventListener('scroll', function (e) {
   var w = e.target; if (!w.classList || !w.classList.contains('wwrap') || !w.dataset.wr) return;
@@ -776,6 +776,7 @@ function wallHtml(r) {
   var anim = open && Date.now() - S.wopen[r.id] < 700, LAND = S.ov === r.id ? 0.32 : 0;
   var lit = {};
   for (var x = sel; x; x = T.parentOf(x)) lit[x] = true;
+  if (sel && T.partOf[sel]) for (var y = wallBase(r, T, T.partOf[sel]); y; y = T.parentOf(y)) lit[y] = true;
   var MOB = window.matchMedia && matchMedia('(max-width:760px)').matches;
   function rowsOf(sx) { return !open ? 1 : MOB ? sx.maxD + 2 : T.maxD + 2; }
   var rows = 1;
@@ -819,7 +820,7 @@ function wallHtml(r) {
     var ms = EMBED ? S.wfull[r.id] : sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
     wallMix(r, ms, segs);
     var people = [];
-    segs.forEach(function (sg) { sg.list.forEach(function (x) { people.push(x); }); });
+    segs.forEach(function (sg, si) { sg.list.forEach(function (x) { if (si && people.some(function (q) { return q.id === x.id; })) return; people.push(x); }); });
     now = '<div class="wmaster"><div class="wm-top">' +
         '<button class="play' + (mOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + ms + '" aria-label="' + (mOn ? 'Pause' : 'Play the master track') + '">' + (mOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + esc(wallWhose(r, ms))) + '</b>' +
@@ -925,7 +926,7 @@ function wallHead(pos, len) {
 }
 function wallSeek(rid, id, f) {
   var r = riff(rid), k = wallKey(r, id), T = wallTree(r), segs = wallSegs(r, id, T);
-  S.wsel[rid] = id;
+  S.wsel[rid] = id; if (!T.partOf[id]) S.wcore[rid] = id;
   var total = segs.reduce(function (n, sg) { return n + sg.len; }, 0), at = Math.max(0, Math.min(.999, f)) * total;
   if (segs.length === 1) { playList(k, r, segs[0].list, at); render(); return; }
   playSeq(k, r, segs.map(function (sg) { return sg.list; }), at);
@@ -937,10 +938,22 @@ function wallSolo(rid, id, at) {
   var p = id === 'riff' ? null : postOf(r, id);
   playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }], at);
 }
+function wallBase(r, T, part) {
+  var c = S.wcore[r.id];
+  if (c && !T.partOf[c] && (c === 'riff' || postOf(r, c))) return c;
+  if (part.madeOn !== 'riff') return part.madeOn;
+  var top = null;
+  Object.keys(T.nodes).forEach(function (k) {
+    var n = T.nodes[k]; if (k === 'riff' || T.partOf[k] || n.kids.length || !n.p || n.p.deleted) return;
+    if (!top || String(n.p.created) > String(top.p.created)) top = n;
+  });
+  return top ? top.id : 'riff';
+}
 function wallSegs(r, id, T) {
   var part = T.partOf[id];
   if (!part) return [{ list:chainOf(r, id === 'riff' ? null : id), len:r.dur || 1, label:'The original track' }];
-  var base = { list:chainOf(r, part.madeOn === 'riff' ? null : part.madeOn), len:r.dur || 1, label:'Up to ' + wallWhose(r, part.madeOn) },
+  var bid = wallBase(r, T, part);
+  var base = { list:chainOf(r, bid === 'riff' ? null : bid), len:r.dur || 1, label:bid === 'riff' ? 'The original track' : 'Up to ' + wallWhose(r, bid) },
       on = { list:chainOf(r, id), len:part.p.dur || 1, label:wallWhose(r, part.id) };
   return part.p.pos === 'before' ? [on, base] : [base, on];
 }
@@ -967,9 +980,8 @@ function wallPick(rid, id) {
   S.wsel[rid] = id;
   if (S.playing === k) { stop(); render(); return; }
   var T = wallTree(r), part = T.partOf[id];
-  if (!part) { playList(k, r, chainOf(r, id === 'riff' ? null : id)); render(); return; }
-  var base = chainOf(r, part.madeOn === 'riff' ? null : part.madeOn), on = chainOf(r, id);
-  playSeq(k, r, part.p.pos === 'before' ? [on, base] : [base, on]);
+  if (!part) { S.wcore[rid] = id; playList(k, r, chainOf(r, id === 'riff' ? null : id)); render(); return; }
+  playSeq(k, r, wallSegs(r, id, T).map(function (sg) { return sg.list; }));
 }
 function playSeq(k, r, segs, from) {
   var all = segs[0].concat(segs[1]);
@@ -1719,11 +1731,11 @@ document.addEventListener('click', function (e) {
     var ta = el('wsay-' + sr); if (ta) { ta.scrollIntoView({ behavior:'smooth', block:'center' }); ta.focus({ preventScroll:true }); }
     return;
   }
-  if ((b = e.target.closest('[data-wsel]')) && EMBED) { if (S.playing) stop(); delete S.wfull[EMBED]; S.wsel[EMBED] = b.dataset.post; render(); toProject({ pick:b.dataset.post, play:false }); return; }
+  if ((b = e.target.closest('[data-wsel]')) && EMBED) { if (S.playing) stop(); delete S.wfull[EMBED]; S.wsel[EMBED] = b.dataset.post; if (!wallTree(riff(EMBED)).partOf[b.dataset.post]) S.wcore[EMBED] = b.dataset.post; render(); toProject({ pick:b.dataset.post, play:false }); return; }
   if ((b = e.target.closest('[data-wsel]'))) {
     var xr = b.dataset.wsel, was = S.playing && S.playing.indexOf(xr + ':wall:') === 0;
     if (was) { if (S.playing !== xr + ':wall:' + b.dataset.post) wallPick(xr, b.dataset.post); return; }
-    S.wsel[xr] = b.dataset.post; render(); return;
+    S.wsel[xr] = b.dataset.post; var xT = wallTree(riff(xr)); if (!xT.partOf[b.dataset.post]) S.wcore[xr] = b.dataset.post; render(); return;
   }
   if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
   if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
