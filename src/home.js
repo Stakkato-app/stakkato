@@ -811,7 +811,7 @@ function wallHtml(r) {
   function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
   var secHtml = T.secs.map(function (sx, i) {
     if (!open && !sx.core) return '';
-    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + rowsOf(sx) + ',44px)">' + plusCells(sx.root, sx) + all(sx.root, sx) + '</div>';
+    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + rowsOf(sx) + ',var(--wrh,44px))">' + plusCells(sx.root, sx) + all(sx.root, sx) + '</div>';
     var cap = !open ? '' : sx.core ? '<small>The original track · ' + mmss(r.dur) + '</small>' :
       '<small>' + esc(sx.root.p.mine ? 'Your' : sx.root.p.by + '’s') + ' new part · ' + (sx.root.p.pos === 'before' ? 'before' : 'after') + ' the original, made on ' + esc(wallWhose(r, sx.root.madeOn)) + (sx.root.p.status === 'in' ? ' · in the song' : '') + '</small>';
     var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
@@ -1083,7 +1083,19 @@ if (WALL) {
       '.wdots button{width:9px;height:9px;padding:0;border:0;border-radius:99px;background:var(--line-strong);cursor:pointer;transition:width .2s,background .2s}' +
       '.wdots button[aria-current="true"]{width:22px;background:var(--ink)}' +
       '.wswipe{font-size:18px;color:var(--muted);line-height:1}.wswipe-t{font-size:12.5px;color:var(--muted);margin-left:4px}' +
-      '.wov{padding:0}.wov-panel{max-height:100vh;border-radius:0;height:100%}' +
+      '.wov{padding:0}.wov-panel{max-height:100vh;max-height:100dvh;border-radius:0;height:100%}' +
+      /* the panel on a phone: the jam small at the top, tiles a bit lower, the master track always in view at the bottom */
+      '.wov .riff{overflow:visible}.wov .rmain{padding:12px 14px 0;gap:8px}.wov .rwho{font-size:13px}' +
+      '.wov .rtitle{font-size:21px;padding-right:44px}.wov .wpre{font-size:11px;padding:2px 8px;margin-left:6px}.wov .rtext{font-size:13.5px;margin:0}' +
+      '.wov-x{width:38px;height:38px;font-size:19px;margin:10px 10px -48px 0}' +
+      '.wov .wwrap{margin-top:0}.wov .wgrid{--wrh:38px}.wov .wb .wsolo{width:26px;height:26px}.wov .wb .wname canvas{height:24px}.wov .wsec small{font-size:11.5px}' +
+      '.wov .wdots{margin-top:6px}' +
+      '.wov .wmaster{position:sticky;bottom:0;z-index:2;margin:8px -14px 0;border-radius:18px 18px 0 0;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));gap:8px;box-shadow:0 -12px 24px -16px rgba(18,18,18,.35)}' +
+      '.wov .wm-top{gap:10px}.wov .wm-top .play{width:42px;height:42px;font-size:14px}.wov .wm-what b{font-size:14px}' +
+      '.wov .wm-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.wov .wm-chips::-webkit-scrollbar{display:none}.wov .wm-chips span{flex:none}' +
+      '.wov .wm-wave{height:44px}.wov .wm-wave div{padding:3px 6px 14px}' +
+      '.wov .wm-acts>span:first-child{display:none}.wov .wm-acts .btn{min-height:34px;font-size:13px}' +
+      '.wov .wfull{margin-top:6px}' +
     '}';
   document.head.appendChild(cst);
   document.addEventListener('DOMContentLoaded', jamTools);

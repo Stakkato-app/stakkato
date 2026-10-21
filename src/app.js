@@ -236,6 +236,24 @@ function wallSwitch(id, playIt) {
   refreshGains(); render();
   if (playIt || was) play(0);
 }
+/* the preview on a phone: the tracks come first, everything above them made small */
+if (WALLP) (function () {
+  var st = document.createElement('style');
+  st.textContent = '@media (max-width:760px){' +
+    '.bar{gap:8px;min-height:0;padding-block:8px}.bar .brand .logo{height:20px;width:auto}.bar .hdr-acts{margin-left:auto;gap:6px}.bar #copy-link{display:none}' +
+    '.bar .crumbs{order:5;width:auto;flex:0 1 auto;min-width:0}.crumbs a,.crumbs b{font-size:12.5px;padding:3px 9px}.crumbs>a:first-child,.crumbs>a:first-child+span{display:none}' +
+    '.bar .phases{order:6;flex:1 1 auto;width:auto;margin:0 0 0 auto;padding:3px}.bar .phase{min-height:30px;font-size:12.5px;padding:0 8px}.bar .phase span{display:none}' +
+    '#mix-head{display:none}#daw>.stacktabs{display:none!important}.daw .listening.build{padding:8px 12px;font-size:12px;line-height:1.35}.daw .listening.build>span{padding:0}.daw .listening span{min-width:0}' +
+    '#daw .daw-bar{padding:8px 10px;gap:6px;flex-wrap:nowrap}.daw-bar .tiny{display:none}.daw-bar #transport{min-height:40px;padding:0 14px}.daw-bar #rewind{min-height:40px;width:40px;padding:0;justify-content:center}.daw-bar .readout{font-size:12.5px;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden}.daw-bar .clickctl{width:auto;flex:none;margin:0}.daw-bar .clickctl .btn{min-height:36px;padding:0 10px;font-size:13px;white-space:nowrap}' +
+    '#stage-open>.wrap{padding-top:10px}' +
+    '#intro{display:none}#songtop{gap:8px;margin-bottom:8px}#seedpanel{display:none}' +
+    '#projtitle .pt-lbl{display:none}#projtitle .projname{font-size:24px}' +
+    '#facts{gap:6px;margin-top:8px;flex-wrap:nowrap}#facts .stat{flex:1 1 0;min-width:0;padding:6px 10px;border-radius:12px;display:flex;align-items:baseline;gap:5px}#facts .stat b{font-size:16px}#facts .stat small{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#metabar:empty{display:none}' +
+    '#howbox{margin:6px 0 10px;padding:0}#howbox>summary{padding:10px 14px;font-size:14px}' +
+  '}';
+  document.head.appendChild(st);
+})();
 if (WALLP) window.addEventListener('message', function (e) {
   if (e.origin !== location.origin || !e.data || !e.data.stk) return;
   var f = el('wallframe');
@@ -2096,7 +2114,7 @@ function renderHow() {
   var seen = false;
   try { seen = localStorage.getItem('stackato:seen-how') === '1'; } catch (e) {}
   var want = hasSeed() && !!S.session;
-  if (S.howFor !== want) { S.howFor = want; el('howbox').open = !want || !seen; }
+  if (S.howFor !== want) { S.howFor = want; el('howbox').open = WALLP ? false : !want || !seen; }
   if (want && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
 }
 function renderInstruments() {
