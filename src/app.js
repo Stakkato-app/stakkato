@@ -343,17 +343,18 @@ if (WALLP) window.addEventListener('message', function (e) {
   if (e.data.h && f) f.style.height = Math.max(200, e.data.h) + 'px';
   if (e.data.stop) { stopAll(true); render(); }
   if (e.data.pick) { f.__sel = e.data.pick; wallSwitch(e.data.pick, !!e.data.play); }
-  if (e.data.rec) wallRec(e.data.rec);
+  if (e.data.rec !== undefined) wallRec(e.data.rec);
   if (e.data.pick === undefined && !e.data.h && !e.data.stop) return;
 });
 var WANT = (function () { try { return new URLSearchParams(location.search).get('stack'); } catch (e) { return null; } })();
 /* Wanted (preview): open the grey track with the asked instrument picked, on the stack it was asked on */
 var WALLREC = WALLP ? (function () { try { return new URLSearchParams(location.search).get('rec'); } catch (e) { return null; } })() : null;
 function wallRec(layer) {
-  if (!ROLES.some(function (x) { return x.id === layer; })) return;
-  S.recRole = layer; S.recOpen = true; render();
+  if (layer && !ROLES.some(function (x) { return x.id === layer; })) return;
+  if (layer) S.recRole = layer;
+  S.recOpen = true; render();
   var row = el('addrow'); if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
-  flash('Record your ' + role(layer).label.toLowerCase() + ' right here, or upload a file. Wear headphones.');
+  flash('Record your ' + role(S.recRole || ROLES[0].id).label.toLowerCase() + ' right here, or upload a file. Wear headphones.');
 }
 window.__stackId = function () { return S.stack || null; };
 /* wait until the audio is in and the page has its final height, then show the tracks */

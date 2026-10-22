@@ -1,6 +1,6 @@
 # The wall: a preview, not a pull request (yet)
 
-This branch (`claude/wall-preview`) is a **read-only preview** of a new way to show jams. It is never meant to be merged as it is. Once the design is agreed, it becomes two pull requests from `main` (see the end).
+This branch (`claude/wall-preview`) is a **preview** of a new way to show jams. Posting works as on the live site: takes, comments and replies go into the real database. It is never meant to be merged as it is. Once the design is agreed, it becomes two pull requests from `main` (see the end).
 
 **Preview:** https://claude-wall-preview.stakkato.pages.dev/?wall (everything new only shows with `?wall` in the URL; without it you get today's site).
 
@@ -44,7 +44,7 @@ In the bottom-up version, the tracks are as tall as the stack. "Your take" stays
 
 ## What is preview-only on purpose (leave it out of the pull requests)
 
-- **Read-only:** with `?wall`, every write in `src/data.js` throws (see `WALL_PREVIEW`). In the wall, +, 💬 and posting only show a toast.
+- **Posting:** the wall's + opens the live site's reply pop-up (record or upload) on that take. Comments post with `addThreadComment`. In the project view, + opens the grey track on that stack. (Until 22 October the preview was read-only.)
 - **Data fixes by title in `src/home.js`:**
   - "Kilian's krentenbolleke" and the Jurgocals track are restacked in band order;
   - the new part before the original track in "drum regeton" is left out.

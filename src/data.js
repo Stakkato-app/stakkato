@@ -9,10 +9,7 @@ import { viewing, readOnlyText } from './viewas.js';
 function ro() {
   var v = viewing();
   if (v) throw new Error(readOnlyText(v));
-  /* the wall preview (/?wall, src/home.js) only reads */
-  if (WALL_PREVIEW) throw new Error('This is a read-only preview. Open the page without ?wall to post or play along.');
 }
-var WALL_PREVIEW = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
 
 function check(res) {
   if (res.error) throw res.error;

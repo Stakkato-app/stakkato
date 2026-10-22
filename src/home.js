@@ -278,10 +278,22 @@ document.addEventListener('submit', function (e) {
   lst.push({ id:'w' + Date.now().toString(36), take:f.take.value, layer:f.layer.value, note:f.note.value.trim().slice(0, 80) });
   wantsSave(all); S.wwform[rid] = false; render();
 });
-/* the wall preview only reads: a comment there is not posted */
+/* a comment from the wall: on the song as a whole, on the original track, or on one take */
 document.addEventListener('submit', function (e) {
   var f = e.target.closest && e.target.closest('[data-wsayform]'); if (!f) return;
-  e.preventDefault(); toast('This is a read-only preview, so the comment isn’t posted. Without ?wall you can comment as usual.');
+  e.preventDefault();
+  var rid = f.dataset.wsayform, r = riff(rid), t = el('wsay-' + rid), text = t ? t.value.trim() : '';
+  if (!r) return;
+  if (!text) { if (t) t.focus(); toast('Write something first.'); return; }
+  var on = S.wsay[rid] || '', p = on && on !== 'riff' ? postOf(r, on) : null, go = f.querySelector('button[type=submit]');
+  if (go) go.disabled = true;
+  ensureMe('reply').then(function (u) {
+    return db.addThreadComment({ session_id:r.id, reply_to_take:p && !p.isComment ? p.id : null, reply_to_comment:p && p.isComment ? p.id : null,
+      author_id:u.id, author_name:db.accountName(u), body:text });
+  }).then(function () {
+    S.wsay[rid] = ''; delete S.wtalk[rid];
+    return reload().then(function () { toast('Your comment is posted.'); });
+  }).catch(function (err) { if (go) go.disabled = false; toast((err && err.message) || 'That didn’t work, try again.'); });
 });
 document.addEventListener('change', function (e) {
   if (e.target.dataset && e.target.dataset.wsaywhat) { S.wsay[e.target.dataset.wsaywhat] = e.target.value; var t = el('wsay-' + e.target.dataset.wsaywhat), v = t ? t.value : ''; render(); t = el('wsay-' + e.target.dataset.wsaywhat); if (t) { t.value = v; t.focus(); } }
@@ -646,7 +658,7 @@ function riffHtml(r) {
   if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
   return html + '</article>';
 }
-/* ---------- preview: the thread as a wall of stacks (/?wall, read-only, not in the live site) ----------
+/* ---------- preview: the thread as a wall of stacks (/?wall, not in the live site; posting works as on the live site) ----------
    The original track is the bottom block; every take sits on top of the take it was played on,
    and takes played on the same take share its width. A new part is its own little wall, before
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
@@ -954,7 +966,7 @@ function wallHtml(r) {
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
-    '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
+    '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a></div>') +
     '</div>' + bar + bottomHtml(r, T, open, talk) + '</article>';
@@ -1012,8 +1024,8 @@ function wantedHtml(r, T, open) {
         (w.example ? '<em>example</em>' : '') + '<span class="wwi-go" aria-hidden="true">&#9654;</span></button>' +
       (on ? '<div class="wwi-more">' + (w.note ? '<p>“' + esc(w.note) + '”</p>' : '') +
         '<div class="wwi-acts">' + (EMBED ? '<button class="btn btn-main btn-sm" type="button" data-wrec="' + w.layer + '" data-post="' + w.take + '">Play ' + esc(lay(w.layer).label) + ' on this</button>'
-          : '<a class="btn btn-main btn-sm" href="/s/' + encodeURIComponent(r.slug) + '?stack=' + encodeURIComponent(w.take === 'riff' ? 'seed' : w.take) + '&amp;rec=' + w.layer + '&amp;wall">Play ' + esc(lay(w.layer).label) + ' on this</a>') +
-        '<span class="wwi-hint">Record it right here or upload a file, in project view</span>' +
+          : '<button class="btn btn-main btn-sm" type="button" data-wreply="' + r.id + '" data-post="' + w.take + '" data-layer="' + w.layer + '">Play ' + esc(lay(w.layer).label) + ' on this</button>') +
+        '<span class="wwi-hint">Record it right here or upload a file</span>' +
         (w.mine ? '<button class="btn btn-sm" type="button" data-wdone="' + r.id + '" data-wid="' + esc(w.id) + '">' + (w.done ? 'Ask again' : 'Mark as answered') + '</button><button class="btn btn-sm" type="button" data-wdel="' + r.id + '" data-wid="' + esc(w.id) + '">Remove</button>' : '') +
         '</div></div>' : '') + '</li>';
   }).join('');
@@ -1269,7 +1281,7 @@ if (WALL) {
     '.wov-panel .riff{border:0;box-shadow:none;border-radius:0}' +
     '.wov-x{position:sticky;top:12px;float:right;margin:12px 12px -56px 0;z-index:3;width:44px;height:44px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font-size:22px;line-height:1;cursor:pointer}' +
     '.wov-x:hover{border-color:var(--ink)}' +
-    'body.ov-open{overflow:hidden}';
+    'body.ov-open{overflow:hidden}body.ov-open .scrim{z-index:80}';
   cst.textContent +=
     /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
     '.wgrid{position:relative}' +
@@ -2079,6 +2091,11 @@ document.addEventListener('click', function (e) {
     if (S.playing !== wallKey(riff(wr), wp)) wallPick(wr, wp); else render();
     return;
   }
+  if ((b = e.target.closest('[data-wreply]'))) {
+    var wl = b.dataset.layer; openReply(b.dataset.wreply, b.dataset.post === 'riff' ? null : b.dataset.post);
+    setTimeout(function () { var sel = el('r-layer'); if (sel && wl) { sel.value = wl; sel.dispatchEvent(new Event('change', { bubbles:true })); } }, 400);
+    return;
+  }
   if ((b = e.target.closest('[data-wrec]'))) { toProject({ pick:b.dataset.post, play:false, rec:b.dataset.wrec }); return; }
   if ((b = e.target.closest('[data-wbtab]'))) {
     var box = b.parentNode.nextElementSibling; if (box) box.scrollTo({ left:+b.dataset.i * box.clientWidth, behavior:'smooth' });
@@ -2099,7 +2116,16 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-jhover]'))) { S.jhover = !S.jhover; drawJamTools(); return; }
   if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
-  if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
+  if ((b = e.target.closest('[data-wplus]'))) {
+    /* + on a take (or above the top of a stack): record or upload a take on it, as on the live site */
+    var pa = b.closest('article.riff'), prid = pa && pa.id.replace(/^riff-/, ''), ptile = b.closest('[data-post]');
+    if (!prid || !riff(prid)) return;
+    if (EMBED) { toProject({ pick:ptile ? ptile.dataset.post : 'riff', play:false, rec:'' }); return; }
+    ghostOff();
+    var ppid = ptile && ptile.dataset.post !== 'riff' ? ptile.dataset.post : null;
+    openReply(prid, ppid);
+    return;
+  }
   if ((b = e.target.closest('[data-wtalk]'))) { var wt = b.dataset.wtalk; S.wtalk[wt] = S.wtalk[wt] === false; render(); return; }
   if ((b = e.target.closest('[data-wshow]'))) {
     /* a comment about a take: up to the wall, and hear that take's stack */
