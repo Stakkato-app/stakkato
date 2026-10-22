@@ -1224,7 +1224,9 @@ function cardHtml(r) {
 }
 function cardPlay(rid) {
   var r = riff(rid); if (!r) return;
-  if (S.playing === cardKey(r)) { stop(); render(); return; }
+  /* paused by hand: hovering doesn't start it again until the mouse leaves the card */
+  if (S.playing === cardKey(r)) { S.jpaused = rid; stop(); render(); return; }
+  S.jpaused = null;
   playList(cardKey(r), r, cardChain(r));
 }
 /* the panel: open from the card, close only with the X */
@@ -1287,13 +1289,15 @@ function closeJam() {
 document.addEventListener('mouseover', function (e) {
   if (!WALL || !S.jhover || S.ov) return;
   var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c) return;
-  var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r)) return;
+  var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r) || S.jpaused === r.id) return;
   if (e.relatedTarget && c.contains(e.relatedTarget)) return;
   playList(cardKey(r), r, cardChain(r));
 });
 document.addEventListener('mouseout', function (e) {
   if (!WALL || !S.jhover || S.ov) return;
   var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c || (e.relatedTarget && c.contains(e.relatedTarget))) return;
+  if (!c.isConnected) return;   /* the card was redrawn under the mouse, it wasn't left */
+  if (S.jpaused === c.dataset.jcard) S.jpaused = null;
   var r = riff(c.dataset.jcard); if (r && S.playing === cardKey(r)) { stop(); render(); }
 });
 function render() {
