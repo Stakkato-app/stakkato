@@ -733,7 +733,7 @@ if (WALL) {
     '.wtalk{display:flex;align-items:center;gap:12px;width:100%;padding:14px 24px;border:0;border-top:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;text-align:left;cursor:pointer}' +
     '.wtalk .wlast{flex:1 1 auto;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.wtalk .wgo{flex:none;font-weight:700;font-size:14px;border:1px solid var(--line-strong);border-radius:99px;padding:8px 14px}' +
-    '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}' +
+    '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}.wtop{font-size:12.5px;font-weight:700;color:var(--muted)}.wall-all{align-self:flex-start}' +
     '.wword{display:flex;gap:10px}.wword .ava{flex:none}' +
     '.wword b{font-size:14px}.wword .muted{font-size:12px;margin-left:6px}' +
     '.wword p{margin:3px 0 0;font-size:15px;line-height:1.45}' +
@@ -870,7 +870,10 @@ function wallHtml(r) {
 
   /* talk about this song: every written reply, newest first, with what it is about */
   var ws = r.posts.filter(function (p) { return p.isComment && !p.deleted; }).sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); });
-  var talkOpen = !!S.wtalk[r.id];
+  /* open: the top three comments (most liked, then newest) and the comment box; "all" after "Show all";
+     the bar folds them away (false) */
+  var talkMode = S.wtalk[r.id] === true ? 'all' : S.wtalk[r.id] === false ? 'hide' : 'top', talkOpen = talkMode !== 'hide';
+  var shown = talkMode === 'all' ? ws : ws.slice().sort(function (a, b) { return (b.likes || 0) - (a.likes || 0) || String(b.created).localeCompare(String(a.created)); }).slice(0, 3);
   function about(c) {
     var t = c.parent ? postOf(r, c.parent) : null;
     if (!t) return '<span class="wchip" style="cursor:default">on the jam</span>';
@@ -887,9 +890,9 @@ function wallHtml(r) {
       '<span><b>Talk about this song</b> · ' + (ws.length ? ws.length + (ws.length > 1 ? ' comments' : ' comment') : 'no comments yet') + '</span>' +
       '<span class="wlast">' + (talkOpen || !ws.length ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
       '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span></button>' +
-    (talkOpen ? '<div class="wwords">' + ws.map(function (c) {
+    (talkOpen ? '<div class="wwords">' + (talkMode === 'top' && ws.length > 3 ? '<span class="wtop">Top comments</span>' : '') + shown.map(function (c) {
       return '<div class="wword">' + ava(c.mine ? 'You' : c.by, null, true) + '<div><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span><br>' + about(c) + '<p>' + esc(c.text) + '</p></div></div>';
-    }).join('') + say + '</div>' : '');
+    }).join('') + (talkMode === 'top' && ws.length > 3 ? '<button class="btn btn-sm wall-all" type="button" data-wtalkall="' + r.id + '">Show all ' + ws.length + ' comments</button>' : '') + say + '</div>' : '');
 
   var n = T.takes + T.parts;
   var bar = n && S.ov !== r.id && !EMBED ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
@@ -977,10 +980,35 @@ function wallSeek(rid, id, f) {
   if (segs.length === 1) { playList(k, r, segs[0].list, at); render(); return; }
   playSeq(k, r, segs.map(function (sg) { return sg.list; }), at);
 }
+/* where the playing sound is now, in seconds from its start (null when nothing plays) */
+function playPos() {
+  if (!CLOCK || CLOCK.k !== S.playing || !CLOCK.len || !AC) return null;
+  var t = AC.currentTime - CLOCK.t0; return ((t % CLOCK.len) + CLOCK.len) % CLOCK.len;
+}
+/* S while the master track plays: the take takes over from that moment; S again, and the master
+   picks up from where the take got to */
 function wallSolo(rid, id, at) {
   if (EMBED) toProject({ stop:true });   /* the take on its own plays here; the tracks pause */
-  var r = riff(rid), k = rid + ':solo:' + id;
-  if (S.playing === k && typeof at !== 'number') { stop(); render(); return; }
+  var r = riff(rid), k = rid + ':solo:' + id, now = playPos();
+  if (S.playing === k && typeof at !== 'number') {
+    var back = S.wback && S.wback.k === k ? S.wback : null; S.wback = null;
+    if (back && now !== null && !EMBED) {
+      var bs = wallSegs(r, back.master, wallTree(r)), total = bs.reduce(function (n, sg) { return n + sg.len; }, 0);
+      wallSeek(rid, back.master, total ? (back.off + now) / total : 0); return;
+    }
+    stop(); render(); return;
+  }
+  if (typeof at !== 'number') {
+    S.wback = null;
+    var pre = rid + ':wall:';
+    if (!EMBED && now !== null && S.playing && S.playing.indexOf(pre) === 0) {
+      var mid = S.playing.slice(pre.length), segs = wallSegs(r, mid, wallTree(r)), off = 0, si = -1, acc = 0;
+      var has = function (sg) { return sg.list.some(function (x) { return id === 'riff' ? x.isRiff : x.id === id; }); };
+      segs.forEach(function (sg, i) { if (si < 0 && now >= acc && now < acc + sg.len && has(sg)) { si = i; off = acc; } acc += sg.len; });
+      if (si < 0) { acc = 0; segs.forEach(function (sg, i) { if (si < 0 && has(sg)) { si = i; off = acc; } acc += sg.len; }); }
+      if (si >= 0) { var local = now - off; at = local >= 0 && local < segs[si].len ? local : 0; S.wback = { k:k, master:mid, off:off }; }
+    }
+  }
   var p = id === 'riff' ? null : postOf(r, id);
   playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }], at);
 }
@@ -1088,6 +1116,7 @@ if (WALL) {
     '.jbot{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:8px}' +
     '.jplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--paper);color:var(--sound-ink);cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(18,18,18,.1);font-size:12px}' +
     '.jplay.on{background:var(--sound);color:#fff}' +
+    '.jwords{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent)}.jwords:hover{color:var(--ink);text-decoration-color:currentColor}' +
     '.jcap{font-size:12.5px;font-weight:700;color:var(--muted);background:color-mix(in srgb,var(--paper) 85%,transparent);border-radius:99px;padding:3px 9px}' +
     '.jdur{margin-left:auto;font-size:12.5px;font-weight:700;color:#fff;background:rgba(18,18,18,.82);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}' +
     '.jmeta{display:flex;gap:12px;padding:0 8px;align-items:flex-start}.jmeta .ava{flex:none}' +
@@ -1223,7 +1252,7 @@ function cardHtml(r) {
     '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
       '<p>' + esc(r.by) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + '</p>' +
       '<p><span class="jdots" aria-hidden="true">' + dots.map(function (l) { return '<i style="background:' + lay(l).c + '"></i>'; }).join('') + '</span>' +
-        takes + (takes === 1 ? ' take' : ' takes') + ' · ' + words + (words === 1 ? ' comment' : ' comments') + ' · ' + esc(r.time) + '</p></div>' +
+        takes + (takes === 1 ? ' take' : ' takes') + ' · <button class="jwords" type="button" data-jwords="' + r.id + '">' + (words ? words + (words === 1 ? ' comment' : ' comments') : 'Comment') + '</button> · ' + esc(r.time) + '</p></div>' +
       '<button class="btn btn-main btn-sm" type="button" data-jopen="' + r.id + '">Play along</button></div></article>';
 }
 function cardPlay(rid) {
@@ -1825,6 +1854,13 @@ document.addEventListener('click', function (e) {
     return;
   }
   if ((b = e.target.closest('[data-wseek]'))) { var wr = b.getBoundingClientRect(); wallSeek(b.dataset.wseek, b.dataset.post, (e.clientX - wr.left) / wr.width); return; }
+  if ((b = e.target.closest('[data-jwords]'))) {
+    /* the comments on a card: open the jam with its top comments and the comment box in view */
+    var jr = b.dataset.jwords; delete S.wtalk[jr]; openJam(jr);
+    setTimeout(function () { var t = document.querySelector('#wall-ov .wtalk'); if (t) t.scrollIntoView({ behavior:'smooth', block:'start' }); }, 450);
+    return;
+  }
+  if ((b = e.target.closest('[data-wtalkall]'))) { S.wtalk[b.dataset.wtalkall] = true; render(); return; }
   if ((b = e.target.closest('[data-jopen]'))) { openJam(b.dataset.jopen); return; }
   if ((b = e.target.closest('[data-jplay]'))) { cardPlay(b.dataset.jplay); return; }
   if ((b = e.target.closest('[data-jmode]'))) { S.jmode = b.dataset.jmode; if (S.playing && /:card$/.test(S.playing)) stop(); drawJamTools(); render(); return; }
@@ -1832,7 +1868,7 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
   if ((b = e.target.closest('[data-wplus]'))) { toast('This is a read-only preview. Open the page without ?wall to play along.'); return; }
-  if ((b = e.target.closest('[data-wtalk]'))) { S.wtalk[b.dataset.wtalk] = !S.wtalk[b.dataset.wtalk]; render(); return; }
+  if ((b = e.target.closest('[data-wtalk]'))) { var wt = b.dataset.wtalk; S.wtalk[wt] = S.wtalk[wt] === false; render(); return; }
   if ((b = e.target.closest('[data-wshow]'))) {
     /* a comment about a take: up to the wall, and hear that take's stack */
     var wr = b.dataset.wshow; S.expanded[wr] = true; wallPick(wr, b.dataset.post);
