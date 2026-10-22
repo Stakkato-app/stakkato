@@ -219,6 +219,15 @@ function wallFrame() {
     f.style.cssText = 'display:block;width:100%;height:520px;border:0;margin-top:24px;border-radius:18px;background:var(--paper)';
     sec.parentNode.insertBefore(f, sec);
   }
+  /* desktop: the original track's tile sits about midway between steps 3 and 4 of "How it works" */
+  var sp = el('seedpanel'), hows = document.querySelectorAll('#howsum .how-t');
+  if (sp && !sp.classList.contains('empty') && hows.length > 3 && window.innerWidth > 760) {
+    sp.style.marginLeft = '';
+    var a3 = hows[2].getBoundingClientRect(), a4 = hows[3].getBoundingClientRect(), me = sp.getBoundingClientRect();
+    var mid = (a3.left + a4.right) / 2, want = mid - me.width / 2 - me.left;
+    var top = el('st-main').getBoundingClientRect();
+    if (want > 0 && Math.abs(me.top - top.top) < 30) sp.style.marginLeft = want + 'px';
+  } else if (sp) sp.style.marginLeft = '';
   /* the tracks keep the height of the biggest stack, so the wall under them doesn't jump when you switch */
   var tb = document.querySelector('#daw .tracks');
   if (tb && WALLUP) tb.style.minHeight = '';   /* built up from the bottom: as tall as the stack, to see how switching feels */
@@ -274,17 +283,17 @@ if (WALLP) (function () {
        (it's in the tracks), the intro and the stack tabs (the wall picks the stack) out of the way */
     '#intro,#mix-head,#daw>.stacktabs{display:none!important}' +
     /* the original track as one more small tile next to the facts (desktop; phones leave it out) */
-    '@media (min-width:761px){#songtop{justify-content:flex-start!important;column-gap:6px!important}' +
-      '#seedpanel{display:flex!important;align-items:center;padding:0!important;border:0!important;background:none!important;box-shadow:none!important;min-height:0!important;border-radius:0}' +
+    '@media (min-width:761px){#songtop:not(.empty){justify-content:flex-start!important;column-gap:6px!important}' +
+      '#seedpanel:not(.empty){display:flex!important;align-items:center;padding:0!important;border:0!important;background:none!important;box-shadow:none!important;min-height:0!important;border-radius:0}' +
       '#seedpanel .seed-head{display:none}' +
       '#seedpanel .seed-well{gap:8px;padding:3px 12px 3px 4px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}' +
       '#seedpanel .seed-well .play{width:26px;height:26px;flex:none;background:var(--sound-soft)}#seedpanel .seed-well .play svg{width:9px;height:9px}' +
       '#seedpanel .seed-well .play.on,#seedpanel .seed-well .play:hover{background:var(--sound);color:var(--on-sound)}' +
       '#seedpanel .seedwave{flex:none;width:130px;height:20px}' +
       '#seedpanel .seed-well::after{content:"original";font-size:12px;color:var(--muted)}}' +
-    '@media (max-width:760px){#seedpanel{display:none!important}}' +
+    '@media (max-width:760px){#seedpanel:not(.empty){display:none!important}}' +
     '#stage-open>.wrap{padding-top:14px}' +
-    '#songtop{display:flex!important;align-items:center;justify-content:space-between;gap:10px 24px;flex-wrap:wrap;margin-bottom:12px}' +
+    '#songtop:not(.empty){display:flex!important;align-items:center;justify-content:space-between;gap:10px 24px;flex-wrap:wrap;margin-bottom:12px}' +
     '#st-main{display:flex;align-items:center;gap:10px 22px;flex-wrap:wrap;min-width:0}' +
     '#projtitle .pt-lbl{display:none}#projtitle .projname{font-size:clamp(22px,2.2vw,30px)!important}' +
     '#facts{margin-top:0!important;gap:6px}#facts .stat{padding:5px 12px;border-radius:12px;display:flex;align-items:baseline;gap:5px;min-width:0}#facts .stat b{font-size:16px}#facts .stat small{font-size:12px}' +
