@@ -1431,8 +1431,12 @@ function drawJamTools() {
 }
 /* the newest take of a jam: the top of its latest stack */
 function latestOf(r) {
-  var takes = r.posts.filter(function (p) { return !p.isComment && !p.deleted && p.layer && p.kind !== 'part'; });
-  return takes.sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); })[0] || null;
+  var takes = r.posts.filter(function (p) { return !p.isComment && !p.deleted && p.layer && p.kind !== 'part' && !p.section; });
+  var newest = function (l) { return l.sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); })[0] || null; };
+  /* the newest take, then up to the top of its stack: takes can sit on top of a newer one (restacked jams) */
+  var t = newest(takes.slice()), seen = {};
+  while (t && !seen[t.id]) { seen[t.id] = 1; var up = newest(takes.filter(function (k) { return k.parent === t.id; })); if (!up) break; t = up; }
+  return t;
 }
 function cardKey(r) { return r.id + ':card'; }
 function cardChain(r) { var l = S.jmode === 'latest' ? latestOf(r) : null; return l ? chainOf(r, l.id) : chainOf(r, null); }
@@ -1443,7 +1447,7 @@ function cardHtml(r) {
   r.posts.forEach(function (p) { if (p.layer && !p.isComment && !p.deleted && p.kind !== 'part' && !seen[p.layer]) { seen[p.layer] = 1; dots.push(p.layer); } });
   var takes = r.posts.filter(function (p) { return p.layer && !p.isComment && !p.deleted; }).length, words = n.filter(function (p) { return p.isComment; }).length;
   var lanes = S.jmode === 'latest' && chain.length > 1
-    ? chain.map(function (x) { return '<canvas data-wave="' + (x.isRiff ? r.id + ':riff' : r.id + ':' + x.id) + '" data-layer="' + (x.isPart ? 'part' : x.layer) + '" aria-hidden="true"></canvas>'; }).join('')
+    ? (WALL && !FLIP ? chain.slice().reverse() : chain).map(function (x) { return '<canvas data-wave="' + (x.isRiff ? r.id + ':riff' : r.id + ':' + x.id) + '" data-layer="' + (x.isPart ? 'part' : x.layer) + '" aria-hidden="true"></canvas>'; }).join('')
     : '<canvas class="big" data-wave="' + r.id + ':riff" data-layer="' + r.layer + '" aria-hidden="true"></canvas>';
   var cap = S.jmode === 'latest' ? (chain.length > 1 ? 'Latest stack · ' + chain.length + ' layers' : 'Only the original track so far') : 'Original track';
   return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
