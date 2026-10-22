@@ -840,8 +840,7 @@ function wallHtml(r) {
   var secHtml = T.secs.map(function (sx, i) {
     if (!open && !sx.core) return '';
     var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + rowsOf(sx) + ',var(--wrh,44px))">' + plusCells(sx.root, sx) + all(sx.root, sx) + '</div>';
-    var cap = !open ? '' : sx.core ? '<small>The original track · ' + mmss(r.dur) + '</small>' :
-      '<small>' + esc(sx.root.p.mine ? 'Your' : sx.root.p.by + '’s') + ' new part · ' + (sx.root.p.pos === 'before' ? 'before' : 'after') + ' the original, made on ' + esc(wallWhose(r, sx.root.madeOn)) + (sx.root.p.status === 'in' ? ' · in the song' : '') + '</small>';
+    var cap = !open || FLIP ? '' : '<small>Builds up from here &uarr;</small>';
     var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
     return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '" style="--n:' + sx.cols + '">' + timeHead(sx) + grid + cap + '</div>';
   }).join('');
@@ -1102,17 +1101,13 @@ if (WALL) {
     'body.ov-open{overflow:hidden}';
   cst.textContent +=
     /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
-    '.wgrid{position:relative;margin-left:14px}' +
-    '.wgrid::before{content:"";position:absolute;left:-11px;top:calc(var(--rt,0px) + 14px);bottom:10px;width:2px;border-radius:2px;background:linear-gradient(to top,color-mix(in srgb,var(--muted) 70%,transparent),color-mix(in srgb,var(--muted) 8%,transparent))}' +
-    '.wgrid::after{content:"";position:absolute;left:-14px;top:calc(var(--rt,0px) + 6px);border:4px solid transparent;border-bottom:6px solid color-mix(in srgb,var(--muted) 35%,transparent);border-top:0}' +
-    '.wsec>small::after{content:" \\00B7  builds up from here \\2191"}' +
-    (FLIP ? '.wsec>small::after{content:none}' +
-      '.wgrid::before{top:10px;bottom:calc(var(--rb,0px) + 14px)}.wgrid::after{top:auto;bottom:calc(var(--rb,0px) + 6px);border-bottom:0;border-top:6px solid color-mix(in srgb,var(--muted) 35%,transparent)}' +
+    '.wgrid{position:relative}' +
+    (FLIP ? '' +
       '.wb.wb-rise{animation-name:wb-drop}@keyframes wb-drop{from{opacity:0;transform:translateY(-18px) scale(.9)}to{opacity:1;transform:none}}' +
       '.wsec>.wgrid{margin-top:0!important}.warrow{align-items:flex-start;padding:10px 0 0}' : '') +
     '.wb.wb-root{position:relative}' +
     /* above each part: where it starts and ends in the song */
-    '.wtime{display:flex;align-items:center;gap:8px;margin:0 0 6px 14px;font-size:12px;color:var(--muted);white-space:nowrap;min-width:0}' +
+    '.wtime{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:12px;color:var(--muted);white-space:nowrap;min-width:0}' +
     '.wtime span{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}' +
     '.wtime i{flex:1 1 12px;height:2px;border-radius:2px;background:var(--line-strong);min-width:8px}' +
     '.wtime em{font-style:normal;overflow:hidden;text-overflow:ellipsis;min-width:0}' +

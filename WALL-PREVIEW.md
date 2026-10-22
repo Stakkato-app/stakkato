@@ -8,13 +8,13 @@ This branch (`claude/wall-preview`) is a **read-only preview** of a new way to s
 - https://claude-wall-preview.stakkato.pages.dev/?wall builds everything up from the bottom. In the wall, the original track is the bottom tile. In the project view, the original track is the bottom track, what was played on it sits above, and "Your take" sits on top, under the ruler.
 - https://claude-wall-preview.stakkato.pages.dev/?wall&flip runs everything top-down. The original track is the top tile and the top track, and every take hangs under what it was played on, like today's project view.
 
-In both, the tracks keep the height of the biggest stack, so nothing jumps when you switch stacks. The original track and "Your take" stay in place. Still to decide: which direction stays.
+In the bottom-up version, the tracks are as tall as the stack. "Your take" stays under the ruler, and the original track moves with the number of takes. When you switch stacks from the wall, the page scrolls along by as much as the tracks grew or shrank, so the wall stays where you clicked. The top-down version keeps the height of the biggest stack. Jurgen's pick: bottom-up. Still to confirm with Yarne.
 
 ## What it shows
 
 - **Homepage as a grid of jam cards** (after Yarne's "A1 · Grid, play on hover"). A switch picks what a card plays: *Original track* or *Latest stack*. There's also play on hover.
 - **"Play along" opens the jam in a panel** over the blurred page (close it with the X). Inside is **the wall**:
-  - Every take is a tile, sitting on the tile it was played on, from the original track at the bottom upward. A faint rail with an arrow and "builds up from here ↑" make the direction clear.
+  - Every take is a tile, sitting on the tile it was played on, from the original track at the bottom upward. Each part has "Builds up from here ↑" under its bottom tile.
   - New parts are their own section next to it, with a time head above each part ("0:00 —— Part 1 · the original track —— 0:11", "0:11 —— Part 2 · picks up where it ends —— 0:22").
   - On a tile: ▶ plays the stack up to it, S solos it (click the waveform while soloing to seek), + plays on top of it, 💬 comments on it.
 - **The master track** under the wall plays the selected stack: click to seek, with a playhead. It has "Open this stack in project view". On a new part, "▶ Play the whole song from the start" plays the first part's stack and then the part.

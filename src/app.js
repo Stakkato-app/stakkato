@@ -249,7 +249,10 @@ function wallSwitch(id, playIt) {
   }
   else if (!t) { S.stack = '__seed'; S.sel = '__seed'; } else { S.stack = id; S.sel = lead(t).dbId; }
   S.wallSel = id; S.wallStack = S.stack;
+  /* the tracks grow or shrink with the stack: scroll along, so the wall under them stays where you clicked */
+  var wf = el('wallframe'), y0 = wf ? wf.getBoundingClientRect().top : null;
   refreshGains(); render();
+  if (wf && y0 !== null) { var dy = wf.getBoundingClientRect().top - y0; if (Math.abs(dy) > 1) window.scrollBy(0, dy); }
   if (playIt || was) play(0);
 }
 /* ?wall: the tracks build up like the wall (the original track at the bottom, what was played on it above,
