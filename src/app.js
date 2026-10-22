@@ -269,7 +269,22 @@ if (WALLUP) (function () {
 /* the preview on a phone: the tracks come first, everything above them made small */
 if (WALLP) (function () {
   var st = document.createElement('style');
-  st.textContent = '@media (max-width:760px){' +
+  st.textContent =
+    /* every width: the tracks come first. The title and facts on one slim line, the original track
+       (it's in the tracks), the intro and the stack tabs (the wall picks the stack) out of the way */
+    '#intro,#seedpanel,#mix-head,#daw>.stacktabs{display:none!important}' +
+    '#stage-open>.wrap{padding-top:14px}' +
+    '#songtop{display:flex!important;align-items:center;justify-content:space-between;gap:10px 24px;flex-wrap:wrap;margin-bottom:12px}' +
+    '#st-main{display:flex;align-items:center;gap:10px 22px;flex-wrap:wrap;min-width:0}' +
+    '#projtitle .pt-lbl{display:none}#projtitle .projname{font-size:clamp(22px,2.2vw,30px)!important}' +
+    '#facts{margin-top:0!important;gap:6px}#facts .stat{padding:5px 12px;border-radius:12px;display:flex;align-items:baseline;gap:5px;min-width:0}#facts .stat b{font-size:16px}#facts .stat small{font-size:12px}' +
+    '#howbox{margin:0 0 12px}#howbox>summary{padding:9px 16px}' +
+    '.daw .listening .lst-long{display:none}.daw .listening .lst-short{display:block;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.lst-short i{font-style:normal;font-size:11.5px;font-weight:700;color:var(--sound-ink);background:var(--sound-soft);border-radius:99px;padding:2px 8px;margin-right:4px}' +
+    '.daw .listening.build{padding:8px 14px;font-size:14px}' +
+    /* the grey track: the line of text on top, the buttons and "Hear yourself" on one row under it */
+    '@media (min-width:601px){.a-lane .a-txt{flex-basis:100%}.a-lane{row-gap:10px}}' +
+    '@media (max-width:760px){' +
     '.bar{gap:8px;min-height:0;padding-block:8px}.bar .brand .logo{height:20px;width:auto}.bar .hdr-acts{margin-left:auto;gap:6px}.bar #copy-link{display:none}' +
     '.bar .crumbs{order:5;width:auto;flex:0 1 auto;min-width:0}.crumbs a,.crumbs b{font-size:12.5px;padding:3px 9px}.crumbs>a:first-child,.crumbs>a:first-child+span{display:none}' +
     '.bar .phases{order:6;flex:1 1 auto;width:auto;margin:0 0 0 auto;padding:3px}.bar .phase{min-height:30px;font-size:12.5px;padding:0 8px}.bar .phase span{display:none}' +
