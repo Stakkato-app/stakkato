@@ -212,9 +212,24 @@ function wallFrame() {
     var sec = document.querySelector('.threadsec'); if (!sec) return;
     sec.style.display = 'none';
     f = document.createElement('iframe'); f.id = 'wallframe'; f.title = 'The jam: every stack, and the comments';
-    f.src = '/?wall&embed=' + encodeURIComponent(S.session.id);
+    f.src = '/?wall' + (/[?&]flip\b/.test(location.search) ? '&flip' : '') + '&embed=' + encodeURIComponent(S.session.id);
     f.style.cssText = 'display:block;width:100%;height:520px;border:0;margin-top:24px;border-radius:18px;background:var(--paper)';
     sec.parentNode.insertBefore(f, sec);
+  }
+  /* the tracks keep the height of the biggest stack, so the wall under them doesn't jump when you switch */
+  var tb = document.querySelector('#daw .tracks');
+  if (tb) {
+    var row = tb.querySelector('.track:not(.addrow)'), rh = row ? row.offsetHeight : 0, most = 0;
+    Object.keys(TAKES).forEach(function (k) {
+      var t = TAKES[k]; if (!t || t.id === 'seed' || t.status === 'deleted' || t.status === 'own') return;
+      var n = (t.on ? t.on.length : 0) + (groupOf(t) || [t]).length;
+      if (t.sec && TAKES[t.sec] && TAKES[t.sec].roleId === 'part') n += (TAKES[t.sec].on ? TAKES[t.sec].on.length : 0) + 1;
+      if (n > most) most = n;
+    });
+    tb.style.minHeight = '';
+    var want = Math.max(tb.offsetHeight, (most + 1) * rh + (tb.querySelector('.addrow') ? tb.querySelector('.addrow').offsetHeight : 0));
+    S.wallTracksH = Math.max(S.wallTracksH || 0, want);
+    tb.style.minHeight = S.wallTracksH + 'px';
   }
   var cur = S.wallSel && S.stack === S.wallStack ? S.wallSel : S.stack === '__seed' ? 'riff' : S.stack ? S.stack : S.trialPitch || null;
   if (f.__sel !== cur) { f.__sel = cur; try { f.contentWindow.postMessage({ stk:1, sel:cur }, location.origin); } catch (e) {} }
@@ -269,7 +284,8 @@ if (WALLP) document.addEventListener('click', function (e) {
   var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
   if (u.origin !== location.origin || u.searchParams.has('wall')) return;
   if (u.pathname !== '/' && u.pathname.indexOf('/s/') !== 0) return;
-  u.searchParams.set('wall', ''); a.href = u.pathname + u.search.replace('wall=', 'wall') + u.hash;
+  u.searchParams.set('wall', ''); if (/[?&]flip\b/.test(location.search)) u.searchParams.set('flip', '');
+  a.href = u.pathname + u.search.replace(/=(&|$)/g, '$1') + u.hash;
 }, true);
 if (WALLP) window.addEventListener('message', function (e) {
   if (e.origin !== location.origin || !e.data || !e.data.stk) return;

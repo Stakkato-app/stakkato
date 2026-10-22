@@ -4,6 +4,8 @@ This branch (`claude/wall-preview`) is a **read-only preview** of a new way to s
 
 **Preview:** https://claude-wall-preview.stakkato.pages.dev/?wall (everything new only shows with `?wall` in the URL; without it you get today's site).
 
+**The other direction:** https://claude-wall-preview.stakkato.pages.dev/?wall&flip turns the wall upside down. The original track is on top and every take hangs under what it was played on, the same order as the tracks in the project. In the project view, the tracks keep the height of the biggest stack in both versions, so the wall under them doesn't jump when you switch. Still to decide: which direction stays.
+
 ## What it shows
 
 - **Homepage as a grid of jam cards** (after Yarne's "A1 · Grid, play on hover"). A switch picks what a card plays: *Original track* or *Latest stack*. There's also play on hover.

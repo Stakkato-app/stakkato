@@ -633,6 +633,8 @@ function riffHtml(r) {
    and takes played on the same take share its width. A new part is its own little wall, before
    or after the original track. "Show reactions" unrolls the wall upwards, row by row. */
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
+/* ?wall&flip: the wall the other way round, the original track on top and every take under what it was played on */
+var FLIP = WALL && (function () { try { return new URLSearchParams(location.search).has('flip'); } catch (e) { return false; } })();
 S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {}; S.wcore = {};
 /* keep each wall where it was scrolled to, through every redraw, and move its dots along */
 document.addEventListener('scroll', function (e) {
@@ -668,7 +670,8 @@ if (WALL) document.addEventListener('click', function (e) {
   var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
   if (u.origin !== location.origin || u.searchParams.has('wall')) return;
   if (u.pathname !== '/' && u.pathname.indexOf('/s/') !== 0) return;
-  u.searchParams.set('wall', ''); a.href = u.pathname + u.search.replace('wall=', 'wall') + u.hash;
+  u.searchParams.set('wall', ''); if (/[?&]flip\b/.test(location.search)) u.searchParams.set('flip', '');
+  a.href = u.pathname + u.search.replace(/=(&|$)/g, '$1') + u.hash;
 }, true);
 if (WALL) {
   var wst = document.createElement('style');
@@ -800,7 +803,7 @@ function wallHtml(r) {
     var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
     var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (anim && d ? ' wb-rise' : '');
     var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0;
-    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
+    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (FLIP ? n.d + 1 : rows - n.d) + ';--c:' + lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
     if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
     return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
@@ -815,7 +818,7 @@ function wallHtml(r) {
     if (!open) return '';
     rows = rowsOf(sx);
     if (n.kids.length) return n.kids.map(function (k) { return plusCells(k, sx); }).join('');
-    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
+    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (FLIP ? n.d + 2 : rows - n.d - 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
       '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + esc(wallWhose(r, n.id)) + '">+</button></div>';
   }
   function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
@@ -945,6 +948,9 @@ function railTop(g) {
   var top = Infinity, gt = g.getBoundingClientRect().top;
   [].forEach.call(g.querySelectorAll('.wb,.wplus button'), function (b) { var t = b.getBoundingClientRect().top - gt; if (t < top) top = t; });
   if (top < Infinity) g.style.setProperty('--rt', Math.max(0, top) + 'px');
+  var bot = 0, gb = g.getBoundingClientRect().bottom;
+  [].forEach.call(g.querySelectorAll('.wb,.wplus button'), function (b) { var x = b.getBoundingClientRect().bottom; if (x > bot) bot = x; });
+  if (bot) g.style.setProperty('--rb', Math.max(0, gb - bot) + 'px');
 }
 function wallFit(w) {
   if (!(window.matchMedia && matchMedia('(max-width:760px)').matches)) { w.style.height = ''; return; }
@@ -1100,6 +1106,10 @@ if (WALL) {
     '.wgrid::before{content:"";position:absolute;left:-11px;top:calc(var(--rt,0px) + 14px);bottom:10px;width:2px;border-radius:2px;background:linear-gradient(to top,color-mix(in srgb,var(--muted) 70%,transparent),color-mix(in srgb,var(--muted) 8%,transparent))}' +
     '.wgrid::after{content:"";position:absolute;left:-14px;top:calc(var(--rt,0px) + 6px);border:4px solid transparent;border-bottom:6px solid color-mix(in srgb,var(--muted) 35%,transparent);border-top:0}' +
     '.wsec>small::after{content:" \\00B7  builds up from here \\2191"}' +
+    (FLIP ? '.wsec>small::after{content:none}' +
+      '.wgrid::before{top:10px;bottom:calc(var(--rb,0px) + 14px)}.wgrid::after{top:auto;bottom:calc(var(--rb,0px) + 6px);border-bottom:0;border-top:6px solid color-mix(in srgb,var(--muted) 35%,transparent)}' +
+      '.wb.wb-rise{animation-name:wb-drop}@keyframes wb-drop{from{opacity:0;transform:translateY(-18px) scale(.9)}to{opacity:1;transform:none}}' +
+      '.wsec>.wgrid{margin-top:0!important}.warrow{align-items:flex-start;padding:10px 0 0}' : '') +
     '.wb.wb-root{position:relative}' +
     /* above each part: where it starts and ends in the song */
     '.wtime{display:flex;align-items:center;gap:8px;margin:0 0 6px 14px;font-size:12px;color:var(--muted);white-space:nowrap;min-width:0}' +
