@@ -647,9 +647,17 @@ function riffHtml(r) {
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
 /* ?wall&flip: the wall the other way round, the original track on top and every take under what it was played on */
 var FLIP = WALL && (function () { try { return new URLSearchParams(location.search).has('flip'); } catch (e) { return false; } })();
-S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {}; S.wcore = {};
+S.wbpage = {}; S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {}; S.wcore = {};
 /* keep each wall where it was scrolled to, through every redraw, and move its dots along */
 document.addEventListener('scroll', function (e) {
+  var bt = e.target;
+  if (bt.classList && bt.classList.contains('wbottom') && bt.dataset.wb) {
+    var bi = Math.round(bt.scrollLeft / Math.max(1, bt.clientWidth)); if (S.wbpage[bt.dataset.wb] === bi) return;
+    S.wbpage[bt.dataset.wb] = bi;
+    var tb = bt.previousElementSibling;
+    if (tb) [].forEach.call(tb.querySelectorAll('[data-wbtab]'), function (b) { b.setAttribute('aria-current', String(+b.dataset.i === bi)); });
+    return;
+  }
   var w = e.target; if (!w.classList || !w.classList.contains('wwrap') || !w.dataset.wr) return;
   S.wscroll[w.dataset.wr] = w.scrollLeft;
   var i = wallPageOf(w); if (S.wpage[w.dataset.wr] === i) return;
@@ -758,6 +766,12 @@ if (WALL) {
     '.wwadd{align-self:flex-start;border:0;background:none;padding:2px 0;font:inherit;font-size:13.5px;font-weight:700;color:var(--ink);cursor:pointer;text-decoration:underline;text-underline-offset:3px}' +
     '.wwform{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}.wwform select,.wwform input{min-height:36px;border-radius:10px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink)}.wwform input{flex:1 1 220px;min-width:0}' +
     '@media (max-width:760px){.wwant{padding:12px 16px}.wwant-sub{display:none}.wwi-more{padding-left:12px}}' +
+    '.wbtabs{display:none}' +
+    '@media (max-width:899px){.wbtabs{display:flex;align-items:center;gap:6px;padding:10px 16px 0;border-top:1px solid var(--line)}' +
+      '.wbtabs button{border:0;border-radius:99px;padding:6px 12px;font:inherit;font-size:13px;font-weight:700;background:transparent;color:var(--muted);cursor:pointer}' +
+      '.wbtabs button[aria-current="true"]{background:var(--ink);color:var(--paper)}.wbswipe{margin-left:auto;font-size:12.5px;color:var(--muted)}' +
+      '.wbottom{display:flex;align-items:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain}.wbottom::-webkit-scrollbar{display:none}' +
+      '.wbottom>*{flex:0 0 100%;min-width:0;scroll-snap-align:start}.wbottom .wtalk,.wbottom .wwant{border-top:0}.wbottom .wwant-head{display:none}}' +
     '@media (min-width:900px){.wbottom{display:flex;align-items:stretch;border-top:1px solid var(--line)}.wbottom .wtalk{border-top:0}' +
       '.wbottom-talk{flex:7 1 0;min-width:0}.wbottom .wwant{flex:3 1 0;min-width:0;border-top:0;border-left:1px solid var(--line);padding:14px 18px 16px}' +
       '.wbottom .wwant-sub{display:none}.wbottom .wwi-hint{flex-basis:100%}.wbottom .wwi-more{padding-left:12px}' +
@@ -972,7 +986,11 @@ function wantWhat(r, w) {
 function bottomHtml(r, T, open, talk) {
   var w = wantedHtml(r, T, open);
   if (!w) return talk;
-  return '<div class="wbottom"><div class="wbottom-talk">' + talk + '</div>' + w + '</div>';
+  var n = wantsOf(r, T).length, pg = S.wbpage[r.id] || 0;
+  /* phones: comments and Wanted are two pages, swipe (or tap the tabs) between them */
+  return '<div class="wbtabs" data-wbtabs="' + r.id + '"><button type="button" data-wbtab="' + r.id + '" data-i="0" aria-current="' + (pg === 0) + '">Comments</button>' +
+      '<button type="button" data-wbtab="' + r.id + '" data-i="1" aria-current="' + (pg === 1) + '">Wanted' + (n ? ' · ' + n : '') + '</button><span class="wbswipe">swipe &rsaquo;</span></div>' +
+    '<div class="wbottom" data-wb="' + r.id + '"><div class="wbottom-talk">' + talk + '</div>' + w + '</div>';
 }
 function wantedHtml(r, T, open) {
   if (!open) return '';
@@ -1035,6 +1053,7 @@ function wallPageOf(w) {
   return best;
 }
 function wallScrolls() {
+  [].forEach.call(document.querySelectorAll('.wbottom[data-wb]'), function (b) { var i = S.wbpage[b.dataset.wb] || 0; if (i) b.scrollLeft = i * b.clientWidth; });
   [].forEach.call(document.querySelectorAll('.wwrap[data-wr]'), function (w) {
     var rid = w.dataset.wr;
     if (S.wscroll[rid] !== undefined) w.scrollLeft = S.wscroll[rid];
@@ -2046,6 +2065,10 @@ document.addEventListener('click', function (e) {
     return;
   }
   if ((b = e.target.closest('[data-wrec]'))) { toProject({ pick:b.dataset.post, play:false, rec:b.dataset.wrec }); return; }
+  if ((b = e.target.closest('[data-wbtab]'))) {
+    var box = b.parentNode.nextElementSibling; if (box) box.scrollTo({ left:+b.dataset.i * box.clientWidth, behavior:'smooth' });
+    return;
+  }
   if ((b = e.target.closest('[data-wwformo]'))) { S.wwform[b.dataset.wwformo] = true; render(); return; }
   if ((b = e.target.closest('[data-wwformx]'))) { S.wwform[b.dataset.wwformx] = false; render(); return; }
   if ((b = e.target.closest('[data-wdone]')) || (b = e.target.closest('[data-wdel]'))) {
