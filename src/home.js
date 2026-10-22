@@ -758,6 +758,10 @@ if (WALL) {
     '.wwadd{align-self:flex-start;border:0;background:none;padding:2px 0;font:inherit;font-size:13.5px;font-weight:700;color:var(--ink);cursor:pointer;text-decoration:underline;text-underline-offset:3px}' +
     '.wwform{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}.wwform select,.wwform input{min-height:36px;border-radius:10px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink)}.wwform input{flex:1 1 220px;min-width:0}' +
     '@media (max-width:760px){.wwant{padding:12px 16px}.wwant-sub{display:none}.wwi-more{padding-left:12px}}' +
+    '@media (min-width:900px){.wbottom{display:flex;align-items:stretch;border-top:1px solid var(--line)}.wbottom .wtalk{border-top:0}' +
+      '.wbottom-talk{flex:7 1 0;min-width:0}.wbottom .wwant{flex:3 1 0;min-width:0;border-top:0;border-left:1px solid var(--line);padding:14px 18px 16px}' +
+      '.wbottom .wwant-sub{display:none}.wbottom .wwi-hint{flex-basis:100%}.wbottom .wwi-more{padding-left:12px}' +
+      '.wbottom .wwform{flex-direction:column;align-items:stretch}.wbottom .wwform input{flex:none}.wbottom .wwform label{display:flex;align-items:center;gap:8px}.wbottom .wwform label select{flex:1 1 auto;min-width:0}}' +
     '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}.wtop{font-size:12.5px;font-weight:700;color:var(--muted)}.wall-all{align-self:flex-start}' +
     '.wword{display:flex;gap:10px}.wword .ava{flex:none}' +
     '.wword b{font-size:14px}.wword .muted{font-size:12px;margin-left:6px}' +
@@ -926,14 +930,14 @@ function wallHtml(r) {
 
   if (EMBED) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now + '</div>' + wantedHtml(r, T, open) + talk + '</article>';
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now + '</div>' + bottomHtml(r, T, open, talk) + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a></div>') +
-    '</div>' + bar + wantedHtml(r, T, open) + talk + '</article>';
+    '</div>' + bar + bottomHtml(r, T, open, talk) + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
 /* ---------- Wanted: a musician asks for one instrument on their own take ----------
@@ -963,6 +967,12 @@ function wantWho(r, w) { var p = w.take === 'riff' ? null : postOf(r, w.take); r
 function wantWhat(r, w) {
   var p = w.take === 'riff' ? null : postOf(r, w.take), thing = p ? lay(p.layer).label : 'original track';
   return (w.mine ? 'want' : 'wants') + ' <b style="color:' + lay(w.layer).c + '">' + esc(lay(w.layer).label) + '</b> on ' + (w.mine ? 'your ' : 'their ') + esc(thing);
+}
+/* under the wall: the comments (about 70%) and Wanted (about 30%) side by side; stacked on phones */
+function bottomHtml(r, T, open, talk) {
+  var w = wantedHtml(r, T, open);
+  if (!w) return talk;
+  return '<div class="wbottom"><div class="wbottom-talk">' + talk + '</div>' + w + '</div>';
 }
 function wantedHtml(r, T, open) {
   if (!open) return '';
