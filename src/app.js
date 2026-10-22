@@ -218,7 +218,8 @@ function wallFrame() {
   }
   /* the tracks keep the height of the biggest stack, so the wall under them doesn't jump when you switch */
   var tb = document.querySelector('#daw .tracks');
-  if (tb) {
+  if (tb && WALLUP) tb.style.minHeight = '';   /* built up from the bottom: as tall as the stack, to see how switching feels */
+  else if (tb) {
     var row = tb.querySelector('.track:not(.addrow)'), rh = row ? row.offsetHeight : 0, most = 0;
     Object.keys(TAKES).forEach(function (k) {
       var t = TAKES[k]; if (!t || t.id === 'seed' || t.status === 'deleted' || t.status === 'own') return;
