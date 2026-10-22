@@ -278,6 +278,19 @@ document.addEventListener('submit', function (e) {
   lst.push({ id:'w' + Date.now().toString(36), take:f.take.value, layer:f.layer.value, note:f.note.value.trim().slice(0, 80) });
   wantsSave(all); S.wwform[rid] = false; render();
 });
+/* a reply to a comment in the wall */
+document.addEventListener('submit', function (e) {
+  var f = e.target.closest && e.target.closest('[data-wcrepform]'); if (!f) return;
+  e.preventDefault();
+  var rid = f.dataset.wcrepform, r = riff(rid), t = el('wcrep-' + rid), text = t ? t.value.trim() : '', go = f.querySelector('button[type=submit]');
+  if (!r) return;
+  if (!text) { if (t) t.focus(); return; }
+  if (go) go.disabled = true;
+  ensureMe('reply').then(function (u) {
+    return db.addThreadComment({ session_id:r.id, reply_to_take:null, reply_to_comment:f.dataset.post, author_id:u.id, author_name:db.accountName(u), body:text });
+  }).then(function () { S.wcrep[rid] = null; if (t) t.value = ''; return reload().then(function () { toast('Your reply is posted.'); }); })
+    .catch(function (err) { if (go) go.disabled = false; toast((err && err.message) || 'That didn’t work, try again.'); });
+});
 /* a comment from the wall: on the song as a whole, on the original track, or on one take */
 document.addEventListener('submit', function (e) {
   var f = e.target.closest && e.target.closest('[data-wsayform]'); if (!f) return;
@@ -291,6 +304,7 @@ document.addEventListener('submit', function (e) {
     return db.addThreadComment({ session_id:r.id, reply_to_take:p && !p.isComment ? p.id : null, reply_to_comment:p && p.isComment ? p.id : null,
       author_id:u.id, author_name:db.accountName(u), body:text });
   }).then(function () {
+    if (t) t.value = '';
     S.wsay[rid] = ''; delete S.wtalk[rid];
     return reload().then(function () { toast('Your comment is posted.'); });
   }).catch(function (err) { if (go) go.disabled = false; toast((err && err.message) || 'That didn’t work, try again.'); });
@@ -665,7 +679,7 @@ function riffHtml(r) {
 var WALL = (function () { try { return new URLSearchParams(location.search).has('wall'); } catch (e) { return false; } })();
 /* ?wall&flip: the wall the other way round, the original track on top and every take under what it was played on */
 var FLIP = WALL && (function () { try { return new URLSearchParams(location.search).has('flip'); } catch (e) { return false; } })();
-S.wbpage = {}; S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {}; S.wcore = {};
+S.wcrep = {}; S.wbpage = {}; S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wfull = {}; S.wcore = {};
 /* keep each wall where it was scrolled to, through every redraw, and move its dots along */
 document.addEventListener('scroll', function (e) {
   var bt = e.target;
@@ -795,7 +809,13 @@ if (WALL) {
       '.wbottom .wwant-sub{display:none}.wbottom .wwi-hint{flex-basis:100%}.wbottom .wwi-more{padding-left:12px}' +
       '.wbottom .wwform{flex-direction:column;align-items:stretch}.wbottom .wwform input{flex:none}.wbottom .wwform label{display:flex;align-items:center;gap:8px}.wbottom .wwform label select{flex:1 1 auto;min-width:0}}' +
     '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}.wtop{font-size:12.5px;font-weight:700;color:var(--muted)}.wall-all{align-self:flex-start}' +
-    '.wword{display:flex;gap:10px}.wword .ava{flex:none}' +
+    '.wword{display:flex;gap:10px}.wword .ava{flex:none}.wword-b{flex:1 1 auto;min-width:0}.wword.sub{margin-left:38px}' +
+    '.wword-acts{display:flex;align-items:center;gap:10px;margin-top:4px;font-size:13px}.wword-acts .ghost{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--muted);cursor:pointer}.wword-acts .ghost:hover{color:var(--ink)}' +
+    '.wword-acts .del.sure{color:var(--red)}' +
+    '.wcrep{display:flex;gap:8px;margin-top:8px;align-items:flex-start}.wcrep textarea{flex:1 1 auto;min-width:0;min-height:40px;border-radius:12px;border:1px solid var(--line-strong);padding:8px 12px;font:inherit;resize:vertical;background:var(--paper);color:var(--ink)}' +
+    '.wsel-acts{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--ink)}.wsel-what{font-weight:700}' +
+    '.wsel-acts .ghost{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--muted);cursor:pointer}.wsel-acts .del.sure{color:var(--red)}' +
+    '.wsel-row{display:flex;justify-content:flex-end;margin-top:8px;font-size:13px}' +
     '.wword b{font-size:14px}.wword .muted{font-size:12px;margin-left:6px}' +
     '.wword p{margin:3px 0 0;font-size:15px;line-height:1.45}' +
     '.wchip{display:inline-block;margin-top:3px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;border:0;cursor:pointer;--c:var(--muted);background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 75%,var(--ink))}';
@@ -924,7 +944,7 @@ function wallHtml(r) {
         return '<div style="flex:' + Math.max(1, Math.round(sg.len * 10)) + ' 1 0"><canvas data-wave="wmix:' + r.id + ':' + ms + ':' + i + '" data-of="' + mk + '" aria-hidden="true"></canvas>' +
           (segs.length > 1 ? '<small>' + esc(sg.label) + '</small>' : '') + '</div>';
       }).join('') + '<span class="wm-head" hidden></span></div>' +
-      '<div class="wm-acts"><span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
+      '<div class="wm-acts">' + selActs(r, ms) + '<span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
         (EMBED ? '<button class="btn btn-sm" type="button" data-wfullclose="' + r.id + '">Hide the master track</button>' :
           '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '&amp;wall">Open this stack in project view</a>') + '</div></div>';
   }
@@ -934,7 +954,23 @@ function wallHtml(r) {
   /* open: the top three comments (most liked, then newest) and the comment box; "all" after "Show all";
      the bar folds them away (false) */
   var talkMode = S.wtalk[r.id] === true ? 'all' : S.wtalk[r.id] === false ? 'hide' : 'top', talkOpen = talkMode !== 'hide';
-  var shown = talkMode === 'all' ? ws : ws.slice().sort(function (a, b) { return (b.likes || 0) - (a.likes || 0) || String(b.created).localeCompare(String(a.created)); }).slice(0, 3);
+  /* replies to a comment sit under it; the top three are picked from the comments themselves */
+  var kidsOf = {}, roots = ws.filter(function (c) {
+    var t = c.parent ? postOf(r, c.parent) : null;
+    if (t && t.isComment) { (kidsOf[t.id] = kidsOf[t.id] || []).unshift(c); return false; }
+    return true;
+  });
+  var shown = talkMode === 'all' ? roots : roots.slice().sort(function (a, b) { return (b.likes || 0) - (a.likes || 0) || String(b.created).localeCompare(String(a.created)); }).slice(0, 3);
+  function oneWord(c, sub) {
+    var rep = S.wcrep[r.id] === c.id;
+    return '<div class="wword' + (sub ? ' sub' : '') + '">' + ava(c.mine ? 'You' : c.by, null, true) + '<div class="wword-b"><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span>' +
+      (sub ? '' : '<br>' + about(c)) + '<p>' + esc(c.text) + '</p>' +
+      '<div class="wword-acts">' + voteHtml(c.id, c.likes) + '<button class="ghost" type="button" data-wcreply="' + r.id + '" data-post="' + c.id + '">Reply</button>' +
+        (canDelete(c.mine) ? delBtn('comment', c.id) : '') + '</div>' +
+      (rep ? '<form class="wcrep" data-wcrepform="' + r.id + '" data-post="' + c.id + '"><textarea id="wcrep-' + r.id + '" rows="1" maxlength="1000" placeholder="Reply to ' + esc(c.mine ? 'yourself' : c.by) + '"></textarea>' +
+        '<button class="btn btn-main btn-sm" type="submit">Reply</button><button class="btn btn-sm" type="button" data-wcrepx="' + r.id + '">Cancel</button></form>' : '') +
+      '</div></div>' + (kidsOf[c.id] || []).map(function (k) { return oneWord(k, true); }).join('');
+  }
   function about(c) {
     var t = c.parent ? postOf(r, c.parent) : null;
     if (!t) return '<span class="wchip" style="cursor:default">on the jam</span>';
@@ -951,9 +987,7 @@ function wallHtml(r) {
       '<span><b>Talk about this song</b> · ' + (ws.length ? ws.length + (ws.length > 1 ? ' comments' : ' comment') : 'no comments yet') + '</span>' +
       '<span class="wlast">' + (talkOpen || !ws.length ? '' : '“' + esc(ws[0].text.length > 70 ? ws[0].text.slice(0, 67) + '…' : ws[0].text) + '” · ' + esc(ws[0].mine ? 'You' : ws[0].by)) + '</span>' +
       '<span class="wgo">' + (talkOpen ? 'Hide comments &#9652;' : 'Show comments &#9662;') + '</span></button>' +
-    (talkOpen ? '<div class="wwords">' + (talkMode === 'top' && ws.length > 3 ? '<span class="wtop">Top comments</span>' : '') + shown.map(function (c) {
-      return '<div class="wword">' + ava(c.mine ? 'You' : c.by, null, true) + '<div><b>' + nameOf(c.mine ? 'You' : c.by, c.uid) + '</b><span class="muted">' + esc(c.time) + '</span><br>' + about(c) + '<p>' + esc(c.text) + '</p></div></div>';
-    }).join('') + (talkMode === 'top' && ws.length > 3 ? '<button class="btn btn-sm wall-all" type="button" data-wtalkall="' + r.id + '">Show all ' + ws.length + ' comments</button>' : '') + say + '</div>' : '');
+    (talkOpen ? '<div class="wwords">' + (talkMode === 'top' && roots.length > 3 ? '<span class="wtop">Top comments</span>' : '') + shown.map(function (c) { return oneWord(c, false); }).join('') + (talkMode === 'top' && roots.length > 3 ? '<button class="btn btn-sm wall-all" type="button" data-wtalkall="' + r.id + '">Show all ' + roots.length + ' comments</button>' : '') + say + '</div>' : '');
 
   var n = T.takes + T.parts;
   var bar = n && S.ov !== r.id && !EMBED ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
@@ -962,7 +996,8 @@ function wallHtml(r) {
 
   if (EMBED) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now + '</div>' + bottomHtml(r, T, open, talk) + '</article>';
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
+    (sel && !now ? '<div class="wsel-row">' + selActs(r, sel) + '</div>' : '') + '</div>' + bottomHtml(r, T, open, talk) + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
@@ -1009,6 +1044,14 @@ function bottomHtml(r, T, open, talk) {
   return '<div class="wbtabs" data-wbtabs="' + r.id + '"><button type="button" data-wbtab="' + r.id + '" data-i="0" aria-current="' + (pg === 0) + '">Comments</button>' +
       '<button type="button" data-wbtab="' + r.id + '" data-i="1" aria-current="' + (pg === 1) + '">Wanted' + (n ? ' · ' + n : '') + '</button><span class="wbswipe">swipe &rsaquo;</span></div>' +
     '<div class="wbottom" data-wb="' + r.id + '"><div class="wbottom-talk">' + talk + '</div>' + w + '</div>';
+}
+/* the take on top of the picked stack: rate it, and delete it if it's yours */
+function selActs(r, id) {
+  if (!id) return '';
+  var p = id === 'riff' ? null : postOf(r, id);
+  if (id !== 'riff' && (!p || p.deleted)) return '';
+  return '<span class="wsel-acts"><span class="wsel-what">' + esc((function (x) { return x.charAt(0).toUpperCase() + x.slice(1); })(p ? wallWhose(r, id) : r.by + '’s original track')) + '</span>' + voteHtml(p ? p.id : r.id, p ? p.likes : r.likes) +
+    (p && p.kind !== 'part' && canDelete(p.mine) ? delBtn('take', p.id, p.mine ? 'Delete my take' : 'Delete') : '') + '</span>';
 }
 function wantedHtml(r, T, open) {
   if (!open) return '';
@@ -1434,9 +1477,12 @@ function overlay() {
 function renderOverlay() {
   if (!WALL || !S.ov) return;
   var r = riff(S.ov); if (!r) return;
-  var b = overlay().querySelector('.wov-body'), keep = b.querySelector('textarea'), val = keep ? keep.value : '';
+  /* what people are typing survives the redraw, each box by its own id */
+  var b = overlay().querySelector('.wov-body'), keep = {}, foc = document.activeElement && b.contains(document.activeElement) ? document.activeElement.id : null;
+  [].forEach.call(b.querySelectorAll('textarea[id],input[id]'), function (x) { if (x.value) keep[x.id] = x.value; });
   b.innerHTML = wallHtml(r);
-  var t = b.querySelector('textarea'); if (t && val) t.value = val;
+  Object.keys(keep).forEach(function (id) { var x = el(id); if (x && b.contains(x)) x.value = keep[id]; });
+  if (foc && el(foc)) el(foc).focus();
 }
 function openJam(rid) {
   var r = riff(rid); if (!r) return;
@@ -2109,6 +2155,12 @@ document.addEventListener('click', function (e) {
     else lst.forEach(function (w) { if (w.id === id2) w.done = !w.done; });
     wantsSave(all); render(); return;
   }
+  if ((b = e.target.closest('[data-wcreply]'))) {
+    var cr = b.dataset.wcreply; S.wcrep[cr] = S.wcrep[cr] === b.dataset.post ? null : b.dataset.post; render();
+    var ta = el('wcrep-' + cr); if (ta) ta.focus();
+    return;
+  }
+  if ((b = e.target.closest('[data-wcrepx]'))) { S.wcrep[b.dataset.wcrepx] = null; render(); return; }
   if ((b = e.target.closest('[data-wtalkall]'))) { S.wtalk[b.dataset.wtalkall] = true; render(); return; }
   if ((b = e.target.closest('[data-jopen]'))) { openJam(b.dataset.jopen); return; }
   if ((b = e.target.closest('[data-jplay]'))) { cardPlay(b.dataset.jplay); return; }
