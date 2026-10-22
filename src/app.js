@@ -277,7 +277,7 @@ if (WALLP) (function () {
     /* tracks: names stay in their column, the + for a new part sits beside the tracks, not on them */
     '.daw .t-name{min-width:0}.daw .t-name>div{min-width:0}.daw .t-name b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.daw .track,.daw .ruler{grid-template-columns:var(--headw) 22px minmax(0,1fr) 22px}' +
-    '.daw .track>:nth-child(2),.daw .ruler>:nth-child(2){grid-column:3}#daw .track.addrow{grid-template-columns:var(--headw) 22px minmax(0,1fr) 22px}#daw .track.addrow>:nth-child(2){grid-column:3;margin:8px 0}.daw .a-lane.a-shut{padding:8px 6px}' +
+    '.daw .track>:nth-child(2),.daw .ruler>:nth-child(2){grid-column:3}#daw .track.addrow{grid-template-columns:var(--headw) 22px minmax(0,1fr) 22px}#daw .track.addrow>:nth-child(2){grid-column:3;margin:8px 0}#daw .track.addrow>.t-head{display:flex;flex-direction:column;justify-content:center;align-items:flex-start}.daw .a-lane.a-shut{padding:8px 6px}' +
     '.daw .a-lane .a-open{min-height:38px;padding:0 12px;font-size:13px;gap:6px;white-space:nowrap}.daw .a-lane .a-open .add-ico{width:18px;height:18px;font-size:13px}' +
     '.daw .t-lane{overflow:visible}.daw .extend{width:22px;height:22px;margin-top:-11px;font-size:14px;opacity:1;background:var(--paper)}' +
     '.daw .ext-before{left:-22px!important}.daw .ext-after{left:100%!important}' +

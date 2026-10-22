@@ -1114,6 +1114,17 @@ if (WALL) {
     '.wtime-part i{background:color-mix(in srgb,var(--part) 45%,transparent)}' +
     '.wsec{align-self:stretch}.wsec>.wgrid{margin-top:auto}.hero .steps span.st-short{display:none}' +
     '';
+  /* the "Start a jam" band in the soft green of the project's "Start your own song", in both themes */
+  cst.textContent +=
+    ':root .startband.startband.startband{--drums:inherit;--guitar:inherit;--bass:inherit;--keys:inherit;--atmos:inherit;--wild:inherit;--lead:inherit;--vocals:inherit;' +
+      '--sound:inherit;--sound-ink:inherit;--on-sound:inherit;--action:inherit;--on-action:inherit;--action-hover:inherit;' +
+      '--paper:inherit;--ink:inherit;--tint:inherit;--muted:inherit;--line:inherit;--line-strong:inherit;background:var(--sound-soft);color:var(--ink);border:0;border-radius:28px}' +
+    '.startband h2{color:var(--ink)}.startband-head p,.startband .insts-lbl{color:var(--muted)}' +
+    '.startband .pop-x{background:color-mix(in srgb,var(--ink) 8%,transparent);color:var(--ink)}.startband .pop-x:hover{background:color-mix(in srgb,var(--ink) 14%,transparent)}' +
+    '.startband .inst{background:color-mix(in srgb,var(--paper) 70%,transparent);color:var(--ink)}.startband .inst:hover{background:var(--paper)}' +
+    '.startband .inst[aria-pressed="true"]{background:var(--ink);color:var(--paper)}' +
+    '.startband .start-rec{color:var(--ink)}' +
+    '.startband .up-open{background:var(--action);color:var(--on-action);border-color:var(--action)}.startband .up-open:hover{background:var(--action-hover)}';
   cst.textContent += '.wdots{display:none}' +
     '@media (max-width:760px){' +
       '#tabs [data-tab="songs"]{display:none}' +
