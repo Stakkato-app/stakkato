@@ -4,7 +4,11 @@ This branch (`claude/wall-preview`) is a **read-only preview** of a new way to s
 
 **Preview:** https://claude-wall-preview.stakkato.pages.dev/?wall (everything new only shows with `?wall` in the URL; without it you get today's site).
 
-**The other direction:** https://claude-wall-preview.stakkato.pages.dev/?wall&flip turns the wall upside down. The original track is on top and every take hangs under what it was played on, the same order as the tracks in the project. In the project view, the tracks keep the height of the biggest stack in both versions, so the wall under them doesn't jump when you switch. Still to decide: which direction stays.
+**Two directions to compare:**
+- https://claude-wall-preview.stakkato.pages.dev/?wall builds everything up from the bottom. In the wall, the original track is the bottom tile. In the project view, the original track is the bottom track, what was played on it sits above, and "Your take" sits on top, under the ruler.
+- https://claude-wall-preview.stakkato.pages.dev/?wall&flip runs everything top-down. The original track is the top tile and the top track, and every take hangs under what it was played on, like today's project view.
+
+In both, the tracks keep the height of the biggest stack, so nothing jumps when you switch stacks. The original track and "Your take" stay in place. Still to decide: which direction stays.
 
 ## What it shows
 

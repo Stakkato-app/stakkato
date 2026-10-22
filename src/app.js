@@ -251,6 +251,14 @@ function wallSwitch(id, playIt) {
   refreshGains(); render();
   if (playIt || was) play(0);
 }
+/* ?wall: the tracks build up like the wall (the original track at the bottom, what was played on it above,
+   your take on top, under the ruler); ?wall&flip keeps today's order, like the flipped wall */
+var WALLUP = WALLP && !/[?&]flip\b/.test(location.search);
+if (WALLUP) (function () {
+  var st = document.createElement('style');
+  st.textContent = '#daw .tracks{display:flex;flex-direction:column-reverse}#daw .tracks>*{flex:none}#daw .tracks>.addrow{margin-bottom:auto}';
+  document.head.appendChild(st);
+})();
 /* the preview on a phone: the tracks come first, everything above them made small */
 if (WALLP) (function () {
   var st = document.createElement('style');
@@ -2524,11 +2532,11 @@ function renderDaw() {
   }
   if (!S.override && S.view !== 'build' && S.stack === '__seed') {
     banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + '<b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own' + '</span>' + '<span class="lst-long">You hear <b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own, the way it was first posted. ' +
-      'Record or upload below to start a new branch from scratch, with whatever instruments you like.</span></div>';
+      (WALLUP ? 'Record or upload above' : 'Record or upload below') + ' to start a new branch from scratch, with whatever instruments you like.</span></div>';
   } else if (!S.override && S.view !== 'build' && S.stack && currentStack() && currentStack().partial) {
     var cp = currentStack(), lt = cp.last, grp = groupOf(lt), picked = grp.every(function (g) { return S.members.indexOf(g) > -1; });
     banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + 'up to <b>' + esc(cp.name) + '</b>' + '</span>' + '<span class="lst-long">You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
-      'Record below to play on this. Mute a track to leave it out of what you play on.</span>' +
+      (WALLUP ? 'Record above' : 'Record below') + ' to play on this. Mute a track to leave it out of what you play on.</span>' +
       (isHost() && isOpen() && !picked ? '<button class="btn btn-sm btn-main" type="button" data-yesg="' + lt.dbId + '">Add to song</button>' : '') +
       (picked ? '<span class="tp-in">In the song</span>' : '') + '</div>';
   } else if (!S.override && S.view !== 'build') {
