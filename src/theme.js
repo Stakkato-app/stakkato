@@ -34,6 +34,8 @@ document.addEventListener('click', function (e) {
   try { localStorage.setItem(KEY, t); } catch (err) {}
   apply(t);
 });
+/* a theme picked in another tab, or in the page around an embedded one, applies here too */
+window.addEventListener('storage', function (e) { if (e.key === KEY && (e.newValue === 'dark' || e.newValue === 'light')) apply(e.newValue); });
 /* follow the device while nobody picked a theme */
 if (window.matchMedia) {
   var mq = matchMedia('(prefers-color-scheme: dark)');
