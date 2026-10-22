@@ -277,7 +277,8 @@ if (WALLP) (function () {
     /* tracks: names stay in their column, the + for a new part sits beside the tracks, not on them */
     '.daw .t-name{min-width:0}.daw .t-name>div{min-width:0}.daw .t-name b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.daw .track,.daw .ruler{grid-template-columns:var(--headw) 22px minmax(0,1fr) 22px}' +
-    '.daw .track>:nth-child(2),.daw .ruler>:nth-child(2){grid-column:3}.daw .track.addrow>:nth-child(2){grid-column:2 / -1}' +
+    '.daw .track>:nth-child(2),.daw .ruler>:nth-child(2){grid-column:3}#daw .track.addrow{grid-template-columns:var(--headw) 22px minmax(0,1fr) 22px}#daw .track.addrow>:nth-child(2){grid-column:3;margin:8px 0}.daw .a-lane.a-shut{padding:8px 6px}' +
+    '.daw .a-lane .a-open{min-height:38px;padding:0 12px;font-size:13px;gap:6px;white-space:nowrap}.daw .a-lane .a-open .add-ico{width:18px;height:18px;font-size:13px}' +
     '.daw .t-lane{overflow:visible}.daw .extend{width:22px;height:22px;margin-top:-11px;font-size:14px;opacity:1;background:var(--paper)}' +
     '.daw .ext-before{left:-22px!important}.daw .ext-after{left:100%!important}' +
     '#daw .daw-bar{padding:8px 10px;gap:6px;flex-wrap:nowrap}.daw-bar .tiny{display:none}.daw-bar #transport{min-height:40px;padding:0 14px}.daw-bar #rewind{min-height:40px;width:40px;padding:0;justify-content:center}.daw-bar .readout{font-size:12.5px;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden}.daw-bar .clickctl{width:auto;flex:none;margin:0}.daw-bar .clickctl .btn{min-height:36px;padding:0 10px;font-size:13px;white-space:nowrap}' +
