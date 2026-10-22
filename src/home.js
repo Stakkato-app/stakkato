@@ -1247,7 +1247,7 @@ if (WALL) {
     '.jwv canvas{display:block;width:100%;flex:1 1 0;min-height:4px;max-height:16px}.jwv canvas.big{flex:none;height:80px;max-height:80px}' +
     '.jbot{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:8px}' +
     '.jplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--paper);color:var(--sound-ink);cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(18,18,18,.1);font-size:12px}' +
-    '.jplay.on{background:var(--sound);color:#fff}' +
+    '.jplay.on{background:var(--sound);color:#fff}.jwv[data-jseek]{cursor:pointer}.jwv[data-jseek] canvas{pointer-events:none}' +
     '.jwords{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent)}.jwords:hover{color:var(--ink);text-decoration-color:currentColor}' +
     '.jcap{font-size:12.5px;font-weight:700;color:var(--muted);background:color-mix(in srgb,var(--paper) 85%,transparent);border-radius:99px;padding:3px 9px}' +
     '.jdur{margin-left:auto;font-size:12.5px;font-weight:700;color:#fff;background:rgba(18,18,18,.82);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}' +
@@ -1378,7 +1378,7 @@ function cardHtml(r) {
   return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
     '<div class="jcover"><span class="jpill"><i style="background:' + lay(r.layer).c + '"></i>' + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
       (on ? '<span class="jnow">Playing</span>' : '') +
-      '<div class="jwv">' + lanes + '</div>' +
+      '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '</div>' +
       '<div class="jbot"><button class="jplay' + (on ? ' on' : '') + '" type="button" data-jplay="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<span class="jcap">' + cap + '</span><span class="jdur">' + mmss(r.dur) + '</span></div></div>' +
     '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
@@ -1387,6 +1387,15 @@ function cardHtml(r) {
         takes + (takes === 1 ? ' take' : ' takes') + ' · <button class="jwords" type="button" data-jwords="' + r.id + '">' + (words ? words + (words === 1 ? ' comment' : ' comments') : 'Comment') + '</button> · ' + esc(r.time) + '</p></div>' +
       '<button class="btn btn-main btn-sm" type="button" data-jopen="' + r.id + '">Play along</button></div></article>';
 }
+/* a card's lanes are one strip: click anywhere and every take plays from that moment */
+document.addEventListener('click', function (e) {
+  var w = e.target.closest && e.target.closest('[data-jseek]'); if (!w) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  var r = riff(w.dataset.jseek); if (!r) return;
+  var rc = w.getBoundingClientRect(), f = Math.min(.999, Math.max(0, (e.clientX - rc.left) / Math.max(1, rc.width)));
+  S.jpaused = null;
+  playList(cardKey(r), r, cardChain(r), f * (r.dur || 0));
+}, true);
 function cardPlay(rid) {
   var r = riff(rid); if (!r) return;
   /* paused by hand: hovering doesn't start it again until the mouse leaves the card */
