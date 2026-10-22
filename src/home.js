@@ -1329,6 +1329,7 @@ if (WALL) {
     /* the reply pop-up: built up like the wall, your take on top; names stay in their column */
     '.r-headrow{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap}.r-headrow h3{margin:0}' +
     '.md-name>span{min-width:0;overflow:hidden}' +
+    '.r-want-row{display:flex;gap:8px;flex-wrap:wrap}.r-want-row select{flex:0 0 auto}.r-want-row input{flex:1 1 200px;min-width:0}.r-want-row input:disabled{opacity:.5}' +
     '.md-master{padding:8px 10px 10px;border-top:1px solid var(--line)}.md-master:first-child{border-top:0;border-bottom:1px solid var(--line)}' +
     '.md-mchips{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin-bottom:6px;font-size:12px}.md-mchips>b{font-size:13px;margin-right:4px}' +
     '.md-mchips span{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--ink) 6%,var(--paper));color:var(--ink);font-weight:600;white-space:nowrap}' +
@@ -1698,8 +1699,20 @@ function replyProjLink(r, pid) {
   var a = el('r-proj');
   if (!a) { a = document.createElement('a'); a.id = 'r-proj'; a.className = 'btn btn-sm'; a.textContent = 'Or record in project view'; row.appendChild(a); }
   a.dataset.slug = r.slug; a.dataset.post = pid || 'seed';
+  /* Wanted, right when you post: ask for an instrument on the take you're adding */
+  var wf = el('r-wantf');
+  if (!wf) {
+    var txt = el('r-text'), at = txt && txt.closest('.field');
+    wf = document.createElement('div'); wf.className = 'field r-want'; wf.id = 'r-wantf';
+    wf.innerHTML = '<label for="r-want">Wanted on your take (optional)</label><div class="r-want-row"><select id="r-want"><option value="">Nothing for now</option>' +
+      ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('') + '</select>' +
+      '<input type="text" id="r-wantnote" maxlength="80" placeholder="A word about it: slap, a solo from bar 5…"></div>';
+    if (at) at.parentNode.insertBefore(wf, at.nextSibling);
+  }
+  el('r-want').value = ''; el('r-wantnote').value = ''; el('r-wantnote').disabled = true;
   a.href = '/s/' + encodeURIComponent(r.slug) + '?stack=' + encodeURIComponent(pid || 'seed') + '&wall';
 }
+document.addEventListener('change', function (e) { if (e.target.id === 'r-want') el('r-wantnote').disabled = !e.target.value; });
 document.addEventListener('click', function (e) {
   var a = e.target.closest && e.target.closest('#r-proj'); if (!a) return;
   var l = el('r-layer') ? el('r-layer').value : '';
@@ -2057,6 +2070,12 @@ el('r-go').addEventListener('click', function () {
     });
   }).then(function (row) {
     BUF[r.id + ':' + row.id] = buf;
+    var wl = WALL && el('r-want') ? el('r-want').value : '';
+    if (wl) {   /* preview: the ask lives in this browser until there is a table for it */
+      var wall = wantsLocal(), wlst = wall[r.id] || (wall[r.id] = []);
+      wlst.push({ id:'w' + Date.now().toString(36), take:row.id, layer:wl, note:(el('r-wantnote').value || '').trim().slice(0, 80) });
+      wantsSave(wall);
+    }
     closeScrims();
     S.expanded[r.id] = true;
     return reload().then(function () {
