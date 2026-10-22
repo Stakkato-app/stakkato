@@ -463,6 +463,12 @@ function tickHeads() {
     if (S.playing !== cv.dataset.wave && S.playing !== cv.dataset.of) return;
     var h = headOf(cv, 'phead'); h.hidden = false; h.style.left = (cv.offsetLeft + cv.offsetWidth * f) + 'px';
   });
+  /* a card: one line over all its lanes */
+  [].forEach.call(document.querySelectorAll('.jwv[data-jseek]'), function (w) {
+    var r = riff(w.dataset.jseek), h = w.querySelector('.jhead'); if (!r || !h || S.playing !== cardKey(r)) return;
+    var cpos = r.dur ? ((ac().currentTime - CLOCK.t0) % r.dur + r.dur) % r.dur : pos;
+    h.hidden = false; h.style.left = (r.dur ? cpos / r.dur : f) * w.clientWidth + 'px';
+  });
   headRaf = requestAnimationFrame(tickHeads);
 }
 function seekTarget(cv) {
@@ -1247,7 +1253,7 @@ if (WALL) {
     '.jwv canvas{display:block;width:100%;flex:1 1 0;min-height:4px;max-height:16px}.jwv canvas.big{flex:none;height:80px;max-height:80px}' +
     '.jbot{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:8px}' +
     '.jplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--paper);color:var(--sound-ink);cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(18,18,18,.1);font-size:12px}' +
-    '.jplay.on{background:var(--sound);color:#fff}.jwv[data-jseek]{cursor:pointer}.jwv[data-jseek] canvas{pointer-events:none}' +
+    '.jplay.on{background:var(--sound);color:#fff}.jwv[data-jseek]{cursor:pointer}.jhead{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink);pointer-events:none}.jwv[data-jseek] canvas{pointer-events:none}' +
     '.jwords{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent)}.jwords:hover{color:var(--ink);text-decoration-color:currentColor}' +
     '.jcap{font-size:12.5px;font-weight:700;color:var(--muted);background:color-mix(in srgb,var(--paper) 85%,transparent);border-radius:99px;padding:3px 9px}' +
     '.jdur{margin-left:auto;font-size:12.5px;font-weight:700;color:#fff;background:rgba(18,18,18,.82);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}' +
@@ -1378,7 +1384,7 @@ function cardHtml(r) {
   return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
     '<div class="jcover"><span class="jpill"><i style="background:' + lay(r.layer).c + '"></i>' + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
       (on ? '<span class="jnow">Playing</span>' : '') +
-      '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '</div>' +
+      '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '<span class="phead jhead" hidden></span></div>' +
       '<div class="jbot"><button class="jplay' + (on ? ' on' : '') + '" type="button" data-jplay="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<span class="jcap">' + cap + '</span><span class="jdur">' + mmss(r.dur) + '</span></div></div>' +
     '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
