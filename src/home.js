@@ -489,6 +489,7 @@ function tickHeads() {
     if (S.playing !== cv.dataset.wave && S.playing !== cv.dataset.of) return;
     var h = headOf(cv, 'phead'); h.hidden = false; h.style.left = (cv.offsetLeft + cv.offsetWidth * f) + 'px';
   });
+  jhoverBack();
   /* a card: one line over all its lanes */
   [].forEach.call(document.querySelectorAll('.jwv[data-jseek]'), function (w) {
     var r = riff(w.dataset.jseek), h = w.querySelector('.jhead'); if (!r || !h || S.playing !== cardKey(r)) return;
@@ -760,7 +761,7 @@ if (WALL) {
     '.wsay select{min-height:40px;border-radius:12px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink);max-width:100%}' +
     '.wsay .wsay-row{display:flex;gap:8px}.wsay textarea{flex:1 1 auto;min-width:0;min-height:44px;border-radius:12px;border:1px solid var(--line-strong);padding:10px 12px;font:inherit;resize:vertical;background:var(--paper);color:var(--ink)}' +
     '.wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px}.wplus.wp-rise{animation:wb-rise .35s ease both}' +
-    '.wgrid .wb,.wgrid .wplus{transition:margin .22s ease,opacity .15s}' +
+    '.wgrid .wb,.wgrid .wplus{transition:margin .22s ease,opacity .15s}.wgrid .wplus{position:relative;z-index:2}' +
     '.wghost{position:absolute;z-index:1;display:flex;align-items:center;gap:8px;padding:0 10px;border:1.5px dashed color-mix(in srgb,var(--sound) 70%,transparent);border-radius:10px;' +
       'background:color-mix(in srgb,var(--sound) 9%,transparent);color:var(--sound-ink);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transform:translateY(' + (FLIP ? '-6px' : '6px') + ');transition:opacity .2s,transform .2s}' +
     '.wghost.on{opacity:1;transform:none}.wghost span{width:20px;height:20px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1.5px dashed currentColor;font-weight:700}' +
@@ -1308,7 +1309,7 @@ if (WALL) {
     '.jwv canvas{display:block;width:100%;flex:1 1 0;min-height:4px;max-height:16px}.jwv canvas.big{flex:none;height:80px;max-height:80px}' +
     '.jbot{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:8px}' +
     '.jplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--paper);color:var(--sound-ink);cursor:pointer;flex:none;box-shadow:0 1px 2px rgba(18,18,18,.1);font-size:12px}' +
-    '.jplay.on{background:var(--sound);color:#fff}.jwv[data-jseek]{cursor:pointer}.jhead{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink);pointer-events:none}.jwv[data-jseek] canvas{pointer-events:none}' +
+    '.jplay.on{background:var(--sound);color:#fff}.jwv[data-jseek]{cursor:pointer}.jhover{position:absolute;top:-6px;bottom:-6px;width:2px;margin-left:-1px;border-radius:1px;background:#fff;box-shadow:0 0 0 1px rgba(18,18,18,.18);pointer-events:none}.jhead{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink);pointer-events:none}.jwv[data-jseek] canvas{pointer-events:none}' +
     '.jwords{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent)}.jwords:hover{color:var(--ink);text-decoration-color:currentColor}' +
     '.jcap{font-size:12.5px;font-weight:700;color:var(--muted);background:color-mix(in srgb,var(--paper) 85%,transparent);border-radius:99px;padding:3px 9px}' +
     '.jdur{margin-left:auto;font-size:12.5px;font-weight:700;color:#fff;background:rgba(18,18,18,.82);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}' +
@@ -1439,7 +1440,7 @@ function cardHtml(r) {
   return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
     '<div class="jcover"><span class="jpill"><i style="background:' + lay(r.layer).c + '"></i>' + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
       (on ? '<span class="jnow">Playing</span>' : '') +
-      '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '<span class="phead jhead" hidden></span></div>' +
+      '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '<span class="phead jhead" hidden></span><span class="jhover" hidden></span></div>' +
       '<div class="jbot"><button class="jplay' + (on ? ' on' : '') + '" type="button" data-jplay="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<span class="jcap">' + cap + '</span><span class="jdur">' + mmss(r.dur) + '</span></div></div>' +
     '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
@@ -1447,6 +1448,32 @@ function cardHtml(r) {
       '<p><span class="jdots" aria-hidden="true">' + dots.map(function (l) { return '<i style="background:' + lay(l).c + '"></i>'; }).join('') + '</span>' +
         takes + (takes === 1 ? ' take' : ' takes') + ' · <button class="jwords" type="button" data-jwords="' + r.id + '">' + (words ? words + (words === 1 ? ' comment' : ' comments') : 'Comment') + '</button> · ' + esc(r.time) + '</p></div>' +
       '<button class="btn btn-main btn-sm" type="button" data-jopen="' + r.id + '">Play along</button></div></article>';
+}
+/* hovering a card's lanes: a white line where a click would start */
+document.addEventListener('mousemove', function (e) {
+  var w = e.target.closest && e.target.closest('[data-jseek]');
+  [].forEach.call(document.querySelectorAll('.jhover:not([hidden])'), function (h) { if (!w || h.parentNode !== w) h.hidden = true; });
+  if (!w) { S.jhx = null; return; }
+  var h = w.querySelector('.jhover'); if (!h) return;
+  var rc = w.getBoundingClientRect(), x = Math.max(0, Math.min(rc.width, e.clientX - rc.left));
+  S.jhx = { rid:w.dataset.jseek, f:x / Math.max(1, rc.width) };
+  h.hidden = false; h.style.left = x + 'px';
+});
+document.addEventListener('mouseleave', function (e) {
+  /* only leaving the lanes themselves (or the window): the other mouseleave events bubble in from every element */
+  if (e.target !== document && e.target !== document.documentElement && !(e.target.matches && e.target.matches('[data-jseek]'))) return;
+  if (e.target.isConnected === false) return;
+  if (e.target.getBoundingClientRect) {   /* a redraw under the mouse also counts as leaving: ignore that */
+    var q = e.target.getBoundingClientRect();
+    if (e.clientX > q.left && e.clientX < q.right && e.clientY > q.top && e.clientY < q.bottom) return;
+  }
+  S.jhx = null; [].forEach.call(document.querySelectorAll('.jhover'), function (h) { h.hidden = true; });
+}, true);
+/* the card redraws when it starts playing: put the line back where the mouse is */
+function jhoverBack() {
+  if (!S.jhx) return;
+  var w = document.querySelector('.jwv[data-jseek="' + S.jhx.rid + '"]'), h = w && w.querySelector('.jhover');
+  if (h && h.hidden) { h.hidden = false; h.style.left = S.jhx.f * w.clientWidth + 'px'; }
 }
 /* a card's lanes are one strip: click anywhere and every take plays from that moment */
 document.addEventListener('click', function (e) {
@@ -1530,7 +1557,6 @@ function ghostOff() {
   clearTimeout(GHOSTT);
   if (!GHOST) return;
   GHOST.moved.forEach(function (x) { x.style.marginLeft = ''; x.style.marginRight = ''; });
-  if (GHOST.plus) GHOST.plus.style.visibility = '';
   var g = GHOST.el; g.classList.remove('on'); setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 180);
   GHOST = null;
 }
@@ -1562,7 +1588,8 @@ function ghostOn(btn) {
   g.style.width = (has ? half - 3 : B - A) + 'px';
   g.style.height = tr.height + 'px';
   g.style.top = (FLIP ? tr.bottom + gap : tr.top - gap - tr.height) - gr.top + 'px';
-  if (plus) plus.style.visibility = 'hidden';
+  /* the + above the take stays visible and clickable on top of the preview (hiding it made the mouse
+     leave it, which took the preview away again: it flickered) */
   grid.appendChild(g);
   requestAnimationFrame(function () { g.classList.add('on'); });
   GHOST = { id:id, el:g, moved:moved, plus:plus, tile:tile };
@@ -1573,7 +1600,7 @@ var GHOSTOFF = 0;
 function inGhost(x) {
   if (!GHOST || !x || !x.closest) return false;
   var t = x.closest('.wb,.wplus');
-  return !!t && (t === GHOST.tile || GHOST.moved.indexOf(t) > -1);
+  return !!t && (t === GHOST.tile || t === GHOST.plus || GHOST.moved.indexOf(t) > -1);
 }
 document.addEventListener('mouseover', function (e) {
   if (!WALL || !mouseHover()) return;
@@ -1596,6 +1623,9 @@ function mouseHover() { return Date.now() - TOUCHED > 1000 && !(window.matchMedi
 document.addEventListener('mouseover', function (e) {
   if (!WALL || !S.jhover || S.ov || !mouseHover()) return;
   var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c) return;
+  /* the move that starts a card redraws it, and that move's own mousemove is lost: note the line here */
+  var jw = c.querySelector('.jwv[data-jseek]');
+  if (jw) { var jq = jw.getBoundingClientRect(); if (e.clientX >= jq.left && e.clientX <= jq.right && e.clientY >= jq.top && e.clientY <= jq.bottom) S.jhx = { rid:jw.dataset.jseek, f:(e.clientX - jq.left) / Math.max(1, jq.width) }; }
   var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r) || S.jpaused === r.id) return;
   if (e.relatedTarget && c.contains(e.relatedTarget)) return;
   playList(cardKey(r), r, cardChain(r));
@@ -1608,6 +1638,7 @@ document.addEventListener('mouseout', function (e) {
   var r = riff(c.dataset.jcard); if (r && S.playing === cardKey(r)) { stop(); render(); }
 });
 function render() {
+  if (WALL) requestAnimationFrame(jhoverBack);
   if (EMBED) {
     var er = riff(EMBED);
     el('list').innerHTML = !S.loaded ? '<p class="empty">Loading…</p>' : er ? (S.expanded[er.id] = true, wallHtml(er)) : '<p class="empty">This jam isn’t in the feed.</p>';
