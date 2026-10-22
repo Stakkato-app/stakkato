@@ -2855,7 +2855,7 @@ function addRowInner(building) {
       '<button class="btn btn-main a-open" type="button" data-recopen="1"><span class="add-ico" aria-hidden="true">+</span> Add your instrument</button>' +
       '<span class="a-txt"><span class="a-long">' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
-        : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
+        : 'Record right here, or upload one or more files (up to 4 instruments).') +
       ' </span><em>Wear headphones.</em></span>' +
       '<button class="btn btn-main" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +

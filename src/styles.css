@@ -42,7 +42,7 @@
 /* the dark band (a comment on the timeline): the same in both modes */
 .cm-pop{--drums:#FF6A5E;--guitar:#FF8E45;--bass:#6E9BFF;--keys:#AE8BFF;--atmos:#AE8BFF;--wild:#FF6FAE;--lead:#E5B53B;--vocals:#9BD45A;--sound:#3DB28E;--sound-ink:#7AD9BB;--on-sound:#0C1411;--action:#FFFFFF;--on-action:#121212;--action-hover:#E6E6E6}
 *{box-sizing:border-box}
-:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5}
 h1,h2,h3{margin:0;font-family:var(--disp);font-weight:800;line-height:1.08;letter-spacing:-.02em}
