@@ -1325,7 +1325,11 @@ if (WALL) {
     '.wov-panel .riff{border:0;box-shadow:none;border-radius:0}' +
     '.wov-x{position:sticky;top:12px;float:right;margin:12px 12px -56px 0;z-index:3;width:44px;height:44px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font-size:22px;line-height:1;cursor:pointer}' +
     '.wov-x:hover{border-color:var(--ink)}' +
-    'body.ov-open{overflow:hidden}body.ov-open .scrim{z-index:80}';
+    'body.ov-open{overflow:hidden}body.ov-open .scrim{z-index:80}' +
+    /* the reply pop-up: built up like the wall, your take on top; names stay in their column */
+    '.r-headrow{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap}.r-headrow h3{margin:0}' +
+    '.md-name>span{min-width:0;overflow:hidden}' +
+    (FLIP ? '' : '#md-lanes{display:flex;flex-direction:column-reverse}#md-lanes .md-lane{border-bottom:0;border-top:1px solid var(--line)}#md-lanes .md-lane.you{border-top:0}');
   cst.textContent +=
     /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
     '.wgrid{position:relative}' +
@@ -1678,6 +1682,20 @@ function closeScrims() {
   if (fromStart && startFrom && startFrom.focus && document.contains(startFrom)) startFrom.focus();
 }
 function wantLen(c) { return c[0].dur || 0; }
+/* preview: the pop-up offers the project view too, on the same stack, with the instrument you picked */
+function replyProjLink(r, pid) {
+  var h = el('r-title'), row = h && h.parentNode.classList.contains('r-headrow') ? h.parentNode : null;
+  if (h && !row) { row = document.createElement('div'); row.className = 'r-headrow'; h.parentNode.insertBefore(row, h); row.appendChild(h); }
+  var a = el('r-proj');
+  if (!a) { a = document.createElement('a'); a.id = 'r-proj'; a.className = 'btn btn-sm'; a.textContent = 'Or record in project view'; row.appendChild(a); }
+  a.dataset.slug = r.slug; a.dataset.post = pid || 'seed';
+  a.href = '/s/' + encodeURIComponent(r.slug) + '?stack=' + encodeURIComponent(pid || 'seed') + '&wall';
+}
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('#r-proj'); if (!a) return;
+  var l = el('r-layer') ? el('r-layer').value : '';
+  a.href = '/s/' + encodeURIComponent(a.dataset.slug) + '?stack=' + encodeURIComponent(a.dataset.post) + (l ? '&rec=' + encodeURIComponent(l) : '') + '&wall' + (FLIP ? '&flip' : '');
+}, true);
 function openReply(rid, pid) {
   ensureMe(jamCard(riff(rid), 'play')).then(function () { replyPop(rid, pid); });
 }
@@ -1703,6 +1721,7 @@ function replyPop(rid, pid) {
   el('r-as').innerHTML = postingAs();
   el('r-go').disabled = false;
   setRSrc('file');
+  if (WALL) replyProjLink(r, pid);
   openScrim('reply-scrim'); mdYou(); mdDraw(); el('r-layer').focus();
   Promise.all(c.map(function (p) { return load(r, p); })).then(mdDraw);
 }
