@@ -772,7 +772,7 @@ if (WALL) {
     '.wm-top{display:flex;align-items:center;gap:12px}' +
     '.wm-top .play{flex:none;width:52px;height:52px;border-radius:50%;border:0;background:var(--sound);color:#fff;font-size:16px;cursor:pointer}' +
     '.wm-what{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto}' +
-    '.wm-what b{font-size:15px}' +
+    '.wm-what b{font-size:15px}.wm-note{margin:0;font-size:13.5px;line-height:1.4;color:var(--ink)}.wm-note span{color:var(--sound-ink);font-size:12.5px}' +
     '.wm-chips{display:flex;gap:6px;flex-wrap:wrap}' +
     '.wm-chips span{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;background:var(--paper);border-radius:99px;padding:2px 9px}' +
     '.wm-chips i{width:8px;height:8px;border-radius:50%;display:inline-block}' +
@@ -939,7 +939,7 @@ function wallHtml(r) {
     segs.forEach(function (sg, si) { sg.list.forEach(function (x) { if (si && people.some(function (q) { return q.id === x.id; })) return; people.push(x); }); });
     now = '<div class="wmaster"><div class="wm-top">' +
         '<button class="play' + (mOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + ms + '" aria-label="' + (mOn ? 'Pause' : 'Play the master track') + '">' + (mOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-        '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + esc(wallWhose(r, ms))) + '</b>' +
+        '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + esc(wallWhose(r, ms))) + '</b>' + wallNote(r, ms) +
           '<div class="wm-chips">' + people.map(function (x) { return '<span><i style="background:' + lay(x.isPart ? 'part' : x.layer).c + '"></i>' + esc(x.isRiff ? r.by + ' · original' : (x.mine ? 'You' : x.by) + ' · ' + chipLabel(x)) + '</span>'; }).join('') + '</div></div></div>' +
       '<div class="wm-wave" data-wseek="' + r.id + '" data-post="' + ms + '" title="Click to play from there">' + segs.map(function (sg, i) {
         return '<div style="flex:' + Math.max(1, Math.round(sg.len * 10)) + ' 1 0"><canvas data-wave="wmix:' + r.id + ':' + ms + ':' + i + '" data-of="' + mk + '" aria-hidden="true"></canvas>' +
@@ -1047,6 +1047,12 @@ function bottomHtml(r, T, open, talk) {
     '<div class="wbottom" data-wb="' + r.id + '"><div class="wbottom-talk">' + talk + '</div>' + w + '</div>';
 }
 /* the take on top of the picked stack: rate it, and delete it if it's yours */
+/* what the person on top of the stack said about their take (only that one take) */
+function wallNote(r, id) {
+  var p = id === 'riff' ? null : postOf(r, id), t = p ? p.text : r.text, who = p ? (p.mine ? 'You' : p.by) : r.by;
+  if (!t || !String(t).trim() || id === 'riff') return '';
+  return '<p class="wm-note">“' + esc(String(t).trim()) + '” <span>· ' + esc(who) + '</span></p>';
+}
 function selActs(r, id) {
   if (!id) return '';
   var p = id === 'riff' ? null : postOf(r, id);
