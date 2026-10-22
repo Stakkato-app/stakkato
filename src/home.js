@@ -682,7 +682,7 @@ if (WALL) {
     '.wrow{display:flex;align-items:flex-end;width:100%}' +
     '.wsec{display:flex;flex-direction:column;gap:6px;flex:var(--n) 1 0;min-width:calc(var(--n) * 104px)}' +
     '.wsec.wsec-shut{min-width:0}' +
-    '.wsec small{font-size:12px;line-height:1.35;color:var(--muted);padding-left:2px}' +
+    '.wsec small{font-size:12px;line-height:1.35;color:var(--muted);text-align:center;margin-top:2px}' +
     '.warrow{width:44px;flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;padding-bottom:30px;color:var(--part);font-size:20px}' +
     '.wgrid{display:grid;gap:4px}' +
     '.wb{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:10px;min-width:0;font-size:13px;--c:var(--wild);background:var(--paper);border:1px solid var(--line-strong);color:var(--ink)}' +
