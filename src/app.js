@@ -24,7 +24,7 @@ import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, wakeAudio, soundTip, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
@@ -43,6 +43,9 @@ function clockMs(sec) {
 }
 function el(id){ return document.getElementById(id); }
 function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+/* every tap wakes the sound (iPhones: silent switch, in-app browsers) */
+['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { wakeAudio(AC); }, true); });
+document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-play],[data-jplay],[data-wpick],[data-wsel],[data-wsolo],#transport,.play')) soundTip(flash); }, true);
 function flash(m) {
   var t = el('proto-hint');
   t.textContent = m; t.classList.add('on');

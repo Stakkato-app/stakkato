@@ -15,7 +15,7 @@ import { requireAccount, onAccount, postingAs, setToast, profileHref } from './a
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, wakeAudio, soundTip, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
@@ -335,6 +335,10 @@ function chainChips(r, c) { return c.map(function (p) { return '<span class="chi
 
 /* ---------- audio ---------- */
 function ac() { if (!AC) AC = newContext(); return AC; }
+/* every tap wakes the sound (iPhones: silent switch, in-app browsers) */
+['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { wakeAudio(AC); }, true); });
+document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-play],[data-jplay],[data-wpick],[data-wsel],[data-wsolo],#transport,.play')) soundTip(toast); }, true);
+
 function load(r, p) {
   var k = bufKey(r, p);
   if (BUF[k] || BUF[k + ':loading'] || !p.url) return Promise.resolve();
@@ -1285,16 +1289,20 @@ function closeJam() {
     a.onfinish = done;
   } else done();
 }
-/* hover: hear a card while the mouse is over it */
+/* hover: hear a card while the mouse is over it (a real mouse: a tap on a phone also sends mouseover,
+   which would start the card just before the tap's own click pauses it) */
+var TOUCHED = 0;
+document.addEventListener('touchstart', function () { TOUCHED = Date.now(); }, { capture:true, passive:true });
+function mouseHover() { return Date.now() - TOUCHED > 1000 && !(window.matchMedia && matchMedia('(hover: none)').matches); }
 document.addEventListener('mouseover', function (e) {
-  if (!WALL || !S.jhover || S.ov) return;
+  if (!WALL || !S.jhover || S.ov || !mouseHover()) return;
   var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c) return;
   var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r) || S.jpaused === r.id) return;
   if (e.relatedTarget && c.contains(e.relatedTarget)) return;
   playList(cardKey(r), r, cardChain(r));
 });
 document.addEventListener('mouseout', function (e) {
-  if (!WALL || !S.jhover || S.ov) return;
+  if (!WALL || !S.jhover || S.ov || !mouseHover()) return;
   var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c || (e.relatedTarget && c.contains(e.relatedTarget))) return;
   if (!c.isConnected) return;   /* the card was redrawn under the mouse, it wasn't left */
   if (S.jpaused === c.dataset.jcard) S.jpaused = null;
