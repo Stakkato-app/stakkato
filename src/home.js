@@ -480,8 +480,8 @@ document.addEventListener('click', function (e) {
     /* a soloed take in the wall: click its waveform to play it from there */
     if (cv.dataset.of && S.playing === cv.dataset.of) {
       e.stopImmediatePropagation();
-      var q = cv.dataset.of.split(':solo:'), rct = cv.getBoundingClientRect();
-      wallSolo(q[0], q[1], Math.min(1, Math.max(0, (e.clientX - rct.left) / rct.width)) * lenOf(cv));
+      var rct = cv.getBoundingClientRect();
+      wallSolo(cv.dataset.of.replace(/:solo$/, ''), null, Math.min(1, Math.max(0, (e.clientX - rct.left) / rct.width)) * lenOf(cv));
     }
     return;
   }
@@ -817,8 +817,8 @@ function wallHtml(r) {
     return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
       '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + esc(wallWhose(r, n.id)) + ' below"><span><b>' + esc(who) + '</b> ' + esc(wallLabel(n)) + '</span>' +
-        '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '"' + (S.playing === r.id + ':solo:' + n.id ? ' data-of="' + r.id + ':solo:' + n.id + '" class="wseekable" title="Click to play from there"' : '') + ' aria-hidden="true"></canvas></button>' +
-      '<button class="wsolo1' + (S.playing === r.id + ':solo:' + n.id ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + (S.playing === r.id + ':solo:' + n.id) + '" aria-label="Solo: ' + esc(wallWhose(r, n.id)) + ' on its own" title="Solo: hear only this take">S</button>' +
+        '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '"' + (soloed(r, n.id) ? ' data-of="' + r.id + ':solo" class="wseekable" title="Click to play from there"' : '') + ' aria-hidden="true"></canvas></button>' +
+      '<button class="wsolo1' + (soloed(r, n.id) ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + soloed(r, n.id) + '" aria-label="Solo: ' + esc(wallWhose(r, n.id)) + '" title="Solo: hear only the takes with S on">S</button>' +
       (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+</button>' : '') +
       (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
   }
@@ -915,6 +915,7 @@ function wallHtml(r) {
     '</div>' + bar + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
+function soloed(r, id) { return S.playing === r.id + ':solo' && (S.wsolo[r.id] || []).indexOf(id) > -1; }
 /* phones: one part of the song at a time, swipe for the next; the dots say where you are */
 /* the whole song from the top: the stack you picked if it is on a new part, else the part you look at, else the first new part */
 function wallFullId(r, T) {
@@ -989,32 +990,52 @@ function playPos() {
   if (!CLOCK || CLOCK.k !== S.playing || !CLOCK.len || !AC) return null;
   var t = AC.currentTime - CLOCK.t0; return ((t % CLOCK.len) + CLOCK.len) % CLOCK.len;
 }
-/* S while the master track plays: the take takes over from that moment; S again, and the master
-   picks up from where the take got to */
+/* S: hear only that take; S on more takes plays them together (S again takes one out). While the
+   master track plays, S takes over from that moment; when the last S goes off, the master picks
+   up from where the takes got to. */
+S.wsolo = {};
 function wallSolo(rid, id, at) {
-  if (EMBED) toProject({ stop:true });   /* the take on its own plays here; the tracks pause */
-  var r = riff(rid), k = rid + ':solo:' + id, now = playPos();
-  if (S.playing === k && typeof at !== 'number') {
-    var back = S.wback && S.wback.k === k ? S.wback : null; S.wback = null;
-    if (back && now !== null && !EMBED) {
-      var bs = wallSegs(r, back.master, wallTree(r)), total = bs.reduce(function (n, sg) { return n + sg.len; }, 0);
-      wallSeek(rid, back.master, total ? (back.off + now) / total : 0); return;
+  if (EMBED) toProject({ stop:true });   /* the takes on their own play here; the tracks pause */
+  var r = riff(rid), k = rid + ':solo', now = playPos(), soloing = S.playing === k;
+  var list = soloing ? (S.wsolo[rid] || []).slice() : [];
+  if (typeof at === 'number') { if (!soloing) return; }
+  else {
+    var i = list.indexOf(id);
+    if (i > -1) list.splice(i, 1); else list.push(id);
+    if (!list.length) {
+      var back = S.wback; S.wback = null; S.wsolo[rid] = [];
+      if (back && AC && !EMBED) {
+        /* the master goes on where it would be now, had it kept playing */
+        var bs = wallSegs(r, back.master, wallTree(r)), total = bs.reduce(function (n, sg) { return n + sg.len; }, 0);
+        var pos = total ? (back.pos + AC.currentTime - back.t) % total : 0;
+        wallSeek(rid, back.master, total ? pos / total : 0); return;
+      }
+      stop(); render(); return;
     }
-    stop(); render(); return;
-  }
-  if (typeof at !== 'number') {
-    S.wback = null;
-    var pre = rid + ':wall:';
-    if (!EMBED && now !== null && S.playing && S.playing.indexOf(pre) === 0) {
-      var mid = S.playing.slice(pre.length), segs = wallSegs(r, mid, wallTree(r)), off = 0, si = -1, acc = 0;
-      var has = function (sg) { return sg.list.some(function (x) { return id === 'riff' ? x.isRiff : x.id === id; }); };
-      segs.forEach(function (sg, i) { if (si < 0 && now >= acc && now < acc + sg.len && has(sg)) { si = i; off = acc; } acc += sg.len; });
-      if (si < 0) { acc = 0; segs.forEach(function (sg, i) { if (si < 0 && has(sg)) { si = i; off = acc; } acc += sg.len; }); }
-      if (si >= 0) { var local = now - off; at = local >= 0 && local < segs[si].len ? local : 0; S.wback = { k:k, master:mid, off:off }; }
+    at = 0;
+    if (soloing && now !== null) at = now;   /* another take joins: carry on from here */
+    else {
+      S.wback = null;
+      var pre = rid + ':wall:';
+      if (!EMBED && now !== null && S.playing && S.playing.indexOf(pre) === 0) {
+        var mid = S.playing.slice(pre.length), segs = wallSegs(r, mid, wallTree(r)), off = 0, si = -1, acc = 0;
+        var has = function (sg) { return sg.list.some(function (x) { return id === 'riff' ? x.isRiff : x.id === id; }); };
+        segs.forEach(function (sg, j) { if (si < 0 && now >= acc && now < acc + sg.len && has(sg)) { si = j; off = acc; } acc += sg.len; });
+        if (si < 0) { acc = 0; segs.forEach(function (sg, j) { if (si < 0 && has(sg)) { si = j; off = acc; } acc += sg.len; }); }
+        if (si >= 0) { var local = now - off; at = local >= 0 && local < segs[si].len ? local : 0; }
+        else at = now % (segs[0].len || 1);   /* a take that isn't in this stack: at the same point in the bar */
+        S.wback = { master:mid, pos:now, t:AC.currentTime };
+      }
     }
   }
-  var p = id === 'riff' ? null : postOf(r, id);
-  playList(k, r, p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }], at);
+  S.wsolo[rid] = list;
+  var seen = {}, chain = [];
+  list.forEach(function (x) {
+    var p = x === 'riff' ? null : postOf(r, x);
+    (p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }]).forEach(function (c) { if (!seen[c.id]) { seen[c.id] = 1; chain.push(c); } });
+  });
+  playList(k, r, chain, at);
+  render();
 }
 function wallBase(r, T, part) {
   var c = S.wcore[r.id];
