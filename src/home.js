@@ -1329,7 +1329,12 @@ if (WALL) {
     /* the reply pop-up: built up like the wall, your take on top; names stay in their column */
     '.r-headrow{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap}.r-headrow h3{margin:0}' +
     '.md-name>span{min-width:0;overflow:hidden}' +
-    (FLIP ? '' : '#md-lanes{display:flex;flex-direction:column-reverse}#md-lanes .md-lane{border-bottom:0;border-top:1px solid var(--line)}#md-lanes .md-lane.you{border-top:0}');
+    '.md-master{padding:8px 10px 10px;border-top:1px solid var(--line)}.md-master:first-child{border-top:0;border-bottom:1px solid var(--line)}' +
+    '.md-mchips{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin-bottom:6px;font-size:12px}.md-mchips>b{font-size:13px;margin-right:4px}' +
+    '.md-mchips span{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--ink) 6%,var(--paper));color:var(--ink);font-weight:600;white-space:nowrap}' +
+    '.md-mchips i{width:8px;height:8px;border-radius:50%;flex:none}' +
+    '.md-mwave{display:grid;grid-template-columns:120px minmax(0,1fr) 32px;gap:8px;align-items:center}.md-master canvas{width:100%;height:48px;display:block}' +
+    '@media (max-width:560px){.md-mwave{grid-template-columns:76px minmax(0,1fr) 30px}}';
   cst.textContent +=
     /* a stack grows from the bottom up: a faint rail left of the tiles, an arrow at the top */
     '.wgrid{position:relative}' +
@@ -1714,6 +1719,15 @@ function replyPop(rid, pid) {
     }).join('') +
     '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-slot" id="md-slot"><div class="md-empty" id="md-empty">Your take lands here</div></div><span></span></div>' +
     '<div class="md-head" id="md-head" hidden></div></div>';
+  if (WALL) {
+    /* preview: simpler. Your take on top, under it the stack as one master track with who is in it */
+    var you = '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-slot" id="md-slot"><div class="md-empty" id="md-empty">Your take lands here</div></div><span></span></div>';
+    var master = '<div class="md-master"><div class="md-mchips"><b>The stack</b>' + c.map(function (p) {
+        return '<span><i style="background:' + lay(p.layer).c + '"></i>' + esc(p.isRiff ? r.by : p.mine ? 'You' : p.by) + ' · ' + esc(chipLabel(p)) + '</span>';
+      }).join('') + '</div><div class="md-mwave"><span></span><canvas data-md="0" data-mdmix="1"></canvas><span></span></div></div>';
+    el('r-over').innerHTML = el('r-over').innerHTML.split('<div class="md-lanes"')[0] +
+      '<div class="md-lanes" id="md-lanes">' + (FLIP ? master + you : you + master) + '<div class="md-head" id="md-head" hidden></div></div>';
+  }
   el('r-layer').innerHTML = ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('');
   el('r-layer').value = ROLES.map(function (x) { return x.id; }).filter(function (l) { return used.indexOf(l) < 0; })[0] || 'vocals';
   el('r-err').textContent = ''; el('r-text').value = ''; el('r-file').value = '';
@@ -1730,6 +1744,22 @@ function mdYou() { var y = el('md-you'); if (y) y.textContent = (role(el('r-laye
 function mdDraw() {
   if (!MD) return;
   var ink = getComputedStyle(document.documentElement).getPropertyValue('--wave').trim();
+  var mix = document.querySelector('canvas[data-mdmix]');
+  if (mix) {
+    /* the preview's master track: every take of the stack summed, once they're all in */
+    var bs = MD.c.map(function (p) { return BUF[bufKey(MD.r, p)]; });
+    bs.forEach(function (b) { if (b && !MD.dur) MD.dur = b.duration; });
+    if (bs.every(Boolean) && bs.length) {
+      if (!MD.mix) {
+        var n = bs[0].length, out = ac().createBuffer(1, n, bs[0].sampleRate), d = out.getChannelData(0);
+        bs.forEach(function (b) { var x = b.getChannelData(0), m = Math.min(n, x.length); for (var j = 0; j < m; j++) d[j] += x[j]; });
+        MD.mix = out;
+      }
+      waveShape(mix, MD.mix, ink);
+    }
+    el('md-time').textContent = '0:00 / ' + mmss(MD.dur);
+    return;
+  }
   MD.c.forEach(function (p, i) {
     var b = BUF[bufKey(MD.r, p)], cv = document.querySelector('canvas[data-md="' + i + '"]');
     if (b && !MD.dur) MD.dur = b.duration;
