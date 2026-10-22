@@ -17,6 +17,7 @@ In the bottom-up version, the tracks are as tall as the stack. "Your take" stays
   - Every take is a tile, sitting on the tile it was played on, from the original track at the bottom upward. Each part has "Builds up from here ↑" under its bottom tile.
   - New parts are their own section next to it, with a time head above each part ("0:00 —— Part 1 · the original track —— 0:11", "0:11 —— Part 2 · picks up where it ends —— 0:22").
   - On a tile: ▶ plays the stack up to it, S solos it (click the waveform while soloing to seek), + plays on top of it, 💬 comments on it.
+  - Hovering a + (desktop) shows a see-through "Your take on …" right on that take; what was already played on it moves to the left half, the way the column splits once you play. S while the master plays takes over from that moment, and S again hands back to the master.
 - **The master track** under the wall plays the selected stack: click to seek, with a playhead. It has "Open this stack in project view". On a new part, "▶ Play the whole song from the start" plays the first part's stack and then the part.
 - **"Talk about this song"** shows the comments, each with what it is about; a comment chip jumps to its take.
 - **Project view with `?wall`:**
