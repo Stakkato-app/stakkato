@@ -270,6 +270,14 @@ document.addEventListener('input', function (e) {
   if (e.target.id === 'c-text') S.cmt.text = e.target.value;
 });
 document.addEventListener('submit', function (e) { if (e.target.id === 'c-form') { e.preventDefault(); postComment(); } });
+/* Wanted: ask for an instrument on your own take (preview: kept in this browser) */
+document.addEventListener('submit', function (e) {
+  var f = e.target.closest && e.target.closest('[data-wwform]'); if (!f) return;
+  e.preventDefault();
+  var rid = f.dataset.wwform, all = wantsLocal(), lst = all[rid] || (all[rid] = []);
+  lst.push({ id:'w' + Date.now().toString(36), take:f.take.value, layer:f.layer.value, note:f.note.value.trim().slice(0, 80) });
+  wantsSave(all); S.wwform[rid] = false; render();
+});
 /* the wall preview only reads: a comment there is not posted */
 document.addEventListener('submit', function (e) {
   var f = e.target.closest && e.target.closest('[data-wsayform]'); if (!f) return;
@@ -737,6 +745,19 @@ if (WALL) {
     '.wtalk{display:flex;align-items:center;gap:12px;width:100%;padding:14px 24px;border:0;border-top:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;text-align:left;cursor:pointer}' +
     '.wtalk .wlast{flex:1 1 auto;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.wtalk .wgo{flex:none;font-weight:700;font-size:14px;border:1px solid var(--line-strong);border-radius:99px;padding:8px 14px}' +
+    '.wwant{border-top:1px solid var(--line);padding:12px 24px 14px;display:flex;flex-direction:column;gap:8px}' +
+    '.wwant-head{display:flex;align-items:center;gap:8px;font-size:14px}.wwant-sub{margin-left:auto;font-size:12.5px;color:var(--muted)}' +
+    '.wwl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}' +
+    '.wwi{border-radius:12px;background:color-mix(in srgb,var(--ink) 4%,var(--paper))}.wwi.on{background:var(--sound-soft)}.wwi.done .wwi-main{opacity:.6}' +
+    '.wwi-main{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:0;background:none;font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer}' +
+    '.wwi-main>i{width:9px;height:9px;border-radius:50%;flex:none}.wwi-main>span:first-of-type{flex:1 1 auto;min-width:0}' +
+    '.wwi-main em{font-style:normal;font-size:11px;font-weight:700;color:var(--wait-ink);background:var(--wait-bg);border-radius:99px;padding:2px 8px;flex:none}' +
+    '.wwi-go{flex:none;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;background:var(--paper);color:var(--sound-ink)}.wwi.on .wwi-go{background:var(--sound);color:#fff}' +
+    '.wwi-more{padding:0 12px 12px 31px;display:flex;flex-direction:column;gap:8px}.wwi-more p{margin:0;font-size:14px;color:var(--ink)}' +
+    '.wwi-acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.wwi-hint{font-size:12.5px;color:var(--muted)}' +
+    '.wwadd{align-self:flex-start;border:0;background:none;padding:2px 0;font:inherit;font-size:13.5px;font-weight:700;color:var(--ink);cursor:pointer;text-decoration:underline;text-underline-offset:3px}' +
+    '.wwform{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}.wwform select,.wwform input{min-height:36px;border-radius:10px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink)}.wwform input{flex:1 1 220px;min-width:0}' +
+    '@media (max-width:760px){.wwant{padding:12px 16px}.wwant-sub{display:none}.wwi-more{padding-left:12px}}' +
     '.wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}.wtop{font-size:12.5px;font-weight:700;color:var(--muted)}.wall-all{align-self:flex-start}' +
     '.wword{display:flex;gap:10px}.wword .ava{flex:none}' +
     '.wword b{font-size:14px}.wword .muted{font-size:12px;margin-left:6px}' +
@@ -905,16 +926,73 @@ function wallHtml(r) {
 
   if (EMBED) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now + '</div>' + talk + '</article>';
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now + '</div>' + wantedHtml(r, T, open) + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
       '<small>' + riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + esc(r.title) + '<span class="wpre">Preview · read-only</span></h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
     '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a></div>') +
-    '</div>' + bar + talk + '</article>';
+    '</div>' + bar + wantedHtml(r, T, open) + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
+/* ---------- Wanted: a musician asks for one instrument on their own take ----------
+   Preview only: there is no table yet, so the asks you add live in this browser (localStorage), and
+   each jam shows up to two examples (marked "example") on the tops of its stacks, asking for an
+   instrument those stacks don't have yet. */
+var WANT_KEY = 'stackato:wants', WANT_ORDER = ['bass', 'drums', 'vocals', 'guitar', 'lead', 'atmos'];
+S.wwsel = {}; S.wwform = {};
+function wantsLocal() { try { return JSON.parse(localStorage.getItem(WANT_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function wantsSave(all) { try { localStorage.setItem(WANT_KEY, JSON.stringify(all)); } catch (e) {} }
+function wantsOf(r, T) {
+  var mine = (wantsLocal()[r.id] || []).filter(function (w) { return w.take === 'riff' ? r.host : postOf(r, w.take) && postOf(r, w.take).mine; });
+  var list = mine.map(function (w) { return Object.assign({ mine:true }, w); }), asked = {};
+  list.forEach(function (w) { asked[w.take] = 1; });
+  var tops = Object.keys(T.nodes).map(function (k) { return T.nodes[k]; }).filter(function (n) {
+    return n.id !== 'riff' && !n.kids.length && n.p && !n.p.deleted && !n.p.isComment && n.p.kind !== 'part' && !n.p.section && !T.partOf[n.id] && !asked[n.id];
+  }).sort(function (a, b) { return String(b.p.created).localeCompare(String(a.p.created)); });
+  tops.slice(0, 4).forEach(function (n) {
+    if (list.filter(function (w) { return w.example; }).length >= 2) return;
+    var have = {}; chainOf(r, n.id).forEach(function (x) { have[x.isRiff ? r.layer : x.layer] = 1; });
+    var miss = WANT_ORDER.filter(function (l) { return !have[l]; })[0];
+    if (miss) list.push({ id:'ex-' + n.id, take:n.id, layer:miss, note:'', example:true });
+  });
+  return list;
+}
+function wantWho(r, w) { var p = w.take === 'riff' ? null : postOf(r, w.take); return w.mine ? 'You' : p ? p.by : r.by; }
+function wantWhat(r, w) {
+  var p = w.take === 'riff' ? null : postOf(r, w.take), thing = p ? lay(p.layer).label : 'original track';
+  return (w.mine ? 'want' : 'wants') + ' <b style="color:' + lay(w.layer).c + '">' + esc(lay(w.layer).label) + '</b> on ' + (w.mine ? 'your ' : 'their ') + esc(thing);
+}
+function wantedHtml(r, T, open) {
+  if (!open) return '';
+  var ws = wantsOf(r, T), sel = S.wwsel[r.id], form = S.wwform[r.id];
+  var own = r.posts.filter(function (p) { return p.mine && !p.isComment && !p.deleted && p.kind !== 'part'; });
+  if (r.host) own.unshift({ id:'riff', isRiff:true });
+  if (!ws.length && !own.length) return '';
+  var items = ws.map(function (w) {
+    var on = sel === w.id;
+    return '<li class="wwi' + (on ? ' on' : '') + (w.done ? ' done' : '') + '">' +
+      '<button class="wwi-main" type="button" data-wwant="' + r.id + '" data-post="' + w.take + '" data-wid="' + esc(w.id) + '">' +
+        '<i style="background:' + lay(w.layer).c + '"></i><span><b>' + esc(wantWho(r, w)) + '</b> ' + wantWhat(r, w) + (w.done ? ' · &#10003; answered' : '') + '</span>' +
+        (w.example ? '<em>example</em>' : '') + '<span class="wwi-go" aria-hidden="true">&#9654;</span></button>' +
+      (on ? '<div class="wwi-more">' + (w.note ? '<p>“' + esc(w.note) + '”</p>' : '') +
+        '<div class="wwi-acts">' + (EMBED ? '<button class="btn btn-main btn-sm" type="button" data-wrec="' + w.layer + '" data-post="' + w.take + '">Play ' + esc(lay(w.layer).label) + ' on this</button>'
+          : '<a class="btn btn-main btn-sm" href="/s/' + encodeURIComponent(r.slug) + '?stack=' + encodeURIComponent(w.take === 'riff' ? 'seed' : w.take) + '&amp;rec=' + w.layer + '&amp;wall">Play ' + esc(lay(w.layer).label) + ' on this</a>') +
+        '<span class="wwi-hint">Record it right here or upload a file, in project view</span>' +
+        (w.mine ? '<button class="btn btn-sm" type="button" data-wdone="' + r.id + '" data-wid="' + esc(w.id) + '">' + (w.done ? 'Ask again' : 'Mark as answered') + '</button><button class="btn btn-sm" type="button" data-wdel="' + r.id + '" data-wid="' + esc(w.id) + '">Remove</button>' : '') +
+        '</div></div>' : '') + '</li>';
+  }).join('');
+  var add = !own.length ? '' : form ? '<form class="wwform" data-wwform="' + r.id + '">' +
+      '<label>On <select name="take">' + own.map(function (p) { return '<option value="' + p.id + '">your ' + esc(p.isRiff ? 'original track' : lay(p.layer).label) + (p.isRiff ? '' : ' (' + esc(p.time || '') + ')') + '</option>'; }).join('') + '</select></label>' +
+      '<label>I want <select name="layer">' + ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label.toLowerCase()) + '</option>'; }).join('') + '</select></label>' +
+      '<input name="note" maxlength="80" placeholder="A word about it (optional): slap, a solo from bar 5…">' +
+      '<button class="btn btn-main btn-sm" type="submit">Ask</button><button class="btn btn-sm" type="button" data-wwformx="' + r.id + '">Cancel</button>' +
+      '<span class="wwi-hint">Preview: your asks stay in this browser.</span></form>'
+    : '<button class="wwadd" type="button" data-wwformo="' + r.id + '">+ Ask for an instrument on your take</button>';
+  return '<div class="wwant"><div class="wwant-head"><span aria-hidden="true">&#128227;</span><b>Wanted</b>' + (ws.length ? ' · ' + ws.length : '') +
+    '<span class="wwant-sub">Click one to hear what it goes on</span></div>' + (items ? '<ul class="wwl">' + items + '</ul>' : '') + add + '</div>';
+}
 function soloed(r, id) { return S.playing === r.id + ':solo' && (S.wsolo[r.id] || []).indexOf(id) > -1; }
 /* phones: one part of the song at a time, swipe for the next; the dots say where you are */
 /* the whole song from the top: the stack you picked if it is on a new part, else the part you look at, else the first new part */
@@ -1949,6 +2027,22 @@ document.addEventListener('click', function (e) {
     var jr = b.dataset.jwords; delete S.wtalk[jr]; openJam(jr);
     setTimeout(function () { var t = document.querySelector('#wall-ov .wtalk'); if (t) t.scrollIntoView({ behavior:'smooth', block:'start' }); }, 450);
     return;
+  }
+  if ((b = e.target.closest('[data-wwant]'))) {
+    var wr = b.dataset.wwant, wid = b.dataset.wid, wp = b.dataset.post;
+    if (S.wwsel[wr] === wid && S.playing === wallKey(riff(wr), wp)) { S.wwsel[wr] = null; render(); return; }
+    S.wwsel[wr] = wid;
+    if (S.playing !== wallKey(riff(wr), wp)) wallPick(wr, wp); else render();
+    return;
+  }
+  if ((b = e.target.closest('[data-wrec]'))) { toProject({ pick:b.dataset.post, play:false, rec:b.dataset.wrec }); return; }
+  if ((b = e.target.closest('[data-wwformo]'))) { S.wwform[b.dataset.wwformo] = true; render(); return; }
+  if ((b = e.target.closest('[data-wwformx]'))) { S.wwform[b.dataset.wwformx] = false; render(); return; }
+  if ((b = e.target.closest('[data-wdone]')) || (b = e.target.closest('[data-wdel]'))) {
+    var dr = b.dataset.wdone || b.dataset.wdel, all = wantsLocal(), lst = all[dr] || [], id2 = b.dataset.wid;
+    if (b.dataset.wdel) all[dr] = lst.filter(function (w) { return w.id !== id2; });
+    else lst.forEach(function (w) { if (w.id === id2) w.done = !w.done; });
+    wantsSave(all); render(); return;
   }
   if ((b = e.target.closest('[data-wtalkall]'))) { S.wtalk[b.dataset.wtalkall] = true; render(); return; }
   if ((b = e.target.closest('[data-jopen]'))) { openJam(b.dataset.jopen); return; }

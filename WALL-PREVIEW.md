@@ -33,6 +33,8 @@ In the bottom-up version, the tracks are as tall as the stack. "Your take" stays
     - "+ Add your instrument" first on the grey track;
     - the + for a new part sits beside the tracks.
 
+- **Wanted** (next to "Talk about this song"): a musician asks for one instrument on their own take, with an optional word about it ("Jurgen wants drums on his bass"). The jam's creator can ask on the original track, and every replier on their own takes. Clicking an ask plays the stack it goes on, shows the word about it, and offers "Play drums on this". That opens the grey track in project view on that stack, with the instrument picked. The one who asked can mark it as answered. In the preview, asks are kept in your browser only, and each jam shows up to two examples (marked "example") on the tops of its stacks. For real it needs a small table (take, asker, instrument, note, answered by). The homepage stays as it is for now.
+
 ## Decisions made while building it (Jurgen)
 
 - Links to the project say **"Open this stack in project view"** (on a stack or a take) and **"Open in project view"** (on a jam).
