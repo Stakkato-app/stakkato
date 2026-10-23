@@ -15,6 +15,7 @@ import { requireAccount, onAccount, postingAs, setToast, profileHref } from './a
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
+import { sendPlayCopy, encodeRender } from './playcopy.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
@@ -86,14 +87,14 @@ function build(feed) {
     function carried(ids) {
       return (ids || []).map(function (id) {
         var c = rowOf[id]; if (!c || c.status === 'deleted' || c.role_id === 'part' || c.role_id === 'mix') return null;
-        if (c.id === s.seed_take_id) return { id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '' };
-        return { id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', url:db.publicUrl(c.storage_path), dur:c.duration_sec, amp:c.amp || '' };
+        if (c.id === s.seed_take_id) return Object.assign({ id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', dur:seed.duration_sec }, sound(seed));
+        return Object.assign({ id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', dur:c.duration_sec }, sound(c));
       }).filter(Boolean);
     }
     KIND[s.id] = { kind:'session', sid:s.id };
     tk.forEach(function (t) {
       if (t.id === s.seed_take_id || t.role_id === 'seed') return;
-      if (t.role_id === 'mix') { if (t.status === 'mix') mix = { by:t.author_name, url:db.publicUrl(t.storage_path) }; return; }
+      if (t.role_id === 'mix') { if (t.status === 'mix') mix = { by:t.author_name, url:db.playUrl(t) }; return; }
       if (t.status === 'own') return;   /* own takes only live in someone's version */
       if (t.status === 'deleted') {
         /* a deleted take stays as an empty spot, so the replies played on it keep their place */
@@ -101,7 +102,8 @@ function build(feed) {
         return;
       }
       var base = { id:t.id, by:t.author_name, uid:t.author_id, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
-        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, peaks:t.peaks || null, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
+        text:t.note, path:t.storage_path, copy:t.play_path || null, dur:t.duration_sec, peaks:t.peaks || null, likes:votes[t.id] || 0, status:t.status };
+      Object.assign(base, sound(t));
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
@@ -123,7 +125,7 @@ function build(feed) {
     posts = posts.filter(function (p) {
       var g = p.group; if (!g || p.deleted) return true;
       if (!groups[g]) { groups[g] = p; p.stems = []; return true; }
-      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, peaks:p.peaks, amp:p.amp }); return false;
+      groups[g].stems.push({ id:p.id, by:p.by, uid:p.uid, mine:p.mine, layer:p.layer, url:p.url, path:p.path, copy:p.copy, dur:p.dur, peaks:p.peaks, amp:p.amp, wet:p.wet, tid:p.tid, sid:p.sid }); return false;
     });
     posts.sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
     /* a reply on something the feed leaves out (a deleted take) moves up to the jam */
@@ -138,8 +140,9 @@ function build(feed) {
       });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
-      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, peaks:seed.peaks || null, amp:seed.amp || '',
+      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', dur:seed.duration_sec, peaks:seed.peaks || null,
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
+    Object.assign(r, sound(seed), { id:s.id, uid:s.host_id });
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };
     return r;
   }).filter(Boolean);
@@ -263,7 +266,7 @@ function askOrDelete(k) {
     if (!p) return;
     if (S.playing && S.playing.indexOf(r.id) === 0) stop();
     job = p.isComment ? db.deleteThreadComment(id)
-      : [p].concat(p.stems || []).reduce(function (pr, x) { return pr.then(function () { return db.deleteThreadTake(x.id, x.path); }); }, Promise.resolve());
+      : [p].concat(p.stems || []).reduce(function (pr, x) { return pr.then(function () { return db.deleteThreadTake(x.id, x.path, x.copy); }); }, Promise.resolve());
   }
   job.then(reload).then(function () {
     toast(what === 'jam' ? 'The jam is deleted.' : 'Deleted. Replies to it stay in the thread.');
@@ -291,7 +294,7 @@ function chainOf(r, pid) {
     if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, isPart:true }].concat(p.carry || [], out);
     if (p.layer) out = stemsOf(p).concat(out);
   }
-  return [{ id:'riff', by:r.by, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host, amp:r.amp }].concat(out);
+  return [{ id:'riff', by:r.by, uid:r.uid, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host, amp:r.amp, wet:r.wet, tid:r.tid, sid:r.sid }].concat(out);
 }
 function bufKey(r, p) { return p.isRiff ? r.id + ':riff' : r.id + ':' + p.id; }
 function chipLabel(p) { return p.isRiff ? 'clip' : p.isPart ? 'new part' : lay(p.layer).label; }
@@ -303,19 +306,34 @@ function load(r, p) {
   var k = bufKey(r, p);
   if (BUF[k] || BUF[k + ':loading'] || !p.url) return Promise.resolve();
   BUF[k + ':loading'] = true;
+  BUF[k + ':wet'] = !!p.wet;   /* the stored render, already through the amp */
   return fetch(p.url).then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
     .then(function (ab) { return ac().decodeAudioData(ab); })
     .then(function (b) { BUF[k] = b; drawWaves(); })
     .catch(function (e) { console.warn('Could not load audio', p.url, e); });
 }
+/* What a take's row plays (db.playSource()): with an amp, its stored render (take_renders) when
+   there is one, already through the amp (wet); otherwise the dry original, rendered here. */
+function sound(row) {
+  var amp = row.amp || '', src = db.playSource(row, amp);
+  return { url:src.url, amp:amp, wet:!!amp && src.src === amp, tid:row.id, sid:row.session_id, uid:row.author_id };
+}
 /* A take with an amp (a dry DI guitar, set in the song view) plays rendered through it.
-   The render is made once and kept next to the dry audio; if it fails, the take plays dry. */
+   The render is made once and kept next to the dry audio; if it fails, the take plays dry.
+   Made here, it is stored for everyone when this is the take's author, the jam's creator or
+   the admin (as in the project), so the next listener plays it right away. */
 function ampKey(r, p) { return bufKey(r, p) + '@' + p.amp; }
 function amped(r, p) {
   var b = BUF[bufKey(r, p)], k = ampKey(r, p);
   if (!p.amp || !b || BUF[k] || BUF[k + ':failed']) return Promise.resolve();
-  if (!BUF[k + ':busy']) BUF[k + ':busy'] = renderAmp(b, p.amp).then(function (x) { BUF[k] = x; }, function (e) { console.warn('Could not render the amp', e); BUF[k + ':failed'] = true; });
+  if (BUF[bufKey(r, p) + ':wet']) { BUF[k] = b; return Promise.resolve(); }
+  if (!BUF[k + ':busy']) BUF[k + ':busy'] = renderAmp(b, p.amp).then(function (x) { BUF[k] = x; keepRender(r, p, x); }, function (e) { console.warn('Could not render the amp', e); BUF[k + ':failed'] = true; });
   return BUF[k + ':busy'];
+}
+function keepRender(r, p, buf) {
+  if (!me || !p.tid || !p.sid || !(p.uid === me.id || r.host || db.isAdmin(me))) return;
+  encodeRender(buf).then(function (blob) { return db.storeRender({ id:p.tid, session_id:p.sid }, p.amp, blob); })
+    .catch(function (e) { console.warn('The amp render was not stored; it plays here all the same:', e); });
 }
 function bufFor(r, p) { return (p.amp && BUF[ampKey(r, p)]) || BUF[bufKey(r, p)]; }
 /* FADE: the gain everything that plays goes through; stopping takes it down over 5 ms first */
@@ -936,11 +954,12 @@ el('r-go').addEventListener('click', function () {
   el('r-go').disabled = true; el('r-err').textContent = 'Uploading…';
   ensureMe('play').then(function (u) {
     var path = r.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(file.name), type = typeFor(file);
-    return db.uploadAudio(path, file, type).then(function () {
+    return Promise.all([db.uploadAudio(path, file, type), sendPlayCopy(db.uploadAudio, path, file, buf.duration)]).then(function (up) {
       var row = { session_id:r.id, author_id:u.id, author_name:db.accountName(u), role_id:el('r-layer').value, note:el('r-text').value.trim(),
         status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, peaks:peaksOfBuffer(buf), section_id:section, reply_to:replyTo,
         on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) };
       if (ampId) row.amp = ampId;
+      if (up[1]) row.play_path = up[1];
       /* without the amp migration the take still goes in, just without its amp (as in the project) */
       return db.insertTake(row).catch(function (e) {
         if (!row.amp || !/amp/.test(String(e && (e.message || e.details)))) throw e;
@@ -1049,9 +1068,9 @@ el('up-go').addEventListener('click', function () {
     return db.createSession(u.id).then(function (s) {
       sess = s;
       var path = s.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(f.name), type = typeFor(f);
-      return db.uploadAudio(path, f, type).then(function () {
+      return Promise.all([db.uploadAudio(path, f, type), sendPlayCopy(db.uploadAudio, path, f, b.duration)]).then(function (up) {
         return db.insertTake({ session_id:s.id, author_id:u.id, author_name:db.accountName(u), role_id:'seed', note:el('up-text').value.trim(), status:'seed',
-          storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration, peaks:peaksOfBuffer(b),
+          storage_path:path, play_path:up[1] || undefined, file_name:f.name, mime_type:type, duration_sec:b.duration, peaks:peaksOfBuffer(b),
           an_bpm:an && an.tempo ? an.tempo.bpm : null, an_key:an && an.key ? an.key.key : null });
       });
     });

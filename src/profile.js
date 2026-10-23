@@ -62,15 +62,16 @@ function stateOf(t, s) {
 var AC = null, BUF = {}, SRC = [], FADE = null, playing = null;
 function ac() { if (!AC) AC = newContext(); return AC; }
 function decoded(t) {
-  if (!BUF[t.id]) BUF[t.id] = fetch(db.publicUrl(t.storage_path))
+  if (!BUF[t.id]) BUF[t.id] = fetch(db.playSource(t, t.amp || '').url)
     .then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
     .then(function (ab) { return ac().decodeAudioData(ab); });
   return BUF[t.id];
 }
-/* a take with an amp plays its render; until that's ready it isn't heard dry */
+/* a take with an amp plays its render: the stored one (take_renders), which is already through
+   the amp, or one made here; until that's ready it isn't heard dry */
 function playable(t) {
   return decoded(t).then(function (b) {
-    if (!t.amp) return b;
+    if (!t.amp || db.playSource(t, t.amp).src === t.amp) return b;
     var k = t.id + '@' + t.amp;
     if (!BUF[k]) BUF[k] = renderAmp(b, t.amp).catch(function (e) { console.warn('Could not render the amp', e); return b; });
     return BUF[k];
