@@ -1127,9 +1127,13 @@ function makeSound(t, id) {
   return ampHere(t, id);
 }
 /* the amp always runs on the original as sent: the amps' gain would bring the compressed
-   copy's error up to where it can be heard */
+   copy's error up to where it can be heard. Each render made here is kept (t.fresh[id]): it is
+   lossless, so stems use it rather than the stored render. */
 function ampHere(t, id) {
-  return origOf(t).then(function (o) { return renderAmp(o, id); }).then(function (buf) { storeRender(t, id, buf); return buf; });
+  t.fresh = t.fresh || {};
+  if (!t.fresh[id]) t.fresh[id] = origOf(t).then(function (o) { return renderAmp(o, id); })
+    .then(function (buf) { storeRender(t, id, buf); return buf; }, function (e) { delete t.fresh[id]; throw e; });
+  return t.fresh[id];
 }
 function origOf(t) {
   if (t.orig) return Promise.resolve(t.orig);
@@ -1413,7 +1417,7 @@ function setBuffer(t, buf, src) {
   t.peaks = peaksOf(buf, 1200);
   t.mm = minMaxOf(buf, 2400);
   t.gen = (t.gen || 0) + 1;
-  t.amped = {};
+  t.amped = {}; t.fresh = {};
   t.amped[src === 'orig' || src === 'copy' ? '' : src] = { buf:buf };
   if (src === 'orig') { t.orig = buf; t.origP = null; }
   delete gains[t.id];
@@ -1465,18 +1469,21 @@ function uploadTake(file, buf, o) {
 
 /* ---------- downloads ---------- */
 function clean(s){ return String(s || 'take').replace(/[^\w\- ]+/g, '').trim() || 'take'; }
-function fileName(t, i) {
-  return (i !== undefined ? ('0' + (i + 1)).slice(-2) + ' ' : '') + clean(labelOf(t)) + ' - ' + clean(t.by || 'you') + '.' + extOf(t.fileName);
+function fileName(t, i, dry) {
+  return (i !== undefined ? ('0' + (i + 1)).slice(-2) + ' ' : '') + clean(labelOf(t)) + ' - ' + clean(t.by || 'you') +
+    (ampOf(t) && !dry ? ' (' + ampLabel(ampOf(t)).toLowerCase() + ' amp).wav' : '.' + extOf(t.fileName));
 }
-function sheet(list) {
+/* wet[i]: whether take i's file in the zip is through its amp */
+function sheet(list, wet) {
   return 'Stakkato session sheet\r\n\r\n' +
     'Tempo: ' + (S.meta.bpm || '?') + ' bpm\r\nKey: ' + (S.meta.key || '?') + '\r\nTime: ' + S.meta.time +
     '\r\nLength of the original track: ' + fmt(target()) + '\r\n\r\nEvery file starts at the time listed below. Takes on the original track start at its first beat, takes on a new part start with that part.\r\n\r\n' +
     list.map(function (t, i) {
-      var e = envOf(t);
-      return fileName(t, i) + '   (' + labelOf(t) + ', ' + (t.by || 'you') + ', starts at ' + clockMs(startOf(t)) +
-        (e.fi > 0.01 ? ', fade in ' + e.fi.toFixed(1) + ' s' : '') + (e.fo > 0.01 ? ', fade out ' + e.fo.toFixed(1) + ' s' : '') + (ampOf(t) ? ', ' + ampLabel(ampOf(t)).toLowerCase() + ' amp in the app, the file is dry' : '') + ')';
-    }).join('\r\n') + '\r\n';
+      var e = envOf(t), a = ampOf(t) && ampLabel(ampOf(t)).toLowerCase();
+      return fileName(t, i, !wet[i]) + '   (' + labelOf(t) + ', ' + (t.by || 'you') + ', starts at ' + clockMs(startOf(t)) +
+        (e.fi > 0.01 ? ', fade in ' + e.fi.toFixed(1) + ' s' : '') + (e.fo > 0.01 ? ', fade out ' + e.fo.toFixed(1) + ' s' : '') + (a ? (wet[i] ? ', through the ' + a + ' amp; as recorded in dry/' : ', ' + a + ' amp in the app, which did not render here, so the file is dry') : '') + ')';
+    }).join('\r\n') + '\r\n' +
+    (wet.some(Boolean) ? '\r\nTakes with an amp are as you hear them in the app (48 kHz wav). The files as they were sent, without the amp, are in dry/ for re-amping.\r\n' : '');
 }
 function hand(filename, blob) {
   var url = URL.createObjectURL(blob), a = document.createElement('a');
@@ -1488,21 +1495,37 @@ function hand(filename, blob) {
 /* the file as it was sent, never the compressed copy that plays */
 function bytes(t) {
   if (t.bytes) return Promise.resolve(t.bytes);
-  return fetch(db.publicUrl(t.path)).then(function (r) { return r.arrayBuffer(); }).then(function (ab) { return (t.bytes = new Uint8Array(ab)); });
+  return fetch(db.publicUrl(t.path)).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }).then(function (ab) { return (t.bytes = new Uint8Array(ab)); });
+}
+/* A take's files for a download: the file as sent, or, with an amp on, that amp's sound as a wav
+   (rendered from the original here, never the compressed stored render) plus the file as sent in
+   dry/. An amp that fails gives the file as sent only. */
+function stemFiles(t, i) {
+  var id = ampOf(t);
+  if (!id) return bytes(t).then(function (u) { return [{ name:fileName(t, i), data:u }]; });
+  return bytes(t).then(function (u) {
+    /* the amp starts from the same download, decoded, unless the original is here already */
+    if (!t.orig && !t.origP) t.origP = ac().decodeAudioData(u.slice().buffer).then(function (b) { return (t.orig = b); }, function (e) { t.origP = null; throw e; });
+    return Promise.all([u, ampHere(t, id).then(function (b) { return encodeWav(b).arrayBuffer(); }, function (e) { console.error(e); return null; })]);
+  }).then(function (r) {
+    var dry = { name:(r[1] ? 'dry/' : '') + fileName(t, i, true), data:r[0] };
+    return r[1] ? [{ name:fileName(t, i), data:new Uint8Array(r[1]) }, dry] : [dry];
+  });
 }
 function download(t) {
   if (!t || !t.url) return;
-  bytes(t).then(function (u) {
-    hand(clean(t.by || 'you') + ' - ' + clean(role(t.roleId).label) + '.zip', zip([{ name:fileName(t), data:u }]));
+  if (ampOf(t)) flash('Putting the take through its amp...');
+  stemFiles(t).then(function (files) {
+    hand(clean(t.by || 'you') + ' - ' + clean(role(t.roleId).label) + '.zip', zip(files));
   }).catch(oops);
 }
 function downloadAll() {
   var list = tracks().filter(function (t) { return t.url; });
   if (!list.length) return;
-  flash('Packing ' + list.length + ' file(s)...');
-  Promise.all(list.map(bytes)).then(function (arr) {
-    var files = arr.map(function (u, i) { return { name:fileName(list[i], i), data:u }; });
-    files.push({ name:'session sheet.txt', data:new TextEncoder().encode(sheet(list)) });
+  flash('Packing ' + list.length + ' file(s)' + (list.some(ampOf) ? ' and putting takes through their amps' : '') + '...');
+  Promise.all(list.map(stemFiles)).then(function (arr) {
+    var files = [].concat.apply([], arr);
+    files.push({ name:'session sheet.txt', data:new TextEncoder().encode(sheet(list, arr.map(function (f) { return f.length > 1; }))) });
     var title = (S.override ? S.override.name : (S.view === 'build' ? 'my version' : 'the stack'));
     hand('Stakkato - ' + clean(title) + ' stems.zip', zip(files));
   }).catch(oops);
