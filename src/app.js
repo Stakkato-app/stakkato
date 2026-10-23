@@ -22,6 +22,7 @@ import { AMPS, ampLabel, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.j
 import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
+import { peaksOfBuffer } from './peaks.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
@@ -1378,7 +1379,7 @@ function uploadTake(file, buf, o) {
     var an = r[1];
     var row = {
       session_id: sid, author_id: me.id, author_name: o.name, role_id: o.role, note: o.note || '',
-      status: o.status, storage_path: path, file_name: file.name, mime_type: type, duration_sec: buf.duration,
+      status: o.status, storage_path: path, file_name: file.name, mime_type: type, duration_sec: buf.duration, peaks: peaksOfBuffer(buf),
       part_pos: o.pos || null, section_id: o.sec || null,
       on_takes: o.on ? o.on : o.status === 'waiting' && o.role !== 'part' && !o.sec ? (currentStack() || { takes:[] }).takes.filter(function (x) { return !x.mute; }).map(function (x) { return x.dbId; }) : null,
       group_id: o.group || null,

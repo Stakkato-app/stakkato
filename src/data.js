@@ -326,15 +326,22 @@ export async function updateSession(id, patch) {
 /* ---------- takes ---------- */
 
 /* Uploads go straight from the browser to Supabase Storage, so file size is bounded
-   by the bucket limit (50 MB), not by the hosting's request size. */
+   by the bucket limit (50 MB), not by the hosting's request size.
+   File names are random and never overwritten, so browsers may keep them for a year. */
 export async function uploadAudio(path, file, contentType) {
   ro();
-  return check(await supabase.storage.from(BUCKET).upload(path, file, { contentType, upsert: false }));
+  return check(await supabase.storage.from(BUCKET).upload(path, file, { contentType, upsert: false, cacheControl: '31536000' }));
 }
 
+/* without the peaks migration (20261022120000_take_peaks.sql) the take still goes in, without its waveform */
 export async function insertTake(row) {
   ro();
-  return check(await supabase.from('takes').insert(row).select().single());
+  let res = await supabase.from('takes').insert(row).select().single();
+  if (res.error && row.peaks !== undefined && /peaks/.test(String(res.error.message || res.error.details))) {
+    const { peaks, ...rest } = row;
+    res = await supabase.from('takes').insert(rest).select().single();
+  }
+  return check(res);
 }
 
 /* Status changes are host-only and run server-side so slot rules can't be bypassed. */

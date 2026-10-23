@@ -14,6 +14,7 @@ import * as db from './data.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
+import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
@@ -100,7 +101,7 @@ function build(feed) {
         return;
       }
       var base = { id:t.id, by:t.author_name, uid:t.author_id, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
-        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
+        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, peaks:t.peaks || null, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
@@ -122,7 +123,7 @@ function build(feed) {
     posts = posts.filter(function (p) {
       var g = p.group; if (!g || p.deleted) return true;
       if (!groups[g]) { groups[g] = p; p.stems = []; return true; }
-      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, amp:p.amp }); return false;
+      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, peaks:p.peaks, amp:p.amp }); return false;
     });
     posts.sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
     /* a reply on something the feed leaves out (a deleted take) moves up to the jam */
@@ -137,7 +138,7 @@ function build(feed) {
       });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
-      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '',
+      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, peaks:seed.peaks || null, amp:seed.amp || '',
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };
     return r;
@@ -420,7 +421,14 @@ function seekTarget(cv) {
   var p = postOf(r, pid) || postOf(r, pid.split('~')[0]);   /* a stem of a grouped reply plays its reply */
   return p ? { r:r, pid:p.id } : null;
 }
-function lenOf(cv) { var b = BUF[cv.dataset.wave]; return b ? b.duration : 0; }
+/* what a waveform draws: the riff, a post, or a stem of a grouped reply (<post id>~<stem id>) */
+function waveOf(k) {
+  var i = k.indexOf(':'), r = riff(k.slice(0, i)), pid = k.slice(i + 1); if (!r) return null;
+  if (pid === 'riff') return r;
+  var ids = pid.split('~'), p = postOf(r, ids[0]);
+  return p && ids[1] ? (p.stems || []).filter(function (x) { return x.id === ids[1]; })[0] || null : p || null;
+}
+function lenOf(cv) { var b = BUF[cv.dataset.wave], w = !b && waveOf(cv.dataset.wave); return b ? b.duration : w && w.peaks && w.dur || 0; }
 document.addEventListener('mousemove', function (e) {
   var cv = e.target.closest && e.target.closest('canvas[data-wave]');
   [].forEach.call(document.querySelectorAll('.shead'), function (h) { if (!cv || h.dataset.for !== cv.dataset.wave) h.hidden = true; });
@@ -436,20 +444,25 @@ document.addEventListener('click', function (e) {
   var rect = cv.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
   play(t.r.id, t.pid, f * lenOf(cv));
 });
-/* a real waveform: the highest and lowest sample in every pixel column, drawn as one shape */
-function waveShape(cv, buf, color) {
+/* a real waveform: the highest and lowest sample in every pixel column, drawn as one shape
+   (from the decoded audio, or from the take's saved peaks while the audio isn't loaded) */
+function waveShape(cv, buf, color, peaks) {
   var w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
   if (!w || !h) return;
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   var g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
   g.fillStyle = color;
-  var mid = h / 2;
-  if (!buf) { g.globalAlpha = .35; g.fillRect(0, mid - 1, w, 2); return; }
-  var d = buf.getChannelData(0), cols = Math.max(1, Math.floor(w)), step = d.length / cols, hi = [], lo = [], peak = 0, x, i;
-  for (x = 0; x < cols; x++) {
-    var a = Math.floor(x * step), z = Math.min(d.length, Math.floor((x + 1) * step)), mx = 0, mn = 0;
-    for (i = a; i < z; i++) { var v = d[i]; if (v > mx) mx = v; else if (v < mn) mn = v; }
-    hi.push(mx); lo.push(mn); peak = Math.max(peak, mx, -mn);
+  var mid = h / 2, pk = !buf && decodePeaks(peaks);
+  if (!buf && !pk) { g.globalAlpha = .35; g.fillRect(0, mid - 1, w, 2); return; }
+  var cols = Math.max(1, Math.floor(w)), hi = [], lo = [], peak = 0, x, i;
+  if (pk) { var c = columns(pk, cols); hi = c.hi; lo = c.lo; peak = 1; }
+  else {
+    var d = buf.getChannelData(0), step = d.length / cols;
+    for (x = 0; x < cols; x++) {
+      var a = Math.floor(x * step), z = Math.min(d.length, Math.floor((x + 1) * step)), mx = 0, mn = 0;
+      for (i = a; i < z; i++) { var v = d[i]; if (v > mx) mx = v; else if (v < mn) mn = v; }
+      hi.push(mx); lo.push(mn); peak = Math.max(peak, mx, -mn);
+    }
   }
   var k = peak ? (mid - 1) / peak : 0;
   g.beginPath(); g.moveTo(0, mid - hi[0] * k);
@@ -465,7 +478,8 @@ function drawWaves() {
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of || sounding(riff(w.slice(0, i)), wp === 'riff' ? null : wp));
     /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
     var tone = lit ? '--sound' : cv.closest('.take') && cv.dataset.layer ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
-    waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(tone).trim());
+    var b = BUF[cv.dataset.wave], wv = !b && waveOf(cv.dataset.wave);
+    waveShape(cv, b, css.getPropertyValue(tone).trim(), wv && wv.peaks);
   });
 }
 
@@ -588,10 +602,11 @@ function render() {
     : list.length ? list.map(riffHtml).join('')
     : '<p class="empty">' + (S.tab === 'songs' ? 'No songs yet.' : 'No jams yet. <a href="#start">Start the first one.</a>') + '</p>';
   [].forEach.call(document.querySelectorAll('#tabs [data-tab]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tab === S.tab)); });
-  /* every clip loads for its waveform; replies load once their thread is open */
+  /* waveforms draw from the takes' saved peaks; only a take without them (sent before they were
+     saved) loads its audio for its waveform, replies once their thread is open */
   list.forEach(function (r) {
-    load(r, { isRiff:true, url:r.url });
-    if (S.expanded[r.id]) r.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { load(r, x); }); });
+    if (!r.peaks) load(r, { isRiff:true, url:r.url });
+    if (S.expanded[r.id]) r.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { if (!x.peaks) load(r, x); }); });
   });
   drawWaves();
 }
@@ -923,7 +938,7 @@ el('r-go').addEventListener('click', function () {
     var path = r.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(file.name), type = typeFor(file);
     return db.uploadAudio(path, file, type).then(function () {
       var row = { session_id:r.id, author_id:u.id, author_name:db.accountName(u), role_id:el('r-layer').value, note:el('r-text').value.trim(),
-        status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, section_id:section, reply_to:replyTo,
+        status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, peaks:peaksOfBuffer(buf), section_id:section, reply_to:replyTo,
         on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) };
       if (ampId) row.amp = ampId;
       /* without the amp migration the take still goes in, just without its amp (as in the project) */
@@ -1036,7 +1051,7 @@ el('up-go').addEventListener('click', function () {
       var path = s.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(f.name), type = typeFor(f);
       return db.uploadAudio(path, f, type).then(function () {
         return db.insertTake({ session_id:s.id, author_id:u.id, author_name:db.accountName(u), role_id:'seed', note:el('up-text').value.trim(), status:'seed',
-          storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration,
+          storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration, peaks:peaksOfBuffer(b),
           an_bpm:an && an.tempo ? an.tempo.bpm : null, an_key:an && an.key ? an.key.key : null });
       });
     });
