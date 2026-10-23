@@ -182,13 +182,27 @@ export async function loadPlayer(userId) {
   const played = others.length ? check(await supabase.from('sessions').select(PROFILE_SESSION).in('id', others)
     .is('deleted_at', null).not('seed_take_id', 'is', null).order('created_at', { ascending: false })) : [];
   const ids = started.concat(played).map(function (s) { return s.id; });
-  const stacks = ids.length ? check(await supabase.from('takes')
-    .select('id, session_id, role_id, status, section_id, author_id, author_name, storage_path, play_path, amp, duration_sec, created_at')
-    .in('session_id', ids).in('status', ['seed', 'in', 'waiting', 'mix'])) : [];
+  const [stackRes, renders] = ids.length ? await Promise.all([
+    supabase.from('takes')
+      .select('id, session_id, role_id, status, section_id, author_id, author_name, storage_path, play_path, amp, duration_sec, created_at')
+      .in('session_id', ids).in('status', ['seed', 'in', 'waiting', 'mix']),
+    supabase.from('take_renders').select('take_id, amp, path').in('session_id', ids)
+  ]) : [{ data: [] }, { data: [] }];
+  const stacks = withRenders(check(stackRes), renders);
   return { started, played, takes, stacks };
 }
 
 /* ---------- reads ---------- */
+
+/* Stored amp renders (take_renders, 20261023180000_take_renders.sql) go on each take as
+   row.renders = { amp: path }. Without that migration every amped take renders in the browser. */
+function withRenders(rows, res) {
+  if (res && res.error) console.warn('Stored amp renders are not available:', res.error.message);
+  var by = {};
+  ((res && !res.error && res.data) || []).forEach(function (r) { (by[r.take_id] = by[r.take_id] || {})[r.amp] = r.path; });
+  rows.forEach(function (row) { row.renders = by[row.id] || {}; });
+  return rows;
+}
 
 export async function loadSessionBySlug(slug) {
   return check(await supabase.from('sessions').select('*').eq('slug', slug).is('deleted_at', null).maybeSingle());
@@ -199,7 +213,7 @@ export async function loadSessionById(id) {
 }
 
 export async function loadSnapshot(sessionId) {
-  const [takes, votes, versions, likes, reactions, comments, stackLikes, words, tvotes] = await Promise.all([
+  const [takes, votes, versions, likes, reactions, comments, stackLikes, words, tvotes, renders] = await Promise.all([
     supabase.from('takes').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('votes').select('take_id, voter_id, value').eq('session_id', sessionId),
     supabase.from('versions').select('*').eq('session_id', sessionId).order('created_at'),
@@ -208,12 +222,13 @@ export async function loadSnapshot(sessionId) {
     supabase.from('comments').select('*').eq('session_id', sessionId).order('created_at'),
     supabase.from('stack_likes').select('stack_key, user_id').eq('session_id', sessionId),
     supabase.from('thread_comments').select('*').eq('session_id', sessionId).eq('hidden', false).order('created_at'),
-    supabase.from('thread_votes').select('target_id, voter_id, value').eq('session_id', sessionId)
+    supabase.from('thread_votes').select('target_id, voter_id, value').eq('session_id', sessionId),
+    supabase.from('take_renders').select('take_id, amp, path').eq('session_id', sessionId)
   ]);
   /* comments come from a later migration; until it is applied the page works without them */
   if (comments.error) console.warn('Timeline comments are not available:', comments.error.message);
   return {
-    takes: check(takes),
+    takes: withRenders(check(takes), renders),
     votes: check(votes),
     versions: check(versions),
     likes: check(likes),
@@ -251,16 +266,17 @@ export async function loadFeed(limit) {
     .limit(limit || 20));
   if (!sessions.length) return { sessions, takes: [], comments: [], votes: [] };
   const ids = sessions.map((s) => s.id);
-  const [takes, comments, votes] = await Promise.all([
+  const [takes, comments, votes, renders] = await Promise.all([
     supabase.from('takes').select('*').in('session_id', ids).order('created_at'),
     supabase.from('thread_comments').select('*').in('session_id', ids).eq('hidden', false).order('created_at'),
-    supabase.from('thread_votes').select('target_id, voter_id, value').in('session_id', ids)
+    supabase.from('thread_votes').select('target_id, voter_id, value').in('session_id', ids),
+    supabase.from('take_renders').select('take_id, amp, path').in('session_id', ids)
   ]);
   if (comments.error) console.warn('Thread comments are not available:', comments.error.message);
   if (votes.error) console.warn('Thread votes are not available:', votes.error.message);
   return {
     sessions,
-    takes: check(takes),
+    takes: withRenders(check(takes), renders),
     comments: comments.error ? [] : comments.data,
     votes: votes.error ? [] : votes.data
   };
@@ -276,7 +292,9 @@ export async function deleteJam(sessionId) {
 export async function deleteThreadTake(takeId, storagePath, playPath) {
   ro();
   check(await supabase.rpc('delete_thread_take', { p_take: takeId }));
-  const paths = [storagePath, playPath].filter(Boolean);
+  /* its stored amp renders go too (only the ones in your own folder, or all as admin) */
+  const renders = await supabase.from('take_renders').select('path').eq('take_id', takeId);
+  const paths = [storagePath, playPath].concat((renders.data || []).map((r) => r.path)).filter(Boolean);
   if (paths.length) {
     const res = await supabase.storage.from(BUCKET).remove(paths);
     if (res.error) console.warn('The audio file could not be removed:', res.error.message);
@@ -312,12 +330,35 @@ export function publicUrl(path) {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-/* What plays a take: its compressed copy (play_path) when it has one, else the file as it was
-   sent. A take with an amp plays its original: the amps add a lot of gain, which brings the
-   codec's small errors up to where they can be heard (see src/playcopy.js). Stem downloads
-   always use publicUrl(storage_path). */
+/* What plays a take through an amp (amp: '' = none): the stored render of that amp when there
+   is one (src: the amp's id, the file is already through the amp), else its compressed copy
+   (play_path, src 'copy') for a take without an amp, else the file as it was sent (src 'orig').
+   An amp is never run over the compressed copy: the amps add a lot of gain, which brings the
+   codec's small errors up to where they can be heard, so a render without a stored file starts
+   from the original. Stem downloads always use publicUrl(storage_path). */
+export function playSource(row, amp) {
+  var r = amp && row.renders && row.renders[amp];
+  if (r) return { src: amp, url: publicUrl(r) };
+  if (!amp && row.play_path) return { src: 'copy', url: publicUrl(row.play_path) };
+  return { src: 'orig', url: publicUrl(row.storage_path) };
+}
 export function playUrl(row) {
-  return publicUrl(!row.amp && row.play_path ? row.play_path : row.storage_path);
+  return playSource(row, row.amp || '').url;
+}
+
+/* Keeps a take's amp render (an Ogg Opus Blob, src/playcopy.js' encodeRender) for everyone:
+   {session}/{you}/{take}.{amp}.ogg plus its take_renders row. Only the take's author, the
+   creator or the admin may (the policy says so); a render someone stored first is kept. */
+export async function storeRender(row, amp, blob) {
+  ro();
+  const user = await ensureUser();
+  if (!user) throw new Error('Sign in to store renders.');
+  const path = row.session_id + '/' + user.id + '/' + row.id + '.' + amp + '.ogg';
+  const up = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'audio/ogg', upsert: false, cacheControl: '31536000' });
+  /* a file left by an earlier try that didn't get its row: use it */
+  if (up.error && !/exists|duplicate/i.test(String(up.error.message || up.error.error || '')) && up.error.statusCode !== '409') throw up.error;
+  ignoreDuplicate(await supabase.from('take_renders').insert({ take_id: row.id, amp, session_id: row.session_id, path, made_by: user.id }));
+  return path;
 }
 
 /* ---------- sessions ---------- */

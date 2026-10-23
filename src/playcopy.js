@@ -23,27 +23,45 @@ export function makePlayCopy(file, seconds) {
     var C = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     /* decoding at 48 kHz is the resampling, in the browser's decoder, off the main thread */
     return new C(1, 1, RATE).decodeAudioData(ab);
-  }).then(function (buf) {
-    var chans = [buf.getChannelData(0)];
-    if (buf.numberOfChannels > 1 && !sameChannels(buf.getChannelData(0), buf.getChannelData(1))) chans.push(buf.getChannelData(1));
-    var bitrate = (chans.length > 1 ? STEREO_KBPS : MONO_KBPS) * 1000;
-    /* Safari's AudioEncoder (Apple's own Opus) cuts the lows like a speech encoder: on a bass DI,
-       2 dB less under 60 Hz and the low end's phase moved, at a lower bitrate than asked. So Apple
-       browsers (iOS ones too, all WebKit) use opus-recorder's libopus, the same encoder as ffmpeg,
-       which is fast there; the others use WebCodecs, which is much faster than the library in
-       Firefox. Either falls back to the other. The worker gets copies, so the fallback still has
-       the samples. */
-    var first = APPLE ? viaLibrary : viaWebCodecs, then = APPLE ? viaWebCodecs : viaLibrary;
-    return first(chans.map(function (c) { return c.slice(0); }), bitrate).catch(function (e) {
-      console.warn('Encoding the compressed copy again with the other encoder:', e);
-      return then(chans, bitrate);
-    });
-  }).then(function (bytes) {
+  }).then(encode).then(function (bytes) {
     if (!bytes || bytes.length >= file.size) return null;
     return new Blob([bytes], { type:TYPE });
   }).catch(function (e) {
     console.warn('No compressed copy, the take plays its original:', e);
     return null;
+  });
+}
+
+/* A take's amp render (src/amp.js' renderAmp, 48 kHz) as Ogg Opus, the same way as a copy, for
+   take_renders: the amp's gain is already in it, so the codec's error stays where it is quiet.
+   Resolves to a Blob; rejects when neither encoder works. */
+export function encodeRender(buf) {
+  var go = buf.sampleRate === RATE ? Promise.resolve(buf) : resample(buf);
+  return go.then(encode).then(function (bytes) { return new Blob([bytes], { type:TYPE }); });
+}
+function resample(buf) {
+  var C = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  var oc = new C(buf.numberOfChannels, Math.max(1, Math.round(buf.duration * RATE)), RATE), s = oc.createBufferSource();
+  s.buffer = buf; s.connect(oc.destination); s.start();
+  return oc.startRendering();
+}
+
+/* an AudioBuffer at 48 kHz to the bytes of an Ogg Opus file */
+function encode(buf) {
+  var chans = [buf.getChannelData(0)];
+  if (buf.numberOfChannels > 1 && !sameChannels(buf.getChannelData(0), buf.getChannelData(1))) chans.push(buf.getChannelData(1));
+  var bitrate = (chans.length > 1 ? STEREO_KBPS : MONO_KBPS) * 1000;
+  /* Safari's AudioEncoder (Apple's own Opus) cuts the lows like a speech encoder: on a bass DI,
+     2 dB less under 60 Hz and the low end's phase moved, at a lower bitrate than asked. So Apple
+     browsers (iOS ones too, all WebKit) use opus-recorder's libopus, the same encoder as ffmpeg,
+     which is fast there; the others use WebCodecs, which is much faster than the library in
+     Firefox. Either falls back to the other. The workers get copies, so the fallback still has
+     the samples and a render that is playing keeps its own. */
+  var first = APPLE ? viaLibrary : viaWebCodecs, then = APPLE ? viaWebCodecs : viaLibrary;
+  function copies() { return chans.map(function (c) { return c.slice(0); }); }
+  return first(copies(), bitrate).catch(function (e) {
+    console.warn('Encoding the compressed copy again with the other encoder:', e);
+    return then(copies(), bitrate);
   });
 }
 

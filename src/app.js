@@ -23,7 +23,7 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { peaksOfBuffer } from './peaks.js';
-import { sendPlayCopy } from './playcopy.js';
+import { sendPlayCopy, encodeRender } from './playcopy.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
@@ -801,7 +801,8 @@ function applySnapshot(sess, snap) {
     if (!t) t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{} };
     t.by = row.author_name; t.authorId = row.author_id; t.roleId = row.role_id; t.note = row.note;
     t.status = row.status; t.why = row.archive_reason; t.fileName = row.file_name; t.path = row.storage_path;
-    t.url = db.playUrl(row); t.joinedAt = row.joined_at; t.created = row.created_at;
+    t.url = db.playUrl(row); t.copy = row.play_path || null; t.renders = Object.assign(t.renders || {}, row.renders);
+    t.joinedAt = row.joined_at; t.created = row.created_at;
     t.pos = row.part_pos || null; t.sec = row.section_id || null; t.on = row.on_takes || null; t.group = row.group_id || null;
     t.carry = row.carry || null;
     /* keep what the creator is dragging or saving right now */
@@ -935,14 +936,26 @@ function pump() {
     loadOne(t).then(function () { loadingNow--; renderSoon(); pump(); });
   }
 }
-function loadOne(t) {
-  return fetch(t.url).then(function (r) {
+/* A take with an amp loads its stored render when there is one (take_renders): it plays right
+   away, with no download of the dry original and no amp to run. Otherwise the file that plays
+   as it is (db.playSource()). A render that won't load falls back to that. */
+function sourceOf(t, amp) { return db.playSource({ storage_path:t.path, play_path:t.copy, renders:t.renders }, amp); }
+function fetchBuf(url) {
+  return fetch(url).then(function (r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.arrayBuffer();
-  }).then(function (ab) {
-    return ac().decodeAudioData(ab);
+  }).then(function (ab) { return ac().decodeAudioData(ab); });
+}
+function loadOne(t) {
+  var src = sourceOf(t, ampOf(t));
+  return fetchBuf(src.url).catch(function (e) {
+    if (src.src === 'copy' || src.src === 'orig') throw e;
+    console.warn('The stored amp render did not load, the take is put through its amp here:', e);
+    delete t.renders[src.src];
+    src = sourceOf(t, '');
+    return fetchBuf(src.url);
   }).then(function (buf) {
-    setBuffer(t, buf);
+    setBuffer(t, buf, src.src);
     t.loading = false;
   }).catch(function (e) {
     console.error('Could not load audio for', t.fileName, e);
@@ -1070,39 +1083,74 @@ function gainFor(t) {
   setCut(ch.lp, cutOf(t, 'lp'));
   return ch.inp;
 }
-/* What a take plays: its own audio, or that audio rendered through its amp. A render is made
-   once per take and amp, in the background, and kept on the take (t.amped[id]). Until it is
-   ready the take is silent (never the raw DI in the mix), and when it arrives during
-   playback the song picks up from where it is. */
+/* What a take plays: its own audio, or that audio through its amp. Each is kept on the take
+   once it is there (t.amped[id], '' for the take as recorded); t.buf is whichever loaded first
+   and gives the length and waveform. The amp's sound comes from its stored render (take_renders)
+   or, when there is none yet, from the dry original rendered here (renderAmp()); the author,
+   the creator or the admin then store that render, so nobody has to make it again. Switching
+   the amp back plays the stored render of the amp it had. Until a sound is ready the take is
+   silent (never the raw DI in the mix), and when it arrives during playback the song picks up
+   from where it is. An amp that fails plays the take as recorded rather than not at all. */
 function playBuf(t) {
-  var id = ampOf(t);
-  if (!id || !t.buf) return t.buf;
-  var r = wantAmp(t, id);
-  return r.buf || null;
+  if (!t.buf) return null;
+  var r = wantAmp(t, ampOf(t));
+  if (r.buf) return r.buf;
+  return r.failed ? (t.amped[''] && t.amped[''].buf) || t.buf : null;
 }
 function wantAmp(t, id) {
   t.amped = t.amped || {};
   var r = t.amped[id];
   if (r && (r.buf || r.busy || r.failed)) return r;
   r = t.amped[id] = { busy:true };
-  var src = t.buf;
-  renderAmp(src, id).then(function (buf) {
+  var gen = t.gen;
+  makeSound(t, id).then(function (buf) {
     r.busy = false;
-    if (t.buf !== src) return;
+    if (t.gen !== gen) return;
     r.buf = buf;
     if (running && !only && tracks().indexOf(t) > -1 && ampOf(t) === id) play(position());
     else render();
   }, function (e) {
     console.error(e);
     r.busy = false; r.failed = true;
-    flash('The ' + ampLabel(id).toLowerCase() + ' amp could not load, so ' + (t.by || 'that take') + ' plays as it was recorded. Reload the page to try again.');
+    if (id) flash('The ' + ampLabel(id).toLowerCase() + ' amp could not load, so ' + (t.by || 'that take') + ' plays as it was recorded. Reload the page to try again.');
     render();
   });
   return r;
 }
-/* an amp failed to load: play the take as recorded rather than not at all */
-function ampFailed(t) { var id = ampOf(t); return !!(id && t.amped && t.amped[id] && t.amped[id].failed); }
-function ampBusy(t) { var id = ampOf(t); return !!(id && t.buf && !ampFailed(t) && !(t.amped && t.amped[id] && t.amped[id].buf)); }
+function makeSound(t, id) {
+  if (!id) return fetchBuf(sourceOf(t, '').url);
+  if (t.renders && t.renders[id]) return fetchBuf(db.publicUrl(t.renders[id])).catch(function (e) {
+    console.warn('The stored amp render did not load, the take is put through its amp here:', e);
+    delete t.renders[id];
+    return ampHere(t, id);
+  });
+  return ampHere(t, id);
+}
+/* the amp always runs on the original as sent: the amps' gain would bring the compressed
+   copy's error up to where it can be heard */
+function ampHere(t, id) {
+  return origOf(t).then(function (o) { return renderAmp(o, id); }).then(function (buf) { storeRender(t, id, buf); return buf; });
+}
+function origOf(t) {
+  if (t.orig) return Promise.resolve(t.orig);
+  if (!t.origP) t.origP = fetchBuf(db.publicUrl(t.path)).then(function (b) { return (t.orig = b); }, function (e) { t.origP = null; throw e; });
+  return t.origP;
+}
+/* Stores a render made here (Ogg Opus, src/playcopy.js) when this person may: the take's author,
+   the creator or the admin (the policy on take_renders says the same). Never for drafts. */
+function storeRender(t, id, buf) {
+  if (!me || !t.dbId || !S.session || t.status === 'draft' || t.status === 'deleted') return;
+  if (!(t.authorId === me.id || isHost() || db.isAdmin(me))) return;
+  t.renders = t.renders || {}; t.storing = t.storing || {};
+  if (t.renders[id] || t.storing[id]) return;
+  t.storing[id] = true;
+  var sid = S.session.id;
+  encodeRender(buf).then(function (blob) { return db.storeRender({ id:t.dbId, session_id:sid }, id, blob); })
+    .then(function (path) { t.renders[id] = path; })
+    .catch(function (e) { console.warn('The amp render was not stored; it plays here all the same:', e); })
+    .then(function () { t.storing[id] = false; });
+}
+function ampBusy(t) { var r = t.amped && t.amped[ampOf(t)]; return !!(t.buf && !(r && (r.buf || r.failed))); }
 /* an amp running live, for hearing yourself and your fresh take; returns its input. Its nodes
    go in `keep` (as one entry) so recCleanup() takes the whole thing down. */
 function ampInto(id, peak, dest, keep) {
@@ -1148,7 +1196,7 @@ function play(from, soloId) {
   var now = ac().currentTime;
   list.forEach(function (t) {
     if (!audible(t)) return;
-    var st = startOf(t), b = ampFailed(t) ? t.buf : playBuf(t);
+    var st = startOf(t), b = playBuf(t);
     if (at >= st + t.len || !b) return;
     var s = ac().createBufferSource(), env = ac().createGain();
     s.buffer = b;
@@ -1164,7 +1212,7 @@ function play(from, soloId) {
     var st = startOf(p);
     carryOf(p).forEach(function (src) {
       if (!audible(src)) return;
-      var b = ampFailed(src) ? src.buf : playBuf(src), seg = src.len || (b && b.duration) || 0;
+      var b = playBuf(src), seg = src.len || (b && b.duration) || 0;
       if (!b || seg < 0.25) return;
       for (var k = 0; k * seg < p.len; k++) {
         var s0 = st + k * seg, dur = Math.min(seg, p.len - k * seg);
@@ -1192,7 +1240,7 @@ function toggleTransport(){ running ? stopAll(true) : play(); }
 function preview(t) {
   if (!t || !t.buf) { if (t && t.loading) flash('Still loading that take.'); return; }
   if (only === t.id) { stopAll(); return; }
-  var b = ampFailed(t) ? t.buf : playBuf(t);
+  var b = playBuf(t);
   if (!b) { flash('Putting that take through the ' + ampLabel(ampOf(t)).toLowerCase() + ' amp. Press play again in a moment.'); return; }
   stopAll();
   only = t.id;
@@ -1219,7 +1267,7 @@ function previewGroup(t) {
   var T = ac().currentTime + 0.02, left = list.length;
   list.forEach(function (g) {
     var s2 = ac().createBufferSource(), env = ac().createGain();
-    s2.buffer = ampFailed(g) ? g.buf : playBuf(g); s2.connect(env); env.connect(gainFor(g));
+    s2.buffer = playBuf(g); s2.connect(env); env.connect(gainFor(g));
     scheduleEnv(env, g, T, 0, true); s2.start(T); s2.env = env; sources[g.id] = s2;
     s2.onended = function () { if (sources[g.id] === s2) delete sources[g.id]; if (--left <= 0 && only === key) { only = null; render(); } };
   });
@@ -1237,7 +1285,7 @@ function pairPreview(t) {
   var T = ac().currentTime + 0.02, left = 2;
   [S.seed, t].forEach(function (x) {
     var s = ac().createBufferSource(), env = ac().createGain();
-    s.buffer = ampFailed(x) ? x.buf : playBuf(x);
+    s.buffer = playBuf(x);
     s.connect(env); env.connect(gainFor(x));
     scheduleEnv(env, x, T, 0, true);
     s.start(T);
@@ -1356,14 +1404,20 @@ function drawSeedWave() {
     g.globalAlpha = 1;
   });
 }
-function setBuffer(t, buf) {
+/* src: what buf is ('orig', 'copy' or an amp id for a stored render); no src = the take's
+   original, as on the computer that sent it */
+function setBuffer(t, buf, src) {
+  src = src || 'orig';
   t.buf = buf;
   t.len = buf.duration;
   t.peaks = peaksOf(buf, 1200);
   t.mm = minMaxOf(buf, 2400);
+  t.gen = (t.gen || 0) + 1;
   t.amped = {};
+  t.amped[src === 'orig' || src === 'copy' ? '' : src] = { buf:buf };
+  if (src === 'orig') { t.orig = buf; t.origP = null; }
   delete gains[t.id];
-  if (ampOf(t)) playBuf(t); /* start its amp render now, so it is ready by the time it plays */
+  playBuf(t); /* start its amp render now, so it is ready by the time it plays */
 }
 
 /* Upload the audio and its compressed copy for playing (src/playcopy.js), analyse it in
@@ -1524,7 +1578,7 @@ function playBacking(list, T, into, from, dest) {
   list.forEach(function (t) {
     var rel = startOf(t) - s0, off = rel < 0 ? -rel : 0;
     if (off >= t.len) return;
-    var b = ampFailed(t) ? t.buf : playBuf(t);
+    var b = playBuf(t);
     if (!b) return;
     var s = a.createBufferSource(), g = a.createGain();
     s.buffer = b; g.gain.value = volOf(t);
@@ -1536,7 +1590,7 @@ function playBacking(list, T, into, from, dest) {
     if (p.roleId !== 'part') return;
     var st = startOf(p);
     carryOf(p).forEach(function (src) {
-      var b = ampFailed(src) ? src.buf : playBuf(src), seg = src.len || 0;
+      var b = playBuf(src), seg = src.len || 0;
       if (!b || seg < 0.25) return;
       for (var k = 0; k * seg < p.len; k++) {
         var rel = st + k * seg - s0, dur = Math.min(seg, p.len - k * seg), off = rel < 0 ? -rel : 0;
