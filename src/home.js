@@ -14,6 +14,7 @@ import * as db from './data.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
+import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, wakeAudio, soundTip, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
@@ -85,8 +86,8 @@ function build(feed) {
     function carried(ids) {
       return (ids || []).map(function (id) {
         var c = rowOf[id]; if (!c || c.status === 'deleted' || c.role_id === 'part' || c.role_id === 'mix') return null;
-        if (c.id === s.seed_take_id) return { id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '' };
-        return { id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', url:db.publicUrl(c.storage_path), dur:c.duration_sec, amp:c.amp || '' };
+        if (c.id === s.seed_take_id) return { id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, peaks:seed.peaks || null, amp:seed.amp || '' };
+        return { id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', url:db.publicUrl(c.storage_path), dur:c.duration_sec, peaks:c.peaks || null, amp:c.amp || '' };
       }).filter(Boolean);
     }
     KIND[s.id] = { kind:'session', sid:s.id };
@@ -100,7 +101,7 @@ function build(feed) {
         return;
       }
       var base = { id:t.id, by:t.author_name, uid:t.author_id, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
-        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
+        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, peaks:t.peaks || null, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
@@ -122,7 +123,7 @@ function build(feed) {
     posts = posts.filter(function (p) {
       var g = p.group; if (!g || p.deleted) return true;
       if (!groups[g]) { groups[g] = p; p.stems = []; return true; }
-      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, amp:p.amp }); return false;
+      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, peaks:p.peaks, amp:p.amp }); return false;
     });
     posts.sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
     /* a reply on something the feed leaves out (a deleted take) moves up to the jam */
@@ -164,7 +165,7 @@ function build(feed) {
         .forEach(function (p) { p.parent = prevTake ? prevTake.id : null; prevTake = p; });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
-      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '',
+      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, peaks:seed.peaks || null, amp:seed.amp || '',
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };
     return r;
@@ -358,10 +359,10 @@ function stemsOf(p) { return [p].concat((p.stems || []).map(function (x) { retur
 function chainOf(r, pid) {
   var out = [];
   for (var p = pid ? postOf(r, pid) : null; p; p = p.parent ? postOf(r, p.parent) : null) {
-    if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, isPart:true }].concat(p.carry || [], out);
+    if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, peaks:p.peaks, isPart:true }].concat(p.carry || [], out);
     if (p.layer) out = stemsOf(p).concat(out);
   }
-  return [{ id:'riff', by:r.by, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host, amp:r.amp }].concat(out);
+  return [{ id:'riff', by:r.by, layer:r.layer, url:r.url, dur:r.dur, peaks:r.peaks, isRiff:true, mine:r.host, amp:r.amp }].concat(out);
 }
 function bufKey(r, p) { return p.isRiff ? r.id + ':riff' : r.id + ':' + p.id; }
 function chipLabel(p) { return p.isRiff ? 'clip' : p.isPart ? 'new part' : lay(p.layer).label; }
@@ -522,7 +523,18 @@ function seekTarget(cv) {
   var p = postOf(r, pid) || postOf(r, pid.split('~')[0]);   /* a stem of a grouped reply plays its reply */
   return p ? { r:r, pid:p.id } : null;
 }
-function lenOf(cv) { var b = BUF[cv.dataset.wave]; return b ? b.duration : 0; }
+/* what a waveform draws: the riff, a post, a stem of a grouped reply (<post id>~<stem id>) or a
+   track carried into a new part */
+function waveOf(k) {
+  var i = k.indexOf(':'), r = riff(k.slice(0, i)), pid = k.slice(i + 1); if (!r) return null;
+  if (pid === 'riff') return r;
+  var ids = pid.split('~'), p = postOf(r, ids[0]);
+  if (p && ids[1]) return (p.stems || []).filter(function (x) { return x.id === ids[1]; })[0] || null;
+  if (p) return p;
+  for (var j = 0; j < r.posts.length; j++) { var c = (r.posts[j].carry || []).filter(function (x) { return x.id === pid; })[0]; if (c) return c; }
+  return null;
+}
+function lenOf(cv) { var b = BUF[cv.dataset.wave], w = !b && waveOf(cv.dataset.wave); return b ? b.duration : w && w.peaks && w.dur || 0; }
 document.addEventListener('mousemove', function (e) {
   var cv = e.target.closest && e.target.closest('canvas[data-wave]');
   [].forEach.call(document.querySelectorAll('.shead'), function (h) { if (!cv || h.dataset.for !== cv.dataset.wave) h.hidden = true; });
@@ -547,20 +559,26 @@ document.addEventListener('click', function (e) {
   var rect = cv.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
   play(t.r.id, t.pid, f * lenOf(cv));
 });
-/* a real waveform: the highest and lowest sample in every pixel column, drawn as one shape */
-function waveShape(cv, buf, color) {
+/* a real waveform: the highest and lowest sample in every pixel column, drawn as one shape
+   (from the decoded audio, or from the take's saved peaks while the audio isn't loaded;
+   `peaks` is the saved string or already decoded, as the master track's sum is) */
+function waveShape(cv, buf, color, peaks) {
   var w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
   if (!w || !h) return;
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   var g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
   g.fillStyle = color;
-  var mid = h / 2;
-  if (!buf) { g.globalAlpha = .35; g.fillRect(0, mid - 1, w, 2); return; }
-  var d = buf.getChannelData(0), cols = Math.max(1, Math.floor(w)), step = d.length / cols, hi = [], lo = [], peak = 0, x, i;
-  for (x = 0; x < cols; x++) {
-    var a = Math.floor(x * step), z = Math.min(d.length, Math.floor((x + 1) * step)), mx = 0, mn = 0;
-    for (i = a; i < z; i++) { var v = d[i]; if (v > mx) mx = v; else if (v < mn) mn = v; }
-    hi.push(mx); lo.push(mn); peak = Math.max(peak, mx, -mn);
+  var mid = h / 2, pk = !buf && (typeof peaks === 'string' ? decodePeaks(peaks) : peaks);
+  if (!buf && !pk) { g.globalAlpha = .35; g.fillRect(0, mid - 1, w, 2); return; }
+  var cols = Math.max(1, Math.floor(w)), hi = [], lo = [], peak = 0, x, i;
+  if (pk) { var c = columns(pk, cols); hi = c.hi; lo = c.lo; peak = Math.max.apply(null, hi.concat(lo.map(function (v) { return -v; }))); }
+  else {
+    var d = buf.getChannelData(0), step = d.length / cols;
+    for (x = 0; x < cols; x++) {
+      var a = Math.floor(x * step), z = Math.min(d.length, Math.floor((x + 1) * step)), mx = 0, mn = 0;
+      for (i = a; i < z; i++) { var v = d[i]; if (v > mx) mx = v; else if (v < mn) mn = v; }
+      hi.push(mx); lo.push(mn); peak = Math.max(peak, mx, -mn);
+    }
   }
   var k = peak ? (mid - 1) / peak : 0;
   g.beginPath(); g.moveTo(0, mid - hi[0] * k);
@@ -576,7 +594,8 @@ function drawWaves() {
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of || sounding(riff(w.slice(0, i)), wp === 'riff' ? null : wp));
     /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
     var tone = lit && !cv.closest('.wb, .jcard') ? '--sound' : cv.closest('.take, .wb, .jcard') && cv.dataset.layer && lay(cv.dataset.layer).c.indexOf('var(') === 0 ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
-    waveShape(cv, BUF[cv.dataset.wave], css.getPropertyValue(tone).trim());
+    var b = BUF[cv.dataset.wave], wv = !b && (cv.dataset.wave.indexOf('wmix:') === 0 ? { peaks:BUF[cv.dataset.wave + ':pk'] } : waveOf(cv.dataset.wave));
+    waveShape(cv, b, css.getPropertyValue(tone).trim(), wv && wv.peaks);
   });
 }
 
@@ -1224,7 +1243,7 @@ function wallSolo(rid, id, at) {
   var seen = {}, chain = [];
   list.forEach(function (x) {
     var p = x === 'riff' ? null : postOf(r, x);
-    (p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, amp:r.amp, layer:r.layer }]).forEach(function (c) { if (!seen[c.id]) { seen[c.id] = 1; chain.push(c); } });
+    (p ? stemsOf(p) : [{ id:'riff', isRiff:true, url:r.url, dur:r.dur, peaks:r.peaks, amp:r.amp, layer:r.layer }]).forEach(function (c) { if (!seen[c.id]) { seen[c.id] = 1; chain.push(c); } });
   });
   playList(k, r, chain, at);
   render();
@@ -1248,18 +1267,32 @@ function wallSegs(r, id, T) {
       on = { list:chainOf(r, id), len:part.p.dur || 1, label:wallWhose(r, part.id) };
   return part.p.pos === 'before' ? [on, base] : [base, on];
 }
-/* the master track's waveform: every track of a segment summed, once all of them are in */
+/* the master track's waveform: every track of a segment summed. Once all of them are loaded
+   (after a play) from the audio; until then from their saved peaks (BUF[k + ':pk']), which only
+   loads the tracks that have none. Each take's peaks are scaled to its own loudest sample, so
+   that sum is close to the real one, not the same. */
 function wallMix(r, id, segs) {
   segs.forEach(function (sg, i) {
     var k = 'wmix:' + r.id + ':' + id + ':' + i;
-    if (BUF[k] || BUF[k + ':busy']) return;
-    BUF[k + ':busy'] = true;
-    Promise.all(sg.list.map(function (x) { return load(r, x); })).then(function () {
-      var bs = sg.list.map(function (x) { return BUF[bufKey(r, x)]; }).filter(Boolean);
-      if (!bs.length) { delete BUF[k + ':busy']; return; }
+    if (BUF[k]) return;
+    var bs = sg.list.map(function (x) { return BUF[bufKey(r, x)]; });
+    if (bs.length && bs.every(Boolean)) {
       var len = bs[0].length, out = ac().createBuffer(1, len, bs[0].sampleRate), d = out.getChannelData(0);
       bs.forEach(function (b) { var c = b.getChannelData(0), n = Math.min(len, c.length); for (var j = 0; j < n; j++) d[j] += c[j]; });
-      BUF[k] = out; drawWaves();
+      BUF[k] = out; return;
+    }
+    if (BUF[k + ':pk'] || BUF[k + ':busy']) return;
+    BUF[k + ':busy'] = true;
+    Promise.all(sg.list.map(function (x) { return x.peaks ? null : load(r, x); })).then(function () {
+      var pks = sg.list.map(function (x) { var b = BUF[bufKey(r, x)]; return decodePeaks(x.peaks || (b && peaksOfBuffer(b))); }).filter(Boolean);
+      delete BUF[k + ':busy'];
+      if (!pks.length) return;
+      /* each take's peaks are scaled to its own loudest moment, and loud moments rarely line up:
+         a root of the summed squares looks closer to the real sum than adding them up */
+      var n = pks[0].hi.length, hi = new Float32Array(n), lo = new Float32Array(n);
+      pks.forEach(function (pk) { for (var j = 0; j < n && j < pk.hi.length; j++) { hi[j] += pk.hi[j] * pk.hi[j]; lo[j] += pk.lo[j] * pk.lo[j]; } });
+      for (var j = 0; j < n; j++) { hi[j] = Math.sqrt(hi[j]); lo[j] = -Math.sqrt(lo[j]); }
+      BUF[k + ':pk'] = { hi:hi, lo:lo, peak:1 }; drawWaves();
     });
   });
 }
@@ -1688,7 +1721,7 @@ function render() {
   if (EMBED) {
     var er = riff(EMBED);
     el('list').innerHTML = !S.loaded ? '<p class="empty">Loading…</p>' : er ? (S.expanded[er.id] = true, wallHtml(er)) : '<p class="empty">This jam isn’t in the feed.</p>';
-    if (er) { load(er, { isRiff:true, url:er.url }); er.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { load(er, x); }); }); }
+    if (er) { if (!er.peaks) load(er, { isRiff:true, url:er.url }); er.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { if (!x.peaks) load(er, x); }); }); }
     wallScrolls(); drawWaves(); toProject({ h:embedH() });
     return;
   }
@@ -1701,10 +1734,11 @@ function render() {
     : list.length ? list.map(riffHtml).join('')
     : '<p class="empty">' + (S.tab === 'songs' ? 'No songs yet.' : 'No jams yet. <a href="#start">Start the first one.</a>') + '</p>';
   [].forEach.call(document.querySelectorAll('#tabs [data-tab]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tab === S.tab)); });
-  /* every clip loads for its waveform; replies load once their thread is open */
+  /* waveforms draw from the takes' saved peaks; only a take without them (sent before they were
+     saved) loads its audio for its waveform, replies once their thread is open */
   list.forEach(function (r) {
-    load(r, { isRiff:true, url:r.url });
-    if (S.expanded[r.id]) r.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { load(r, x); }); });
+    if (!r.peaks) load(r, { isRiff:true, url:r.url });
+    if (S.expanded[r.id]) r.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { if (!x.peaks) load(r, x); }); });
   });
   renderOverlay();
   wallScrolls();
@@ -2090,7 +2124,7 @@ el('r-go').addEventListener('click', function () {
     var path = r.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(file.name), type = typeFor(file);
     return db.uploadAudio(path, file, type).then(function () {
       var row = { session_id:r.id, author_id:u.id, author_name:db.accountName(u), role_id:el('r-layer').value, note:el('r-text').value.trim(),
-        status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, section_id:section, reply_to:replyTo,
+        status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, peaks:peaksOfBuffer(buf), section_id:section, reply_to:replyTo,
         on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) };
       if (ampId) row.amp = ampId;
       /* without the amp migration the take still goes in, just without its amp (as in the project) */
@@ -2209,7 +2243,7 @@ el('up-go').addEventListener('click', function () {
       var path = s.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(f.name), type = typeFor(f);
       return db.uploadAudio(path, f, type).then(function () {
         return db.insertTake({ session_id:s.id, author_id:u.id, author_name:db.accountName(u), role_id:'seed', note:el('up-text').value.trim(), status:'seed',
-          storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration,
+          storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration, peaks:peaksOfBuffer(b),
           an_bpm:an && an.tempo ? an.tempo.bpm : null, an_key:an && an.key ? an.key.key : null });
       });
     });
