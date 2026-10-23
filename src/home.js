@@ -373,14 +373,31 @@ function ac() { if (!AC) AC = newContext(); return AC; }
 ['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { wakeAudio(AC); }, true); });
 document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-play],[data-jplay],[data-wpick],[data-wsel],[data-wsolo],#transport,.play')) soundTip(toast); }, true);
 
-function load(r, p) {
+/* DL: the downloads still running, each with what asked for it (`who`: a playList key, or '*' for
+   anything else). A card left before it plays gives up the ones nothing else needs (dropLoads). */
+var DL = {};
+function load(r, p, who) {
   var k = bufKey(r, p);
-  if (BUF[k] || BUF[k + ':loading'] || !p.url) return Promise.resolve();
+  if (BUF[k] || !p.url) return Promise.resolve();
+  if (BUF[k + ':loading']) { if (DL[k]) { DL[k].who[who || '*'] = 1; return DL[k].p; } return Promise.resolve(); }
   BUF[k + ':loading'] = true;
-  return fetch(p.url).then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
-    .then(function (ab) { return ac().decodeAudioData(ab); })
+  var d = DL[k] = { ctl:window.AbortController ? new AbortController() : null, who:{} };
+  d.who[who || '*'] = 1;
+  d.p = fetch(p.url, d.ctl ? { signal:d.ctl.signal } : {}).then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
+    .then(function (ab) { if (DL[k] === d) delete DL[k]; return ac().decodeAudioData(ab); })
     .then(function (b) { BUF[k] = b; drawWaves(); })
-    .catch(function (e) { console.warn('Could not load audio', p.url, e); });
+    .catch(function (e) {
+      if (DL[k] === d) delete DL[k];
+      if (e && e.name === 'AbortError') { delete BUF[k + ':loading']; return; }   /* a later play loads it again */
+      console.warn('Could not load audio', p.url, e);
+    });
+  return d.p;
+}
+function dropLoads(who) {
+  Object.keys(DL).forEach(function (k) {
+    var d = DL[k]; delete d.who[who];
+    if (!Object.keys(d.who).length && d.ctl) d.ctl.abort();
+  });
 }
 /* A take with an amp (a dry DI guitar, set in the song view) plays rendered through it.
    The render is made once and kept next to the dry audio; if it fails, the take plays dry. */
@@ -406,7 +423,7 @@ function playList(k, r, c, at) {
   var was = S.playing;
   silence(); CLOCK = null;
   S.playing = k; if (was !== k) render();
-  Promise.all(c.map(function (p) { return load(r, p); })).then(function () {
+  Promise.all(c.map(function (p) { return load(r, p, k); })).then(function () {
     return Promise.all(c.map(function (p) { return amped(r, p); }));
   }).then(function () {
     if (S.playing !== k) return;
@@ -1449,7 +1466,6 @@ function cardKey(r) { return r.id + ':card'; }
 function cardChain(r) { var l = S.jmode === 'latest' ? latestOf(r) : null; return l ? chainOf(r, l.id) : chainOf(r, null); }
 function cardHtml(r) {
   var chain = cardChain(r), on = S.playing === cardKey(r), n = livePosts(r);
-  chain.forEach(function (x) { load(r, x); });
   var seen = {}, dots = [];
   r.posts.forEach(function (p) { if (p.layer && !p.isComment && !p.deleted && p.kind !== 'part' && !seen[p.layer]) { seen[p.layer] = 1; dots.push(p.layer); } });
   var takes = r.posts.filter(function (p) { return p.layer && !p.isComment && !p.deleted; }).length, words = n.filter(function (p) { return p.isComment; }).length;
@@ -1637,7 +1653,7 @@ document.addEventListener('mouseout', function (e) {
 });
 /* hover: hear a card while the mouse is over it (a real mouse: a tap on a phone also sends mouseover,
    which would start the card just before the tap's own click pauses it) */
-var TOUCHED = 0;
+var TOUCHED = 0, HOVER = null;
 document.addEventListener('touchstart', function () { TOUCHED = Date.now(); }, { capture:true, passive:true });
 function mouseHover() { return Date.now() - TOUCHED > 1000 && !(window.matchMedia && matchMedia('(hover: none)').matches); }
 document.addEventListener('mouseover', function (e) {
@@ -1648,14 +1664,24 @@ document.addEventListener('mouseover', function (e) {
   if (jw) { var jq = jw.getBoundingClientRect(); if (e.clientX >= jq.left && e.clientX <= jq.right && e.clientY >= jq.top && e.clientY <= jq.bottom) S.jhx = { rid:jw.dataset.jseek, f:(e.clientX - jq.left) / Math.max(1, jq.width) }; }
   var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r) || S.jpaused === r.id) return;
   if (e.relatedTarget && c.contains(e.relatedTarget)) return;
-  playList(cardKey(r), r, cardChain(r));
+  if (HOVER && HOVER.rid === r.id) return;
+  /* a mouse passing over a card on its way somewhere else downloads nothing */
+  clearTimeout(HOVER && HOVER.t);
+  HOVER = { rid:r.id, t:setTimeout(function () {
+    HOVER = null;
+    if (!S.jhover || S.ov || S.playing === cardKey(r) || S.jpaused === r.id) return;
+    playList(cardKey(r), r, cardChain(r));
+  }, 300) };
 });
 document.addEventListener('mouseout', function (e) {
   if (!WALL || !S.jhover || S.ov || !mouseHover()) return;
   var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c || (e.relatedTarget && c.contains(e.relatedTarget))) return;
   if (!c.isConnected) return;   /* the card was redrawn under the mouse, it wasn't left */
   if (S.jpaused === c.dataset.jcard) S.jpaused = null;
-  var r = riff(c.dataset.jcard); if (r && S.playing === cardKey(r)) { stop(); render(); }
+  if (HOVER && HOVER.rid === c.dataset.jcard) { clearTimeout(HOVER.t); HOVER = null; }
+  var r = riff(c.dataset.jcard); if (!r) return;
+  dropLoads(cardKey(r));
+  if (S.playing === cardKey(r)) { stop(); render(); }
 });
 function render() {
   if (WALL) requestAnimationFrame(jhoverBack);
