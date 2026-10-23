@@ -183,7 +183,7 @@ export async function loadPlayer(userId) {
     .is('deleted_at', null).not('seed_take_id', 'is', null).order('created_at', { ascending: false })) : [];
   const ids = started.concat(played).map(function (s) { return s.id; });
   const stacks = ids.length ? check(await supabase.from('takes')
-    .select('id, session_id, role_id, status, section_id, author_id, author_name, storage_path, amp, duration_sec, created_at')
+    .select('id, session_id, role_id, status, section_id, author_id, author_name, storage_path, play_path, amp, duration_sec, created_at')
     .in('session_id', ids).in('status', ['seed', 'in', 'waiting', 'mix'])) : [];
   return { started, played, takes, stacks };
 }
@@ -273,11 +273,12 @@ export async function deleteJam(sessionId) {
   return check(await supabase.rpc('delete_jam', { p_session: sessionId }));
 }
 
-export async function deleteThreadTake(takeId, storagePath) {
+export async function deleteThreadTake(takeId, storagePath, playPath) {
   ro();
   check(await supabase.rpc('delete_thread_take', { p_take: takeId }));
-  if (storagePath) {
-    const res = await supabase.storage.from(BUCKET).remove([storagePath]);
+  const paths = [storagePath, playPath].filter(Boolean);
+  if (paths.length) {
+    const res = await supabase.storage.from(BUCKET).remove(paths);
     if (res.error) console.warn('The audio file could not be removed:', res.error.message);
   }
 }
@@ -311,6 +312,14 @@ export function publicUrl(path) {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+/* What plays a take: its compressed copy (play_path) when it has one, else the file as it was
+   sent. A take with an amp plays its original: the amps add a lot of gain, which brings the
+   codec's small errors up to where they can be heard (see src/playcopy.js). Stem downloads
+   always use publicUrl(storage_path). */
+export function playUrl(row) {
+  return publicUrl(!row.amp && row.play_path ? row.play_path : row.storage_path);
+}
+
 /* ---------- sessions ---------- */
 
 export async function createSession(hostId) {
@@ -333,13 +342,16 @@ export async function uploadAudio(path, file, contentType) {
   return check(await supabase.storage.from(BUCKET).upload(path, file, { contentType, upsert: false, cacheControl: '31536000' }));
 }
 
-/* without the peaks migration (20261022120000_take_peaks.sql) the take still goes in, without its waveform */
+/* without the peaks migration (20261022120000_take_peaks.sql) the take still goes in, without its
+   waveform; without 20261023120000_take_play_path.sql, without its compressed copy (it plays the original) */
 export async function insertTake(row) {
   ro();
   let res = await supabase.from('takes').insert(row).select().single();
-  if (res.error && row.peaks !== undefined && /peaks/.test(String(res.error.message || res.error.details))) {
-    const { peaks, ...rest } = row;
-    res = await supabase.from('takes').insert(rest).select().single();
+  for (const col of ['play_path', 'peaks']) {
+    if (res.error && row[col] !== undefined && new RegExp(col).test(String(res.error.message || res.error.details))) {
+      row = { ...row }; delete row[col];
+      res = await supabase.from('takes').insert(row).select().single();
+    }
   }
   return check(res);
 }

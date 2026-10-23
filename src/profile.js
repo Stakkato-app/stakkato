@@ -62,7 +62,7 @@ function stateOf(t, s) {
 var AC = null, BUF = {}, SRC = [], FADE = null, playing = null;
 function ac() { if (!AC) AC = newContext(); return AC; }
 function decoded(t) {
-  if (!BUF[t.id]) BUF[t.id] = fetch(db.publicUrl(t.storage_path))
+  if (!BUF[t.id]) BUF[t.id] = fetch(db.playUrl(t))
     .then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
     .then(function (ab) { return ac().decodeAudioData(ab); });
   return BUF[t.id];

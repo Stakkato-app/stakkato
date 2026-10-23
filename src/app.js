@@ -23,6 +23,7 @@ import { analyse, sureness, PCS } from './analysis.js';
 import { ico } from './icons.js';
 import { zip } from './zip.js';
 import { peaksOfBuffer } from './peaks.js';
+import { sendPlayCopy } from './playcopy.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
@@ -800,7 +801,7 @@ function applySnapshot(sess, snap) {
     if (!t) t = TAKES[row.id] = { id:row.id, dbId:row.id, vol:1, mute:false, solo:false, votes:{} };
     t.by = row.author_name; t.authorId = row.author_id; t.roleId = row.role_id; t.note = row.note;
     t.status = row.status; t.why = row.archive_reason; t.fileName = row.file_name; t.path = row.storage_path;
-    t.url = db.publicUrl(row.storage_path); t.joinedAt = row.joined_at; t.created = row.created_at;
+    t.url = db.playUrl(row); t.joinedAt = row.joined_at; t.created = row.created_at;
     t.pos = row.part_pos || null; t.sec = row.section_id || null; t.on = row.on_takes || null; t.group = row.group_id || null;
     t.carry = row.carry || null;
     /* keep what the creator is dragging or saving right now */
@@ -939,7 +940,6 @@ function loadOne(t) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.arrayBuffer();
   }).then(function (ab) {
-    t.bytes = new Uint8Array(ab.slice(0));
     return ac().decodeAudioData(ab);
   }).then(function (buf) {
     setBuffer(t, buf);
@@ -1366,15 +1366,17 @@ function setBuffer(t, buf) {
   if (ampOf(t)) playBuf(t); /* start its amp render now, so it is ready by the time it plays */
 }
 
-/* Upload the audio, analyse it in parallel, then record the take. The decoded buffer is
-   cached right away so the uploader never downloads their own file again. */
+/* Upload the audio and its compressed copy for playing (src/playcopy.js), analyse it in
+   parallel, then record the take. The decoded buffer is cached right away so the uploader
+   never downloads their own file again. */
 function uploadTake(file, buf, o) {
   var sid = S.session.id;
   var path = sid + '/' + me.id + '/' + crypto.randomUUID() + '.' + extOf(file.name);
   var type = typeFor(file);
   return Promise.all([
     db.uploadAudio(path, file, type),
-    o.analyse ? analyse(file).catch(function () { return null; }) : Promise.resolve(null)
+    o.analyse ? analyse(file).catch(function () { return null; }) : Promise.resolve(null),
+    sendPlayCopy(db.uploadAudio, path, file, buf.duration)
   ]).then(function (r) {
     var an = r[1];
     var row = {
@@ -1386,6 +1388,7 @@ function uploadTake(file, buf, o) {
       an_bpm: an && an.tempo ? an.tempo.bpm : null, an_key: an && an.key ? an.key.key : null
     };
     if (o.amp) row.amp = o.amp;
+    if (r[2]) row.play_path = r[2];
     if (o.carry && o.carry.length) row.carry = o.carry;
     /* without the amp migration the take still goes in, just without its amp */
     return db.insertTake(row).catch(function (e) {
@@ -1428,9 +1431,10 @@ function hand(filename, blob) {
   setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   flash('Downloading ' + filename + '.');
 }
+/* the file as it was sent, never the compressed copy that plays */
 function bytes(t) {
   if (t.bytes) return Promise.resolve(t.bytes);
-  return fetch(t.url).then(function (r) { return r.arrayBuffer(); }).then(function (ab) { return (t.bytes = new Uint8Array(ab)); });
+  return fetch(db.publicUrl(t.path)).then(function (r) { return r.arrayBuffer(); }).then(function (ab) { return (t.bytes = new Uint8Array(ab)); });
 }
 function download(t) {
   if (!t || !t.url) return;

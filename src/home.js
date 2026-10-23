@@ -15,6 +15,7 @@ import { requireAccount, onAccount, postingAs, setToast, profileHref } from './a
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
+import { sendPlayCopy } from './playcopy.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
@@ -86,14 +87,14 @@ function build(feed) {
     function carried(ids) {
       return (ids || []).map(function (id) {
         var c = rowOf[id]; if (!c || c.status === 'deleted' || c.role_id === 'part' || c.role_id === 'mix') return null;
-        if (c.id === s.seed_take_id) return { id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, amp:seed.amp || '' };
-        return { id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', url:db.publicUrl(c.storage_path), dur:c.duration_sec, amp:c.amp || '' };
+        if (c.id === s.seed_take_id) return { id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.playUrl(seed), dur:seed.duration_sec, amp:seed.amp || '' };
+        return { id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', url:db.playUrl(c), dur:c.duration_sec, amp:c.amp || '' };
       }).filter(Boolean);
     }
     KIND[s.id] = { kind:'session', sid:s.id };
     tk.forEach(function (t) {
       if (t.id === s.seed_take_id || t.role_id === 'seed') return;
-      if (t.role_id === 'mix') { if (t.status === 'mix') mix = { by:t.author_name, url:db.publicUrl(t.storage_path) }; return; }
+      if (t.role_id === 'mix') { if (t.status === 'mix') mix = { by:t.author_name, url:db.playUrl(t) }; return; }
       if (t.status === 'own') return;   /* own takes only live in someone's version */
       if (t.status === 'deleted') {
         /* a deleted take stays as an empty spot, so the replies played on it keep their place */
@@ -101,7 +102,7 @@ function build(feed) {
         return;
       }
       var base = { id:t.id, by:t.author_name, uid:t.author_id, mine:!!(me && t.author_id === me.id), time:ago(t.created_at), created:t.created_at,
-        text:t.note, url:db.publicUrl(t.storage_path), path:t.storage_path, dur:t.duration_sec, peaks:t.peaks || null, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
+        text:t.note, url:db.playUrl(t), path:t.storage_path, copy:t.play_path || null, dur:t.duration_sec, peaks:t.peaks || null, likes:votes[t.id] || 0, status:t.status, amp:t.amp || '' };
       KIND[t.id] = { kind:'take', sid:s.id };
       if (t.role_id === 'part') {
         if (t.status !== 'in' && t.status !== 'waiting') return;
@@ -123,7 +124,7 @@ function build(feed) {
     posts = posts.filter(function (p) {
       var g = p.group; if (!g || p.deleted) return true;
       if (!groups[g]) { groups[g] = p; p.stems = []; return true; }
-      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, dur:p.dur, peaks:p.peaks, amp:p.amp }); return false;
+      groups[g].stems.push({ id:p.id, by:p.by, mine:p.mine, layer:p.layer, url:p.url, path:p.path, copy:p.copy, dur:p.dur, peaks:p.peaks, amp:p.amp }); return false;
     });
     posts.sort(function (a, b) { return String(a.created).localeCompare(String(b.created)); });
     /* a reply on something the feed leaves out (a deleted take) moves up to the jam */
@@ -138,7 +139,7 @@ function build(feed) {
       });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
-      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.publicUrl(seed.storage_path), dur:seed.duration_sec, peaks:seed.peaks || null, amp:seed.amp || '',
+      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', url:db.playUrl(seed), dur:seed.duration_sec, peaks:seed.peaks || null, amp:seed.amp || '',
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };
     return r;
@@ -263,7 +264,7 @@ function askOrDelete(k) {
     if (!p) return;
     if (S.playing && S.playing.indexOf(r.id) === 0) stop();
     job = p.isComment ? db.deleteThreadComment(id)
-      : [p].concat(p.stems || []).reduce(function (pr, x) { return pr.then(function () { return db.deleteThreadTake(x.id, x.path); }); }, Promise.resolve());
+      : [p].concat(p.stems || []).reduce(function (pr, x) { return pr.then(function () { return db.deleteThreadTake(x.id, x.path, x.copy); }); }, Promise.resolve());
   }
   job.then(reload).then(function () {
     toast(what === 'jam' ? 'The jam is deleted.' : 'Deleted. Replies to it stay in the thread.');
@@ -936,11 +937,12 @@ el('r-go').addEventListener('click', function () {
   el('r-go').disabled = true; el('r-err').textContent = 'Uploading…';
   ensureMe('play').then(function (u) {
     var path = r.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(file.name), type = typeFor(file);
-    return db.uploadAudio(path, file, type).then(function () {
+    return Promise.all([db.uploadAudio(path, file, type), sendPlayCopy(db.uploadAudio, path, file, buf.duration)]).then(function (up) {
       var row = { session_id:r.id, author_id:u.id, author_name:db.accountName(u), role_id:el('r-layer').value, note:el('r-text').value.trim(),
         status:'waiting', storage_path:path, file_name:file.name, mime_type:type, duration_sec:buf.duration, peaks:peaksOfBuffer(buf), section_id:section, reply_to:replyTo,
         on_takes:section ? null : chainOf(r, R.pid).filter(function (x) { return !x.isRiff && !x.isPart; }).map(function (x) { return x.dbId || x.id; }) };
       if (ampId) row.amp = ampId;
+      if (up[1]) row.play_path = up[1];
       /* without the amp migration the take still goes in, just without its amp (as in the project) */
       return db.insertTake(row).catch(function (e) {
         if (!row.amp || !/amp/.test(String(e && (e.message || e.details)))) throw e;
@@ -1049,9 +1051,9 @@ el('up-go').addEventListener('click', function () {
     return db.createSession(u.id).then(function (s) {
       sess = s;
       var path = s.id + '/' + u.id + '/' + crypto.randomUUID() + '.' + extOf(f.name), type = typeFor(f);
-      return db.uploadAudio(path, f, type).then(function () {
+      return Promise.all([db.uploadAudio(path, f, type), sendPlayCopy(db.uploadAudio, path, f, b.duration)]).then(function (up) {
         return db.insertTake({ session_id:s.id, author_id:u.id, author_name:db.accountName(u), role_id:'seed', note:el('up-text').value.trim(), status:'seed',
-          storage_path:path, file_name:f.name, mime_type:type, duration_sec:b.duration, peaks:peaksOfBuffer(b),
+          storage_path:path, play_path:up[1] || undefined, file_name:f.name, mime_type:type, duration_sec:b.duration, peaks:peaksOfBuffer(b),
           an_bpm:an && an.tempo ? an.tempo.bpm : null, an_key:an && an.key ? an.key.key : null });
       });
     });
