@@ -14,6 +14,7 @@ import * as db from './data.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
 import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
+import { glyph } from './icons.js';
 import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
 import { sendPlayCopy, encodeRender } from './playcopy.js';
 import { initWall, wallHtml, wallTree, wallKey, wallWhose, wallSegs, wallPick, wallSeek, wallSolo, wallHead, wallScrolls, wallFit, wallFullId, ghostOff } from './wall.js';
@@ -602,14 +603,14 @@ function cardHtml(r) {
     : '<canvas class="big" data-wave="' + r.id + ':riff" data-layer="' + r.layer + '" aria-hidden="true"></canvas>';
   var cap = S.jmode === 'latest' ? (chain.length > 1 ? 'Latest stack · ' + chain.length + ' layers' : 'Only the original track so far') : 'Original track';
   return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
-    '<div class="jcover"><span class="jpill"><i style="background:' + lay(r.layer).c + '"></i>' + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
+    '<div class="jcover"><span class="jpill">' + glyph(r.layer, lay(r.layer).c) + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
       (on ? '<span class="jnow">Playing</span>' : '') +
       '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '<span class="phead jhead" hidden></span><span class="jhover" hidden></span></div>' +
       '<div class="jbot"><button class="jplay' + (on ? ' on' : '') + '" type="button" data-jplay="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<span class="jcap">' + cap + '</span><span class="jdur">' + mmss(r.dur) + '</span></div></div>' +
     '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
       '<p>' + esc(r.by) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + '</p>' +
-      '<p><span class="jdots" aria-hidden="true">' + dots.map(function (l) { return '<i style="background:' + lay(l).c + '"></i>'; }).join('') + '</span>' +
+      '<p><span class="jdots" aria-hidden="true">' + dots.map(function (l) { return glyph(l, lay(l).c); }).join('') + '</span>' +
         takes + (takes === 1 ? ' take' : ' takes') + ' · <button class="jwords" type="button" data-jwords="' + r.id + '">' + (words ? words + (words === 1 ? ' comment' : ' comments') : 'Comment') + '</button> · ' + esc(r.time) + '</p></div>' +
       '<button class="btn btn-main btn-sm" type="button" data-jopen="' + r.id + '">Play along</button></div></article>';
 }
@@ -808,7 +809,7 @@ function replyPop(rid, pid) {
   /* your take on top, under it the stack as one master track with who is in it */
   var you = '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-slot" id="md-slot"><div class="md-empty" id="md-empty">Your take lands here</div></div><span></span></div>';
   var master = '<div class="md-master"><div class="md-mchips"><b>The stack</b>' + c.map(function (p) {
-      return '<span><i style="background:' + lay(p.layer).c + '"></i>' + esc(p.isRiff ? r.by : p.mine ? 'You' : p.by) + ' · ' + esc(chipLabel(p)) + '</span>';
+      return '<span>' + glyph(p.kind === 'part' ? 'part' : p.layer, lay(p.kind === 'part' ? 'part' : p.layer).c) + esc(p.isRiff ? r.by : p.mine ? 'You' : p.by) + ' · ' + esc(chipLabel(p)) + '</span>';
     }).join('') + '</div><div class="md-mwave"><span></span><canvas data-md="0" data-mdmix="1"></canvas><span></span></div></div>';
   el('r-over').innerHTML = '<div class="md-top"><button class="play" type="button" id="md-play" aria-label="Play what you play on">&#9654;</button>' +
       '<span class="md-time" id="md-time">0:00</span><span class="md-hint">' + (r.bpm ? r.bpm + ' bpm' : 'tempo unknown') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + '. Play along first, then add your take.</span></div>' +
@@ -1167,7 +1168,7 @@ el('up-layer').value = 'guitar';
 function renderInsts() {
   var html = ROLES.map(function (x) {
     return '<button class="inst" type="button" data-inst="' + x.id + '" aria-pressed="' + (el('up-layer').value === x.id) + '">' +
-      '<i style="background:var(' + x.color + ')" aria-hidden="true"></i>' + esc(x.label) + '</button>';
+      glyph(x.id, 'var(' + x.color + ')') + esc(x.label) + '</button>';
   }).join('');
   [].forEach.call(document.querySelectorAll('[data-insts]'), function (row) { row.innerHTML = html; });
 }

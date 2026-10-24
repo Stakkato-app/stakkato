@@ -147,3 +147,10 @@
 #wall .riff{border:0;box-shadow:none;border-radius:0;background:transparent}
 #wall .rmain{padding:4px 2px 8px}
 #wall .wsel-row{display:flex;justify-content:flex-end;margin-top:8px;font-size:13px}
+
+/* instrument icons where colour dots used to be (glyph() in src/icons.js) */
+.glyph{flex:none;display:inline-block;width:16px;height:16px;vertical-align:-3px}
+#wall .wb .wname .glyph{width:18px;height:18px}
+@media (max-width:760px){#wall .wb .wname .glyph{width:15px;height:15px}}
+.jdots .glyph{width:13px;height:13px}
+.inst .glyph{width:20px;height:20px}

@@ -5,6 +5,7 @@
    decoded audio (BUF), its helpers (esc, lay, nameOf, voteHtml, ...) and its audio engine
    (playList, playSeq, playPos, stop, load, ac). The markup is built from strings like in app.js. */
 
+import { glyph } from './icons.js';
 import { decodePeaks, peaksOfBuffer } from './peaks.js';
 
 var H = null, S = null, BUF = null;
@@ -66,7 +67,7 @@ function wallTree(r) {
   return { secs:secs, nodes:nodes, maxD:maxD, partOf:partOf, words:words, parentOf:parentOf, parts:parts.length, takes:takes.filter(function (p) { return p.kind !== 'part' && !p.deleted; }).length };
 }
 function wallLabel(n) {
-  if (n.isRiff) return 'Original track' + (n.layer !== 'seed' ? ' · ' + H.lay(n.layer).label : '');
+  if (n.isRiff) return 'Original track';   /* its instrument shows as the icon */
   var p = n.p;
   if (p.deleted) return 'deleted take';
   if (p.kind === 'part') return '↦ new part';
@@ -100,7 +101,7 @@ function wallHtml(r) {
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
     return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + H.esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + H.esc(wallWhose(r, n.id)) + ' below"><span><b>' + H.esc(who) + '</b> ' + H.esc(wallLabel(n)) + '</span>' +
+      '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + H.esc(wallWhose(r, n.id)) + ' below">' + glyph(layer, H.lay(layer).c) + '<span><b>' + H.esc(who) + '</b> ' + H.esc(wallLabel(n)) + '</span>' +
         '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '"' + (soloed(r, n.id) ? ' data-of="' + r.id + ':solo" class="wseekable" title="Click to play from there"' : '') + ' aria-hidden="true"></canvas></button>' +
       '<button class="wsolo1' + (soloed(r, n.id) ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + soloed(r, n.id) + '" aria-label="Solo: ' + H.esc(wallWhose(r, n.id)) + '" title="Solo: hear only the takes with S on">S</button>' +
       (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + H.esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+</button>' : '') +
@@ -147,7 +148,7 @@ function wallHtml(r) {
     now = '<div class="wmaster"><div class="wm-top">' +
         '<button class="play' + (mOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + ms + '" aria-label="' + (mOn ? 'Pause' : 'Play the master track') + '">' + (mOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + H.esc(wallWhose(r, ms))) + '</b>' + wallNote(r, ms) +
-          '<div class="wm-chips">' + people.map(function (x) { return '<span><i style="background:' + H.lay(x.isPart ? 'part' : x.layer).c + '"></i>' + H.esc(x.isRiff ? r.by + ' · original' : (x.mine ? 'You' : x.by) + ' · ' + H.chipLabel(x)) + '</span>'; }).join('') + '</div></div></div>' +
+          '<div class="wm-chips">' + people.map(function (x) { return '<span>' + glyph(x.isPart ? 'part' : x.layer, H.lay(x.isPart ? 'part' : x.layer).c) + H.esc(x.isRiff ? r.by + ' · original' : (x.mine ? 'You' : x.by) + ' · ' + H.chipLabel(x)) + '</span>'; }).join('') + '</div></div></div>' +
       '<div class="wm-wave" data-wseek="' + r.id + '" data-post="' + ms + '" title="Click to play from there">' + segs.map(function (sg, i) {
         return '<div style="flex:' + Math.max(1, Math.round(sg.len * 10)) + ' 1 0"><canvas data-wave="wmix:' + r.id + ':' + ms + ':' + i + '" data-of="' + mk + '" aria-hidden="true"></canvas>' +
           (segs.length > 1 ? '<small>' + H.esc(sg.label) + '</small>' : '') + '</div>';

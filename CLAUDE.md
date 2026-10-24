@@ -58,7 +58,7 @@ scripts/backfill-peaks.mjs  one-off, run on your own machine: fills takes.peaks 
 src/playcopy.js, src/playrules.js, src/opus-worker.js, src/ogg.js  a take's compressed copy for playing (takes.play_path): Opus in a worker, written into Ogg by hand
 scripts/make-play-copies.mjs  one-off, run on your own machine: makes play_path for older takes (service role key from your shell, ffmpeg with libopus)
 src/roles.js                instrument roles, colours, icons (mirror of the roles table)
-src/icons.js, src/zip.js    inline SVG icons; store-only zip writer for stem downloads
+src/icons.js, src/zip.js    inline SVG icons (guitar, bass, lead, atmosphere and vocals traced from the Oct 24 icon set; glyph() draws a role's icon where a colour dot used to be); store-only zip writer for stem downloads
 src/amp.js                  amps (clean, crunch, metal): NAM captures + cabinet IRs, rendered offline per take
 public/amps/                the amp captures (.nam), cabinet and room IRs, and their CREDITS.md / licences
 src/styles.css              the song view's and /songs' styles (colour tokens on :root)

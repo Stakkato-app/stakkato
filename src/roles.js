@@ -9,7 +9,7 @@ export var ROLES = [
   { id:'drums',  label:'Drums',         slots:Infinity, color:'--drums',  icon:'drums'  },
   { id:'guitar', label:'Guitar',        slots:Infinity, color:'--guitar', icon:'guitar' },
   { id:'bass',   label:'Bass',          slots:Infinity, color:'--bass',   icon:'bass'   },
-  { id:'lead',   label:'Lead',          slots:Infinity, color:'--lead',   icon:'guitar' },
+  { id:'lead',   label:'Lead',          slots:Infinity, color:'--lead',   icon:'lead'   },
   { id:'atmos',  label:'Atmosphere',    slots:Infinity, color:'--atmos',  icon:'atmos'  },
   { id:'wild',   label:'Wildcard',      slots:Infinity, color:'--wild',   icon:'wild'   }
 ];
