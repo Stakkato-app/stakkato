@@ -433,6 +433,12 @@ header.top .brand{display:flex}
 .jtext p{margin:3px 0 0;font-size:14px;color:var(--muted)}
 .jdots{display:inline-flex;gap:3px;margin-right:6px;vertical-align:1px}
 .jdots i{width:8px;height:8px;border-radius:50%;display:block}
+/* instrument icons where colour dots used to be (glyph() in src/icons.js) */
+.glyph{flex:none;display:inline-block;width:16px;height:16px;vertical-align:-3px}
+.wb .wname .glyph{width:18px;height:18px}
+@media (max-width:760px){.wb .wname .glyph{width:15px;height:15px}}
+.jdots .glyph{width:13px;height:13px}
+.inst .glyph{width:20px;height:20px}
 .wov{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:24px;background:color-mix(in srgb,var(--bg) 35%,transparent);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .wov[hidden]{display:none}
 .wov-panel{position:relative;width:min(1180px,100%);max-height:calc(100vh - 48px);overflow:auto;border-radius:24px;background:var(--paper);box-shadow:0 30px 80px -20px rgba(18,18,18,.45);transform-origin:top left}

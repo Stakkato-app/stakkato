@@ -164,6 +164,9 @@ function labelOf(t) {
   var ri = t.id === 'seed' ? seedInstr() : null;
   return ri ? 'Original track, ' + ri.label.toLowerCase() : role(t.roleId).label;
 }
+/* in the tracks the original track shows its instrument as the icon, so its label stays short */
+function shownLabel(t) { return t.id === 'seed' ? 'Original track' : labelOf(t); }
+function icoOf(t) { var r = t.id === 'seed' && seedInstr() ? seedInstr() : role(t.roleId); return ico(r.icon, col(r)); }
 function seedRoleOptions(sel, none) {
   return '<option value=""' + (sel ? '' : ' selected') + '>' + none + '</option>' +
     ROLES.map(function (r) { return '<option value="' + r.id + '"' + (r.id === sel ? ' selected' : '') + '>' + r.label + '</option>'; }).join('');
@@ -2048,7 +2051,7 @@ function renderRec() {
     hearable().map(function (t) {
       var r = role(t.roleId), on = REC.hear[t.id] !== false;
       return '<label class="rec-opt"><input type="checkbox" data-hear="' + t.id + '"' + (on ? ' checked' : '') + '>' +
-        ico(r.icon, col(r)) + '<span>' + esc(t.by || 'you') + ' <em>' + esc(labelOf(t)) + '</em></span></label>';
+        icoOf(t) + '<span>' + esc(t.by || 'you') + ' <em>' + esc(shownLabel(t)) + '</em></span></label>';
     }).join('') + '</div>';
   box.innerHTML = list +
     '<div class="rec-row">' +
@@ -2605,10 +2608,10 @@ function renderDaw() {
     }
     return '<div class="track' + (c.mute ? ' muted-t' : '') + (c.solo ? ' solo-t' : '') + (isTrial || isPitch ? ' trial' : '') + (isPart ? ' part' : '') + '">' +
       '<div class="t-head">' +
-        '<div class="t-name">' + ico(r.icon, col(r)) +
+        '<div class="t-name">' + icoOf(t) +
           '<div><b>' + esc(t.by || 'you') + (isTrial ? ' <span class="trybadge">trying out</span>' : '') +
           (status ? ' <span class="stag">' + status + '</span>' : '') + '</b>' +
-          '<span class="tiny muted">' + esc(labelOf(t)) + (ampOf(t) ? ' <span class="amptag' + (ampBusy(t) ? ' busy' : '') + '"' + (ampBusy(t) ? ' title="Putting the take through its amp. It plays as soon as that is done."' : '') + '>' + ampLabel(ampOf(t)).toLowerCase() + ' amp' + (ampBusy(t) ? ', loading' : '') + '</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
+          '<span class="tiny muted">' + esc(shownLabel(t)) + (ampOf(t) ? ' <span class="amptag' + (ampBusy(t) ? ' busy' : '') + '"' + (ampBusy(t) ? ' title="Putting the take through its amp. It plays as soon as that is done."' : '') + '>' + ampLabel(ampOf(t)).toLowerCase() + ' amp' + (ampBusy(t) ? ', loading' : '') + '</span>' : '') + (t.id !== 'seed' ? ' ' + secTag(t) + verTag(t.id) : '') + '</span></div>' +
         '</div>' +
         (isPitch && boss ? '<div class="t-try">' +
           '<button class="btn btn-sm btn-main" type="button" data-accpitch="' + t.id + '">Add to song</button>' +
