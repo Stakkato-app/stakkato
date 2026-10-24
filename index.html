@@ -310,7 +310,7 @@ header.top .brand{display:flex}
 @keyframes wb-rise{from{opacity:0;transform:translateY(18px) scale(.9)}to{opacity:1;transform:none}}
 .wwrap{overflow-x:auto;padding:2px 2px 6px;margin-top:4px}
 .wrow{display:flex;align-items:flex-end;width:100%}
-.wsec{display:flex;flex-direction:column;gap:6px;flex:var(--n) 1 0;min-width:calc(var(--n) * 104px)}
+.wsec{display:flex;flex-direction:column;gap:6px;flex:var(--n) 1 0;min-width:calc(var(--n) * 190px)}
 .wsec.wsec-shut{min-width:0}
 .wsec small{font-size:12px;line-height:1.35;color:var(--muted);text-align:center;margin-top:2px}
 .warrow{width:44px;flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;padding-bottom:30px;color:var(--part);font-size:20px}
@@ -433,6 +433,45 @@ header.top .brand{display:flex}
 .jtext p{margin:3px 0 0;font-size:14px;color:var(--muted)}
 .jdots{display:inline-flex;gap:3px;margin-right:6px;vertical-align:1px}
 .jdots i{width:8px;height:8px;border-radius:50%;display:block}
+/* stacks as columns (src/wall.js): a column per stack, every take a step in from the one below it,
+   the take again (dashed, grey) in a stack that branched off above it, the stack's name on top,
+   a frame round the picked one, the actions on a take when you point at it */
+.wgrid{--wstep:12px;--namew:104px}
+.wb{position:relative}
+.wb:not(.wb-root){margin-left:calc(var(--d,0) * var(--wstep))}
+.wplus{margin-left:calc(var(--d,0) * var(--wstep))}
+.wcolframe{border:1.5px solid var(--sound);border-radius:14px;margin:-5px -4px;background:color-mix(in srgb,var(--sound) 6%,transparent);pointer-events:none}
+.wcolhd{display:flex;align-items:center;gap:6px;min-width:0;padding:0 6px;font-size:13px;color:var(--muted)}
+.wcolhd .wl{font:800 15px/1 var(--disp);color:var(--ink)}
+.wcolhd span{font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.wcolhd em{font-style:normal;white-space:nowrap}
+.wb .wnm{display:flex;flex-direction:column;line-height:1.15;min-width:0;flex:none;width:calc(var(--namew,104px) - var(--d,0) * var(--wstep))}
+.wb.wb-root .wnm{flex:0 1 auto;width:auto;min-width:var(--namew,104px)}
+.wb .wnm b,.wb .wnm small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wb .wnm small{font-size:11.5px;color:var(--muted)}
+.wb.wb-shared{background:transparent;border:1.5px dashed var(--line-strong);color:var(--muted)}
+.wb.wb-shared .wnm b{font-weight:600;color:var(--muted)}
+.wb.wb-shared canvas{opacity:.45}
+.wb .wbadge{position:absolute;top:-9px;right:10px;z-index:2;padding:2px 7px;border:1px solid var(--line-strong);background:var(--paper)}
+.wb .wtools{position:absolute;top:50%;right:6px;transform:translateY(-50%);z-index:3;display:none;align-items:center;gap:2px;padding:3px;border-radius:99px;background:var(--action);color:var(--on-action);box-shadow:0 8px 20px -10px rgba(0,0,0,.45)}
+.wb:hover .wtools,.wb:focus-within .wtools,.wb.wb-on .wtools{display:flex}
+.wb .wtools button{width:26px;height:26px;border-radius:99px;border:0;padding:0;flex:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;background:transparent;color:inherit;font:700 12px/1 var(--body)}
+.wb .wtools button:hover{background:color-mix(in srgb,var(--on-action) 16%,transparent)}
+.wb .wtools .wadd{width:auto;padding:0 10px;background:var(--on-action);color:var(--action);font-size:12.5px}
+.wb .wtools .wadd:hover{background:var(--on-action);opacity:.9}
+.wb .wtools .wsolo.on{background:var(--sound);color:#fff}
+.wb .wtools .wsolo1{border:0}
+.wb .wtools .wsolo1.on{background:#E5B53B;color:#121212}
+.wb .wtools .wsay1{width:auto;padding:0 7px}
+.wsec.wsec-one{max-width:560px;margin-inline:auto;width:100%}
+@media (hover:none){.wb.wb-picked .wtools{display:flex}}
+@media (max-width:760px){
+  .wgrid{--wstep:6px;--namew:70px}
+  .wb .wtools .wadd{display:inline-flex}
+  .wgrid .wb .wbadge{display:inline-block}
+  .wcolhd{padding:0 2px;font-size:12px}
+  .wcolhd em{display:none}
+}
 /* instrument icons where colour dots used to be (glyph() in src/icons.js) */
 .glyph{flex:none;display:inline-block;width:16px;height:16px;vertical-align:-3px}
 .wb .wname .glyph{width:18px;height:18px}

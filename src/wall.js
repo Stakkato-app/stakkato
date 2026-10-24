@@ -7,11 +7,12 @@
 
 import { glyph } from './icons.js';
 import { decodePeaks, peaksOfBuffer } from './peaks.js';
+import { publicUrl } from './data.js';
 
 var H = null, S = null, BUF = null;
 export function initWall(host) {
   H = host; S = host.S; BUF = host.BUF;
-  S.wcrep = {}; S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {}; S.wfull = {};
+  S.wcrep = {}; S.wsel = {}; S.wcol = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {}; S.wfull = {};
 }
 
 /* ---------- the stacks ----------
@@ -61,6 +62,23 @@ function wallTree(r) {
       n.c0 = n.kids[0].c0; n.c1 = n.kids[n.kids.length - 1].c1;
     })(sx.root, 0);
     sx.cols = cols;
+    /* a column is one stack, from the original track up to one take on top. The take that
+       starts the column (the lowest one that is in no column to its left) names it after its
+       player; a column that branches off an earlier one gets that one's letter and a number
+       (B2, B3, ...), the others the next letter. */
+    var first = [], parentOf = [];
+    (function walk(n, par) {
+      if (n.d >= 1 && (!first[n.c0] || first[n.c0].d > n.d)) { first[n.c0] = n; parentOf[n.c0] = par; }
+      n.kids.forEach(function (k) { walk(k, n); });
+    })(sx.root, null);
+    var letters = [], fam = {}, next = 0;
+    sx.colInfo = [];
+    for (var j = 0; j < cols; j++) {
+      var b = first[j], par = parentOf[j], from = b && par && par !== sx.root ? par.c0 : null;
+      if (from === null) letters[j] = next < 26 ? String.fromCharCode(65 + next++) : String(++next);
+      else { var f = letters[from].replace(/\d+$/, ''); fam[f] = (fam[f] || 1) + 1; letters[j] = f + fam[f]; }
+      sx.colInfo.push({ letter:letters[j], starter:b || null, from:from === null ? null : letters[from] });
+    }
   });
   var partOf = {};
   parts.forEach(function (pn) { (function mark(n) { partOf[n.id] = pn; n.kids.forEach(mark); })(pn); });
@@ -87,34 +105,76 @@ function wallHtml(r) {
   for (var x = sel; x; x = T.parentOf(x)) lit[x] = true;
   if (sel && T.partOf[sel]) for (var y = wallBase(r, T, T.partOf[sel]); y; y = T.parentOf(y)) lit[y] = true;
   var MOB = window.matchMedia && matchMedia('(max-width:760px)').matches;
-  function rowsOf(sx) { return !open ? 1 : MOB ? sx.maxD + 2 : T.maxD + 2; }
+  /* a row for the stacks' names, one per take on top of each other, one for the + above them */
+  function rowsOf(sx) { return !open ? 1 : (MOB ? sx.maxD : T.maxD) + 3; }
   var rows = 1;
-  function block(n, sx) {
+  /* the stack that is picked in a section: the column you clicked in, else the first one the picked take is in */
+  function pickedCol(sx) {
+    var top = null;
+    (function walk(n) { if (lit[n.id] && (!top || n.d > top.d)) top = n; n.kids.forEach(walk); })(sx.root);
+    if (!top) return -1;
+    var c = S.wcol[r.id];
+    return top.id === sel && c >= top.c0 && c <= top.c1 ? c : top.c0;
+  }
+  function tools(n, who) {
+    var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0, dl = wallFiles(r, n.id).length;
+    return '<span class="wtools">' +
+      '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + H.esc(wallWhose(r, n.id))) + '" title="' + (soloOn ? 'Pause' : 'Play the stack up to here') + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + H.esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+ Play on this</button>' : '') +
+      '<button class="wsolo1' + (soloed(r, n.id) ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + soloed(r, n.id) + '" aria-label="Solo: ' + H.esc(wallWhose(r, n.id)) + '" title="Solo: hear only the takes with S on">S</button>' +
+      (open ? '<button class="wsay1" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comment on ' + H.esc(wallWhose(r, n.id)) + '" title="Comment on this take">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') +
+      (dl ? '<button class="wdl" type="button" data-wdl="' + r.id + '" data-post="' + n.id + '" aria-label="Download ' + H.esc(wallWhose(r, n.id)) + '" title="Download ' + (dl > 1 ? 'its ' + dl + ' files' : 'the file') + ' as it was sent">&#8595;</button>' : '') +
+      '</span>';
+  }
+  /* one tile: a take in its own column, or (shared) the same take again in a stack that branched off above it */
+  function block(n, sx, j, shared, pc) {
     rows = rowsOf(sx);
     var d = n.d + (sx.part ? 1 : 0);   /* a new part came after the jam started: it rises with the first row */
     if (!open && !(sx.core && n.isRiff)) return '';
     var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
-    var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (lit[n.id] ? ' wb-lit' : '') + (n.id === sel ? ' wb-picked' : '') + (anim && d ? ' wb-rise' : '');
-    var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0;
-    var style = 'grid-column:' + (n.c0 + 1) + ' / ' + (n.c1 + 2) + ';grid-row:' + (rows - n.d) + ';--c:' + H.lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
+    var on = lit[n.id] && (n.isRiff || pc < 0 || j === pc);
+    var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (shared ? ' wb-shared' : '') + (on && !shared ? ' wb-lit' : '') +
+      (n.id === sel && !shared && (pc < 0 || j === pc) ? ' wb-picked' : '') + (S.playing === wallKey(r, n.id) || soloed(r, n.id) ? ' wb-on' : '') + (anim && d ? ' wb-rise' : '');
+    var style = 'grid-column:' + (n.isRiff || n.d === 0 ? (n.c0 + 1) + ' / ' + (n.c1 + 2) : (j + 1)) + ';grid-row:' + (rows - n.d) + ';--d:' + n.d + ';--c:' + H.lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
+    var at = ' data-wsel="' + r.id + '" data-post="' + n.id + '" data-wcol="' + j + '" data-wr="' + r.id + '"';
     if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
-    return '<div class="' + cls + '" style="' + style + '" data-wsel="' + r.id + '" data-post="' + n.id + '">' +
-      '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + H.esc(wallWhose(r, n.id))) + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<button class="wname" type="button" data-wsel="' + r.id + '" data-post="' + n.id + '" title="Show the stack up to ' + H.esc(wallWhose(r, n.id)) + ' below">' + glyph(layer, H.lay(layer).c) + '<span><b>' + H.esc(who) + '</b> ' + H.esc(wallLabel(n)) + '</span>' +
+    if (shared) {
+      var home = sx.colInfo[n.c0] ? sx.colInfo[n.c0].letter : '';
+      return '<div class="' + cls + '" style="' + style + '"' + at + ' title="' + H.esc(wallWhose(r, n.id)) + ', the same take as in stack ' + home + '">' +
+        '<button class="wname" type="button"' + at + '>' + glyph(layer, 'var(--muted)') + '<span class="wnm"><b>' + H.esc(p.mine ? 'Your ' : who + '’s ') + H.esc(wallLabel(n)) + '</b><small>from stack ' + home + '</small></span>' +
+          '<canvas data-wave="' + r.id + ':' + n.id + '" aria-hidden="true"></canvas></button></div>';
+    }
+    var w = T.words[n.id] || 0;
+    return '<div class="' + cls + '" style="' + style + '"' + at + '>' +
+      '<button class="wname" type="button"' + at + ' title="Show the stack up to ' + H.esc(wallWhose(r, n.id)) + ' below">' + glyph(layer, H.lay(layer).c) + '<span class="wnm"><b>' + H.esc(who) + '</b><small>' + H.esc(wallLabel(n)) + '</small></span>' +
         '<canvas data-wave="' + r.id + ':' + n.id + '" data-layer="' + layer + '"' + (soloed(r, n.id) ? ' data-of="' + r.id + ':solo" class="wseekable" title="Click to play from there"' : '') + ' aria-hidden="true"></canvas></button>' +
-      '<button class="wsolo1' + (soloed(r, n.id) ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + soloed(r, n.id) + '" aria-label="Solo: ' + H.esc(wallWhose(r, n.id)) + '" title="Solo: hear only the takes with S on">S</button>' +
-      (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + H.esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+</button>' : '') +
-      (open ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comments on ' + H.esc(wallWhose(r, n.id)) + '">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') + '</div>';
+      (open && w ? '<button class="wbadge" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="' + w + (w > 1 ? ' comments' : ' comment') + ' on ' + H.esc(wallWhose(r, n.id)) + '">&#128172; ' + w + '</button>' : '') +
+      tools(n, who) + '</div>';
   }
   function plusCells(n, sx) {
     if (!open) return '';
     rows = rowsOf(sx);
     if (n.kids.length) return n.kids.map(function (k) { return plusCells(k, sx); }).join('');
-    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" data-post="' + n.id + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
+    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" data-post="' + n.id + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';--d:' + (n.d + 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
       '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + H.esc(wallWhose(r, n.id)) + '">+</button></div>';
   }
-  function all(n, sx) { return block(n, sx) + n.kids.map(function (k) { return all(k, sx); }).join(''); }
+  /* every take in each column it is part of: its own column first, then again in the stacks that branched off above it */
+  function all(n, sx, pc) {
+    var out = '';
+    if (n.isRiff || n.d === 0) out += block(n, sx, n.c0, false, pc);
+    else for (var j = n.c0; j <= n.c1; j++) out += block(n, sx, j, j !== n.c0, pc);
+    return out + n.kids.map(function (k) { return all(k, sx, pc); }).join('');
+  }
+  function heads(sx, pc) {
+    if (!open || !sx.core) return '';
+    return sx.colInfo.map(function (ci, j) {
+      if (!ci.starter) return '';
+      var p = ci.starter.p, who = p.mine ? 'Your stack' : p.by + '’s stack';
+      return '<div class="wcolhd' + (j === pc ? ' on' : '') + '" style="grid-column:' + (j + 1) + ';grid-row:1"><b class="wl">' + ci.letter + '</b><span>' + H.esc(who) + '</span>' +
+        (ci.from ? '<em>from ' + ci.from + '</em>' : '') + '</div>';
+    }).join('');
+  }
   /* where each part sits in the song: parts before the original track lead into it, parts after pick up where it ends */
   var befores = T.secs.filter(function (sx) { return !sx.core && sx.root.p.pos === 'before'; });
   var preLen = befores.reduce(function (n, sx) { return n + (sx.root.p.dur || 0); }, 0);
@@ -132,10 +192,12 @@ function wallHtml(r) {
   }
   var secHtml = T.secs.map(function (sx, i) {
     if (!open && !sx.core) return '';
-    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + rowsOf(sx) + ',var(--wrh,44px))">' + plusCells(sx.root, sx) + all(sx.root, sx) + '</div>';
+    var pc = open ? pickedCol(sx) : -1;
+    var frame = open && sx.cols > 1 && pc > -1 ? '<div class="wcolframe" style="grid-column:' + (pc + 1) + ';grid-row:1 / ' + rowsOf(sx) + '" aria-hidden="true"></div>' : '';
+    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:' + (open ? 'var(--wrh-hd,30px) ' : '') + 'repeat(' + (rowsOf(sx) - (open ? 1 : 0)) + ',var(--wrh,44px))">' + frame + heads(sx, pc) + plusCells(sx.root, sx) + all(sx.root, sx, pc) + '</div>';
     var cap = !open ? '' : '<small>Builds up from here &uarr;</small>';
     var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
-    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + '" style="--n:' + sx.cols + '">' + timeHead(sx) + grid + cap + '</div>';
+    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + (sx.core && sx.cols === 1 && T.secs.length === 1 ? ' wsec-one' : '') + '" style="--n:' + sx.cols + '">' + timeHead(sx) + grid + cap + '</div>';
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
   var now = '';
@@ -204,7 +266,7 @@ function wallHtml(r) {
     '<span class="tb-go">' + (open ? 'Hide reactions <i aria-hidden="true">&#9652;</i>' : 'Show reactions <i aria-hidden="true">&#9662;</i>') + '</span></button>' : '';
 
   if (H.project) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
-    '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
+    '<p class="jhint" style="margin:0 0 6px">Click a take to hear its stack in the tracks above. Point at a take to play it, play on it, solo it, comment on it or download it.</p>' +
     '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (sel && !now ? '<div class="wsel-row">' + selActs(r, sel) + '</div>' : '') + '</div>' + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
@@ -216,6 +278,32 @@ function wallHtml(r) {
     '</div>' + bar + talk + '</article>';
 }
 function wallKey(r, id) { return r.id + ':wall:' + id; }
+/* a take's files as they were sent (storage_path, never the compressed copy): one per instrument
+   of a reply, named after the jam, the player and the instrument */
+function wallFiles(r, id) {
+  var p = id === 'riff' ? null : H.postOf(r, id);
+  if (id !== 'riff' && (!p || p.deleted || p.kind === 'part')) return [];
+  var list = id === 'riff' ? [{ path:r.path, by:r.by, layer:r.layer, riff:true }] : [p].concat(p.stems || []);
+  return list.filter(function (x) { return x && x.path; }).map(function (x) {
+    var ext = (String(x.path).split('.').pop() || 'wav').toLowerCase();
+    var name = [r.title || 'Stakkato', x.by || 'someone', x.riff ? 'original track' : H.lay(x.layer).label].join(' - ').replace(/[\\/:*?"<>|]+/g, ' ') + '.' + ext;
+    return { url:publicUrl(x.path) + '?download=' + encodeURIComponent(name), name:name };
+  });
+}
+/* the file arrives with its own name (Storage sends it as an attachment); several files one after the other */
+function wallDownload(rid, id) {
+  var r = H.riff(rid); if (!r) return;
+  wallFiles(r, id).forEach(function (f, i) {
+    setTimeout(function () { var a = document.createElement('a'); a.href = f.url; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }, i * 600);
+  });
+}
+/* the column you click in is the stack you picked (a take can be in several) */
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-wcol]');
+  if (b && S) S.wcol[b.dataset.wr] = +b.dataset.wcol;
+  var d = e.target.closest && e.target.closest('[data-wdl]');
+  if (d && H) { e.preventDefault(); e.stopPropagation(); wallDownload(d.dataset.wdl, d.dataset.post); }
+}, true);
 /* what the person on top of the stack said about their take (only that one take) */
 function wallNote(r, id) {
   var p = id === 'riff' ? null : H.postOf(r, id), t = p ? p.text : r.text, who = p ? (p.mine ? 'You' : p.by) : r.by;
