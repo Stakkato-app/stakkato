@@ -15,6 +15,7 @@
    id, or null for the original track. arrangement() works out where everything starts. */
 
 import './styles.css';
+import './wall.css';
 import './theme.js';
 import { configured } from './supabase.js';
 import * as db from './data.js';
@@ -26,7 +27,8 @@ import { peaksOfBuffer } from './peaks.js';
 import { sendPlayCopy, encodeRender } from './playcopy.js';
 import { ROLES, role, col, cvar } from './roles.js';
 import { requireAccount, onAccount, postingAs, setToast, profileHref } from './auth.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
+import { initProjectWall, renderWall, wallStop } from './projwall.js';
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, FADE_IN, fadeIn, fadeOut, listMics, capture, newContext, wakeAudio, soundTip, rateTip, monitorOn, armMonitor, disarmMonitor, inputLatency, blockPeaks,
          beatInfoFor, clickSamples as clickRaw, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;           // seconds a layer may differ from the length of its section
@@ -45,6 +47,9 @@ function clockMs(sec) {
 }
 function el(id){ return document.getElementById(id); }
 function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+/* every tap wakes the sound (iPhones: silent switch, in-app browsers) */
+['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { wakeAudio(AC); }, true); });
+document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-play],[data-jplay],[data-wpick],[data-wsel],[data-wsolo],#transport,.play')) soundTip(flash); }, true);
 function flash(m) {
   var t = el('proto-hint');
   t.textContent = m; t.classList.add('on');
@@ -203,6 +208,46 @@ function standing(t) {
    Every take remembers the takes it was played on (on_takes). Following them gives a path from the
    original track to that take; a path nobody played on yet is a stack. The author's creation is the
    line-up (the takes "in" the song). Without one, the stack with the most instruments plays first. */
+/* ---------- the wall under the tracks (src/wall.js): picking a stack there switches the tracks ---------- */
+/* desktop: the original track's tile sits about midway between steps 3 and 4 of "How it works" */
+function placeSeed() {
+  var sp = el('seedpanel'), hows = document.querySelectorAll('#howsum .how-t');
+  if (sp && !sp.classList.contains('empty') && hows.length > 3 && window.innerWidth > 760) {
+    sp.style.marginLeft = '';
+    var a3 = hows[2].getBoundingClientRect(), a4 = hows[3].getBoundingClientRect(), me = sp.getBoundingClientRect();
+    var mid = (a3.left + a4.right) / 2, want = mid - me.width / 2 - me.left;
+    var top = el('st-main').getBoundingClientRect();
+    if (want > 0 && Math.abs(me.top - top.top) < 30) sp.style.marginLeft = want + 'px';
+  } else if (sp) sp.style.marginLeft = '';
+}
+function wallSwitch(id, playIt) {
+  var t = id === 'riff' ? null : TAKES[id];
+  if (id !== 'riff' && !t) return;
+  var part = t && (t.roleId === 'part' ? t : t.sec && TAKES[t.sec] && TAKES[t.sec].roleId === 'part' ? TAKES[t.sec] : null);
+  var was = running;
+  stopAll(true); S.override = null; S.trial = null; S.view = 'lineup'; offset = 0;
+  if (part) {
+    /* a new part plays after the stack it was made on, with what was played on it */
+    if (part.status === 'waiting') S.trialPitch = part.id;
+    var base = part.on && part.on.length ? part.on[part.on.length - 1] : null;
+    S.stack = base && TAKES[base] ? base : '__seed'; S.sel = base && TAKES[base] ? lead(TAKES[base]).dbId : '__seed';
+  }
+  else if (!t) { S.stack = '__seed'; S.sel = '__seed'; } else { S.stack = id; S.sel = lead(t).dbId; }
+  S.wallSel = id; S.wallStack = S.stack;
+  /* the tracks grow or shrink with the stack: scroll along, so the wall under them stays where you clicked */
+  var wf = el('wall'), y0 = wf ? wf.getBoundingClientRect().top : null;
+  refreshGains(); render();
+  if (wf && y0 !== null) { var dy = wf.getBoundingClientRect().top - y0; if (Math.abs(dy) > 1) window.scrollBy(0, dy); }
+  if (playIt || was) play(0);
+}
+/* the + on a tile: open the grey track, with an instrument picked when there is one */
+function wallRec(layer) {
+  if (layer && !ROLES.some(function (x) { return x.id === layer; })) return;
+  if (layer) S.recRole = layer;
+  S.recOpen = true; render();
+  var row = el('addrow'); if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
+  flash('Record your ' + role(S.recRole || ROLES[0].id).label.toLowerCase() + ' right here, or upload a file. Wear headphones.');
+}
 var WANT = (function () { try { return new URLSearchParams(location.search).get('stack'); } catch (e) { return null; } })();
 window.__stackId = function () { return S.stack || null; };
 /* wait until the audio is in and the page has its final height, then show the tracks */
@@ -645,9 +690,9 @@ function tVoteCast(id, kind, dir) {
   if (!me) { need('vote').then(function () { tVoteCast(id, kind, dir); }); return; }
   S.myTVote = S.myTVote || {};
   var before = S.myTVote[id] || 0, value = before === dir ? 0 : dir;
-  S.myTVote[id] = value; renderBoards();
+  S.myTVote[id] = value; renderBoards(); renderWall();
   db.voteInThread({ targetId:id, targetKind:kind, sessionId:S.session.id, voterId:me.id, value:value })
-    .catch(function (x) { S.myTVote[id] = before; renderBoards(); oops(x); });
+    .catch(function (x) { S.myTVote[id] = before; renderBoards(); renderWall(); oops(x); });
 }
 function picked(id) {
   return S.build.picks.indexOf(id) > -1 || S.versions.some(function (v) { return v.picks.indexOf(id) > -1; });
@@ -804,7 +849,7 @@ function applySnapshot(sess, snap) {
     t.url = db.playUrl(row); t.copy = row.play_path || null; t.renders = Object.assign(t.renders || {}, row.renders);
     t.joinedAt = row.joined_at; t.created = row.created_at;
     t.pos = row.part_pos || null; t.sec = row.section_id || null; t.on = row.on_takes || null; t.group = row.group_id || null;
-    t.carry = row.carry || null;
+    t.carry = row.carry || null; t.replyTo = row.reply_to || null; t.pk = row.peaks || null; t.dsec = row.duration_sec || null;
     /* keep what the creator is dragging or saving right now */
     if (!t.fadeBusy && !(drag && drag.t === t)) { t.fin = row.fade_in || 0; t.fout = row.fade_out || 0; t.xfade = row.xfade || 0; }
     if (!t.buf) t.len = row.duration_sec;
@@ -1192,6 +1237,7 @@ function play(from, soloId) {
   if (REC.pv) recStopPlayers();
   var list = tracks();
   if (!list.length) return;
+  wallStop();
   stopAll(true);
   only = soloId || null;
   var at = Math.max(0, Math.min(from === undefined ? offset : from, duration() - .05));
@@ -2102,21 +2148,21 @@ var I_UP = '<svg class="db-ico" width="46" height="46" viewBox="0 0 24 24" fill=
 
 var STEPS = {
   creator: {
-    lead: 'Your clip, strangers’ instruments. Everything people play lands in the thread; you pick what becomes the song.',
+    lead: 'Your clip, strangers’ instruments. Every take people play sits on the stack it was played on; you pick which stack becomes the song.',
     steps: [
-      ['Drop your clip', 'It sets the tempo, key and length for everyone. Every take on top is exactly as long.'],
-      ['Strangers play along', 'On your clip, on each other’s takes or on the song. Every take is a reply in the thread.'],
-      ['You pick the takes', 'Press “Add to song” on any take in the thread. Until you do, the room’s suggestion plays: the stack with the most instruments.'],
-      ['Release it when it’s ready', 'Shape the song here: fades, new parts, and the release. Every other take stays in the thread.']
+      ['Drop your clip', 'It sets the tempo, key and length for everyone. Every take on it is exactly as long.'],
+      ['People stack on it', 'Each take lands on top of what it was played on: your clip, someone else’s take or a new part. Click any take under the tracks to hear its stack.'],
+      ['You pick the song', 'Open the stack you like and press “Add to song” above the tracks. Until you do, the room’s suggestion plays: the stack with the most instruments.'],
+      ['Make it longer, then release', 'Anyone can add a new part with the + on the song’s edge. Set fades and crossfades, then release the song.']
     ]
   },
   musician: {
-    lead: 'Someone dropped a clip and wants strangers to play on it. Play along on the song; the author decides what goes in.',
+    lead: 'Someone dropped a clip and wants strangers to play on it. Pick a stack, put your instrument on top, and the author decides what becomes the song.',
     steps: [
-      ['Listen to the song', 'This is what the author picked so far, or the room’s suggestion when nothing is picked yet.'],
-      ['Add your instruments', 'Record right here or upload up to four files, on the song or on any take you pick in the thread. They go out as one reply.'],
-      ['Your take is a reply', 'It shows up in the thread with your comment, and it remembers exactly what you played on.'],
-      ['The author decides', 'If it fits, the author adds it to the song. If not, it stays in the thread, and anyone can play on it.']
+      ['Pick a stack', 'Every take under the tracks sits on what it was played on. Click one to hear it with everything below it; the tracks switch to that stack.'],
+      ['Add your instrument', 'Record it right here on the grey track (wear headphones), or upload up to four files. Nothing goes out until you post it.'],
+      ['It lands on top', 'Your take shows up as a new take on the stack you played on, with your comment. The next person can play on yours.'],
+      ['The author decides', 'If it fits, the author adds it to the song. If not, it stays on its stack, and anyone can still use it in their own version.']
     ]
   }
 };
@@ -2135,7 +2181,7 @@ function renderHow() {
   var seen = false;
   try { seen = localStorage.getItem('stackato:seen-how') === '1'; } catch (e) {}
   var want = hasSeed() && !!S.session;
-  if (S.howFor !== want) { S.howFor = want; el('howbox').open = !want || !seen; }
+  if (S.howFor !== want) { S.howFor = want; el('howbox').open = false; }
   if (want && !seen) { try { localStorage.setItem('stackato:seen-how', '1'); } catch (e) {} }
 }
 function renderInstruments() {
@@ -2511,12 +2557,12 @@ function renderDaw() {
       'It shows up with the stacks and in the thread, and anyone can play on it.</span></div>';
   }
   if (!S.override && S.view !== 'build' && S.stack === '__seed') {
-    banner = '<div class="listening build"><span>You hear <b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own, the way it was first posted. ' +
-      'Record or upload below to start a new branch from scratch, with whatever instruments you like.</span></div>';
+    banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + '<b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own' + '</span>' + '<span class="lst-long">You hear <b>' + esc((S.seed.by ? S.seed.by + '’s original track' : 'The original track')) + '</b> on its own, the way it was first posted. ' +
+      'Record or upload above' + ' to start a new branch from scratch, with whatever instruments you like.</span></div>';
   } else if (!S.override && S.view !== 'build' && S.stack && currentStack() && currentStack().partial) {
     var cp = currentStack(), lt = cp.last, grp = groupOf(lt), picked = grp.every(function (g) { return S.members.indexOf(g) > -1; });
-    banner = '<div class="listening build"><span>You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
-      'Record below to play on this. Mute a track to leave it out of what you play on.</span>' +
+    banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + 'up to <b>' + esc(cp.name) + '</b>' + '</span>' + '<span class="lst-long">You hear <b>' + esc(cp.name) + '</b> with everything it was played on. ' +
+      'Record above' + ' to play on this. Mute a track to leave it out of what you play on.</span>' +
       (isHost() && isOpen() && !picked ? '<button class="btn btn-sm btn-main" type="button" data-yesg="' + lt.dbId + '">Add to song</button>' : '') +
       (picked ? '<span class="tp-in">In the song</span>' : '') + '</div>';
   } else if (!S.override && S.view !== 'build') {
@@ -2530,7 +2576,7 @@ function renderDaw() {
         '</b> ' + (ups.length > 1 ? 'were' : 'was') + ' played on the song. It stays out until you add it.</span>' +
         ups.map(function (t) { return '<button class="btn btn-sm" type="button" data-try="' + t.id + '">Hear it with the song</button><button class="btn btn-sm btn-main" type="button" data-yes="' + t.id + '">Add to song</button>'; }).join('') + '</div>';
     else if (cs && cs.largest && !isHost())
-      banner = '<div class="listening build"><span><b>The author hasn’t picked takes yet.</b> Until then you hear the room’s suggestion: the stack from the thread with the most instruments.</span></div>';
+      banner = '<div class="listening build">' + '<span class="lst-short"><i>Stack</i> ' + '<b>the room’s suggestion</b> · nothing picked yet' + '</span>' + '<span class="lst-long"><b>The author hasn’t picked takes yet.</b> Until then you hear the room’s suggestion: the stack from the thread with the most instruments.</span></div>';
   }
   if (!list.length) {
     el('daw').innerHTML = stacksBar() + banner + '<div class="empty-state"><b>' + (hasSeed() ? 'Loading audio' : 'No audio yet') + '</b>' +
@@ -2825,15 +2871,19 @@ function addRowInner(building) {
       '</select>' +
       (secs.length > 1 ? '<select class="rec-role" id="daw-rec-sec" aria-label="Which part of the song you play on"' + (locked ? ' disabled title="Your draft is on ' + esc(secName(rsec)) + '. Post it or throw it away to play on another part."' : '') + '>' +
         secs.map(function (x) { return '<option value="' + x.id + '"' + (x.id === rsec ? ' selected' : '') + '>On ' + esc(x.label) + '</option>'; }).join('') + '</select>' : '');
-    lane = '<div class="a-lane"><span><span class="a-long">' + (building
+    var shut = !S.recOpen && !err;   /* on a phone: one button first, the choices after it */
+    lane = '<div class="a-lane' + (shut ? ' a-shut' : '') + '">' +
+      '<button class="btn btn-main a-open" type="button" data-recopen="1"><span class="add-ico" aria-hidden="true">+</span> Add your instrument</button>' +
+      '<span class="a-txt"><span class="a-long">' + (building
         ? 'Add a take on any layer to your version. Record it right here on this track, or upload a file.'
-        : 'Record right here, or upload one or more files (up to 4 instruments). They stay a draft until you post them, as one reply in the thread.') +
+        : 'Record right here, or upload one or more files (up to 4 instruments).') +
       ' </span><em>Wear headphones.</em></span>' +
       '<button class="btn btn-main" type="button" data-dawrec="1"><span class="rec-dot"></span> Record here</button>' +
       '<button class="btn" type="button" data-draftup="1">Upload files</button>' +
-      micPicker() + ampPicker(rid) + monPicker() + err + '</div>';
+      micPicker() + ampPicker(rid) + monPicker() + err +
+      '<button class="btn btn-sm a-close" type="button" data-recclose="1">Not now</button></div>';
   }
-  return '<div class="t-head">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' ? ' done' : '') + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
+  return '<div class="t-head' + (st === 'idle' && !S.recOpen && !err ? ' a-shut' : '') + '">' + head + '</div>' + (st === 'idle' ? lane : '<div class="rec-lane' + (st === 'done' ? ' done' : '') + (st === 'done' && REC.warn ? ' has-warn' : '') + '">' + lane + '</div>');
 }
 function placeFadeHandles() {
   var d = duration(); if (!d) return;
@@ -3104,7 +3154,7 @@ function renderBoards() {
   if (el('layer-toggle')) el('layer-toggle').innerHTML = nAll ? '<button class="btn btn-sm" type="button" data-showlayers="1" aria-expanded="' + !!S.showLayers + '">' +
     (S.showLayers ? 'Hide the takes' : 'Show the takes already in this session (' + nAll + ')') + '</button>' : '';
   var cs = currentStack();
-  if (!(S.view === 'build' && !S.override)) el('lineup-sub').textContent = !cs ? 'Nobody played along yet. Add the first take.'
+  if (!(S.view === 'build' && !S.override) && el('lineup-sub')) el('lineup-sub').textContent = !cs ? 'Nobody played along yet. Add the first take.'
     : cs.creation ? 'Picked by the author, from takes in the thread.'
     : cs.largest ? 'Until the author picks takes, the room’s suggestion plays.'
     : 'One branch of the thread: every take in it was played on the ones before it.';
@@ -3216,6 +3266,7 @@ window.addEventListener('stackato:theme', function () { render(); });
 function render() {
   keepInputs(function () { renderHow(); renderSeed(); renderProjTitle(); renderOwnCta(); renderInstruments(); renderDaw(); renderBoards(); renderThreadSide(); renderArchive(); renderLock(); renderVersionLists(); });
   if (S.menu) placeMenus();
+  renderWall(); placeSeed();
 }
 function renderAll() {
   render();
@@ -3715,6 +3766,8 @@ document.addEventListener('click', function (e) {
     if (REC.buf && REC.file) { var dr = addDraft(REC.file, REC.buf, S.recRole || ROLES[0].id, REC.sec || 'core'); if (dr) dr.amp = recAmpFor(S.recRole || ROLES[0].id); recReset(); REC.where = null; REC.fromDaw = false; refreshGains(); renderDaw(); }
     return;
   }
+  if (e.target.closest('[data-recopen]')) { S.recOpen = true; render(); return; }
+  if (e.target.closest('[data-recclose]')) { S.recOpen = false; render(); return; }
   if (e.target.closest('[data-draftup]')) { el('draft-files').click(); return; }
   var ddel = e.target.closest('[data-draftdel]');
   if (ddel) { S.drafts = (S.drafts || []).filter(function (d) { return d.t.id !== ddel.dataset.draftdel; }); if (!S.drafts.length) { S.draftBase = null; S.draftSec = null; } stopAll(true); renderDaw(); return; }
@@ -4230,5 +4283,8 @@ function boot() {
     });
   }).catch(oops);
 }
+initProjectWall({ S:function () { return S; }, TAKES:function () { return TAKES; }, me:function () { return me; }, isHost:isHost, running:function () { return running; },
+  ac:ac, playBuf:playBuf, stopAll:stopAll, wallSwitch:wallSwitch, wallRec:wallRec, refresh:refresh, flash:flash, oops:oops, need:need,
+  nameOf:nameOf, tVote:tVote, agoOf:agoOf });
 boot();
 refreshMics();

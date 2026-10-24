@@ -1,0 +1,149 @@
+/* the wall in the project (src/wall.js), under the tracks: the homepage's wall rules (index.html), scoped to #wall */
+#wall .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 18px;border:1px solid var(--line-strong);
+  background:var(--paper);border-radius:99px;font-weight:700;font-size:14.5px;cursor:pointer;white-space:nowrap;text-decoration:none;color:var(--ink)}
+#wall .btn:hover{border-color:var(--ink)}
+#wall .btn:disabled{opacity:.45;cursor:not-allowed}
+#wall .btn-main,#wall .btn-ink{background:var(--action);border-color:var(--action);color:var(--on-action)}
+#wall .btn-main:hover,#wall .btn-ink:hover{background:var(--action-hover);border-color:var(--action-hover)}
+#wall .btn-sound{background:var(--sound);border-color:var(--sound);color:var(--on-sound)}
+#wall .btn-sound:hover{background:var(--sound-ink);border-color:var(--sound-ink)}
+#wall .btn-sm{min-height:32px;padding:0 13px;font-size:13.5px}
+#wall .ghost{border:0;background:none;padding:4px 2px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer}
+#wall .ghost:hover{color:var(--ink)}
+#wall .riff{border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);box-shadow:var(--shadow);overflow:hidden}
+#wall .rmain{padding:22px 24px;display:flex;flex-direction:column;gap:14px}
+#wall .ava.sm{width:28px;height:28px;font-size:11px}
+#wall .racts{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#wall .racts .grow{flex:1}
+#wall .jhint{font-size:13.5px;color:var(--muted)}
+#wall canvas[data-wave]{cursor:pointer}
+#wall .phead,#wall .shead{position:absolute;width:2px;margin-left:-1px;pointer-events:none;border-radius:1px}
+#wall .phead{background:var(--sound)}
+#wall .shead{background:var(--ink);opacity:.55}
+#wall .shead::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translate(-50%,-3px);font-size:11px;font-weight:700;line-height:1;padding:3px 6px;border-radius:6px;background:var(--ink);color:var(--paper);white-space:nowrap}
+#wall .btn:disabled,#wall .btn:disabled:hover{background:var(--tint);border-color:var(--line);color:var(--muted);opacity:1;cursor:not-allowed}
+#wall .ghost.del:hover{color:var(--red)}
+#wall .ghost.del.sure{color:var(--red)}
+@keyframes wb-rise{from{opacity:0;transform:translateY(18px) scale(.9)}to{opacity:1;transform:none}}
+#wall .wwrap{overflow-x:auto;padding:2px 2px 6px;margin-top:4px}
+#wall .wrow{display:flex;align-items:flex-end;width:100%}
+#wall .wsec{display:flex;flex-direction:column;gap:6px;flex:var(--n) 1 0;min-width:calc(var(--n) * 104px)}
+#wall .wsec.wsec-shut{min-width:0}
+#wall .wsec small{font-size:12px;line-height:1.35;color:var(--muted);text-align:center;margin-top:2px}
+#wall .warrow{width:44px;flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;padding-bottom:30px;color:var(--part);font-size:20px}
+#wall .wgrid{display:grid;gap:4px}
+#wall .wb{display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:10px;min-width:0;font-size:13px;--c:var(--wild);background:var(--paper);border:1px solid var(--line-strong);color:var(--ink)}
+#wall .wb.wb-rise{animation:wb-rise .35s ease both}
+#wall .wb.wb-lit{border:2px solid var(--c);background:color-mix(in srgb,var(--c) 7%,var(--paper))}
+#wall .wb.wb-root{--c:var(--ink);background:color-mix(in srgb,var(--ink) 5%,var(--paper))}
+#wall .wb.wb-part{--c:var(--part);border-style:dashed}
+#wall .wb.wb-gone{background:transparent;border:1.5px dashed var(--line-strong);color:var(--muted)}
+#wall .wb.wb-picked{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--ink)}
+#wall .wb .wsolo{width:30px;height:30px;border-radius:50%;border:0;flex:none;cursor:pointer;font-size:11px;background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 80%,var(--ink))}
+#wall .wb .wsolo.on{background:var(--sound);color:#fff}
+#wall .wb .wsolo1{width:24px;height:24px;border-radius:6px;border:1px solid var(--line-strong);flex:none;cursor:pointer;font:700 11px/1 var(--body);background:var(--paper);color:var(--muted)}
+#wall .wb .wadd{width:24px;height:24px;border-radius:50%;border:0;flex:none;cursor:pointer;font:700 15px/1 var(--body);background:var(--action);color:var(--on-action)}
+#wall .wb .wadd:hover{background:var(--action-hover)}
+#wall .wb .wsolo1:hover{color:var(--ink);border-color:var(--ink)}
+#wall .wb .wsolo1.on{background:#E5B53B;border-color:#E5B53B;color:#121212}
+#wall .wb .wname{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;gap:8px;background:transparent;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0}
+#wall .wb .wname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+#wall .wb .wname canvas{flex:1 1 40px;min-width:24px;height:28px;pointer-events:none}
+#wall .wb .wname canvas.wseekable{pointer-events:auto;cursor:text}
+#wall .wb .wbadge{font-size:11px;font-weight:700;padding:3px 7px;border-radius:99px;flex:none;border:0;cursor:pointer;background:color-mix(in srgb,var(--ink) 6%,var(--paper));color:var(--ink)}
+#wall .wb .wbadge:hover{background:color-mix(in srgb,var(--ink) 12%,var(--paper))}
+#wall .wsay{display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px solid var(--line)}
+#wall .wsay label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#wall .wsay select{min-height:40px;border-radius:12px;border:1px solid var(--line-strong);padding:0 10px;font:inherit;background:var(--paper);color:var(--ink);max-width:100%}
+#wall .wsay .wsay-row{display:flex;gap:8px}
+#wall .wsay textarea{flex:1 1 auto;min-width:0;min-height:44px;border-radius:12px;border:1px solid var(--line-strong);padding:10px 12px;font:inherit;resize:vertical;background:var(--paper);color:var(--ink)}
+#wall .wplus{display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px}
+#wall .wplus.wp-rise{animation:wb-rise .35s ease both}
+#wall .wgrid .wb,#wall .wgrid .wplus{transition:margin .22s ease,opacity .15s}
+#wall .wgrid .wplus{position:relative;z-index:2}
+#wall .wghost{position:absolute;z-index:1;display:flex;align-items:center;gap:8px;padding:0 10px;border:1.5px dashed color-mix(in srgb,var(--sound) 70%,transparent);border-radius:10px;background:color-mix(in srgb,var(--sound) 9%,transparent);color:var(--sound-ink);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transform:translateY(6px);transition:opacity .2s,transform .2s}
+#wall .wghost.on{opacity:1;transform:none}
+#wall .wghost span{width:20px;height:20px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1.5px dashed currentColor;font-weight:700}
+#wall .wplus button{width:28px;height:28px;border-radius:50%;border:0;background:var(--action);color:var(--on-action);font:700 17px/1 var(--body);cursor:pointer}
+#wall .wb{cursor:pointer}
+#wall .wb:hover{border-color:var(--ink)}
+#wall .wfull{display:flex;justify-content:center;margin-top:10px}
+#wall .wmaster{margin-top:14px;border-radius:16px;background:var(--sound-soft);padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+#wall .wm-top{display:flex;align-items:center;gap:12px}
+#wall .wm-top .play{flex:none;width:52px;height:52px;border-radius:50%;border:0;background:var(--sound);color:#fff;font-size:16px;cursor:pointer}
+#wall .wm-what{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto}
+#wall .wm-what b{font-size:15px}
+#wall .wm-note{margin:0;font-size:13.5px;line-height:1.4;color:var(--ink)}
+#wall .wm-note span{color:var(--sound-ink);font-size:12.5px}
+#wall .wm-chips{display:flex;gap:6px;flex-wrap:wrap}
+#wall .wm-chips span{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;background:var(--paper);border-radius:99px;padding:2px 9px}
+#wall .wm-chips i{width:8px;height:8px;border-radius:50%;display:inline-block}
+#wall .wm-wave{position:relative;display:flex;gap:6px;height:56px}
+#wall .wm-wave div{position:relative;flex:1 1 0;min-width:0;background:color-mix(in srgb,var(--paper) 55%,transparent);border-radius:10px;padding:4px 8px 16px}
+#wall .wm-wave canvas{width:100%;height:100%;display:block}
+#wall .wm-wave small{position:absolute;left:8px;bottom:2px;font-size:11px;font-weight:700;color:var(--sound-ink)}
+#wall .wm-wave{cursor:pointer}
+#wall .wm-head{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--ink);border-radius:1px;pointer-events:none}
+#wall .wm-acts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--sound-ink)}
+#wall .wtalk{display:flex;align-items:center;gap:12px;width:100%;padding:14px 24px;border:0;border-top:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+#wall .wtalk .wlast{flex:1 1 auto;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wall .wtalk .wgo{flex:none;font-weight:700;font-size:14px;border:1px solid var(--line-strong);border-radius:99px;padding:8px 14px}
+#wall .wwords{padding:4px 24px 20px;display:flex;flex-direction:column;gap:14px}
+#wall .wtop{font-size:12.5px;font-weight:700;color:var(--muted)}
+#wall .wall-all{align-self:flex-start}
+#wall .wword{display:flex;gap:10px}
+#wall .wword .ava{flex:none}
+#wall .wword-b{flex:1 1 auto;min-width:0}
+#wall .wword.sub{margin-left:38px}
+#wall .wword-acts{display:flex;align-items:center;gap:10px;margin-top:4px;font-size:13px}
+#wall .wword-acts .ghost{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--muted);cursor:pointer}
+#wall .wword-acts .ghost:hover{color:var(--ink)}
+#wall .wword-acts .del.sure{color:var(--red)}
+#wall .wcrep{display:flex;gap:8px;margin-top:8px;align-items:flex-start}
+#wall .wcrep textarea{flex:1 1 auto;min-width:0;min-height:40px;border-radius:12px;border:1px solid var(--line-strong);padding:8px 12px;font:inherit;resize:vertical;background:var(--paper);color:var(--ink)}
+#wall .wsel-acts{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--ink)}
+#wall .wsel-what{font-weight:700}
+#wall .wsel-acts .ghost{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--muted);cursor:pointer}
+#wall .wsel-acts .del.sure{color:var(--red)}
+#wall .wword b{font-size:14px}
+#wall .wword .muted{font-size:12px;margin-left:6px}
+#wall .wword p{margin:3px 0 0;font-size:15px;line-height:1.45}
+#wall .wchip{display:inline-block;margin-top:3px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;border:0;cursor:pointer;--c:var(--muted);background:color-mix(in srgb,var(--c) 14%,var(--paper));color:color-mix(in srgb,var(--c) 75%,var(--ink))}
+#wall .wgrid{position:relative}
+#wall .wb.wb-root{position:relative}
+#wall .wtime{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:12px;color:var(--muted);white-space:nowrap;min-width:0;font-weight:700}
+#wall .wtime span{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
+#wall .wtime i{flex:1 1 12px;height:2px;border-radius:2px;background:var(--line-strong);min-width:8px}
+#wall .wtime em{font-style:normal;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#wall .wtime-part i{background:color-mix(in srgb,var(--part) 45%,transparent)}
+#wall .wsec{align-self:stretch}
+#wall .wsec>.wgrid{margin-top:auto}
+#wall .wdots{display:none}
+@media (max-width:760px) {
+  #wall .jhint{font-size:12px}
+  #wall .wwrap{padding-inline:0;container-type:inline-size;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;overscroll-behavior-x:contain}
+  #wall .wwrap::-webkit-scrollbar{display:none}
+  #wall .wrow{width:auto;min-width:100%;align-items:flex-start}
+  #wall .wwrap{transition:height .25s ease;overflow-y:hidden}
+  #wall .wtalk{padding:12px 16px;gap:10px}
+  #wall .wtalk .wlast{display:none}
+  #wall .wtalk>span:nth-child(2){flex:1 1 auto;min-width:0}
+  #wall .wsec{flex:0 0 auto!important;width:max(100cqw,calc(var(--n) * 92px));min-width:0!important;scroll-snap-align:start;scroll-snap-stop:always}
+  #wall .wsec.wsec-shut{width:100cqw}
+  #wall .warrow{display:none}
+  #wall .wsec{align-self:auto}
+  #wall .wsec>.wgrid{margin-top:0}
+  #wall .wb{gap:4px;padding:0 4px}
+  #wall .wb .wadd,#wall .wb .wbadge{display:none}
+  #wall .wb .wname canvas{min-width:30px}
+  #wall .wdots{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px}
+  #wall .wdots button{width:9px;height:9px;padding:0;border:0;border-radius:99px;background:var(--line-strong);cursor:pointer;transition:width .2s,background .2s}
+  #wall .wdots button[aria-current="true"]{width:22px;background:var(--ink)}
+  #wall .wswipe{font-size:18px;color:var(--muted);line-height:1}
+  #wall .wswipe-t{font-size:12.5px;color:var(--muted);margin-left:4px}
+}
+/* the project's own: the wall sits in the page without a card of its own; .wrow means something else in styles.css */
+#wall .wrow{gap:0;flex-wrap:nowrap}
+#wall .riff{border:0;box-shadow:none;border-radius:0;background:transparent}
+#wall .rmain{padding:4px 2px 8px}
+#wall .wsel-row{display:flex;justify-content:flex-end;margin-top:8px;font-size:13px}
