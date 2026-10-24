@@ -142,7 +142,7 @@ function build(feed) {
       });
     }
     var r = { id:s.id, slug:s.slug, by:seed.author_name, uid:s.host_id, title:title, bpm:s.bpm, key:s.music_key || '', sig:s.time_sig && s.time_sig !== '4/4' ? s.time_sig : '',
-      time:ago(s.created_at), text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', dur:seed.duration_sec, peaks:seed.peaks || null,
+      time:ago(s.created_at), text:seed.note, path:seed.storage_path, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', dur:seed.duration_sec, peaks:seed.peaks || null,
       likes:votes[s.id] || 0, host:!!(me && s.host_id === me.id), open:s.status === 'open', mix:mix, posts:posts };
     Object.assign(r, sound(seed), { id:s.id, uid:s.host_id });
     if (s.status === 'released') r.song = { name:title, musicians:players(r).length + 1 };

@@ -77,7 +77,7 @@ function build() {
       again = true; return false;
     });
   }
-  return { id:s.id, slug:s.slug, by:seed.by, uid:s.host_id, title:s.title, text:seed.note, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed',
+  return { id:s.id, slug:s.slug, by:seed.by, uid:s.host_id, title:s.title, text:seed.note, path:seed.path, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed',
     dur:durOf(seed), peaks:seed.pk || null, likes:votes[s.id] || 0, host:A.isHost(), open:s.status === 'open', posts:posts };
 }
 function riff() { return R; }
