@@ -30,6 +30,40 @@ export function newContext() {
   var C = window.AudioContext || window.webkitAudioContext;
   try { return new C({ latencyHint:0 }); } catch (e) { return new C(); }
 }
+/* No sound on an iPhone: web audio follows the silent switch there, unless the page says its sound
+   is media (navigator.audioSession, iOS 17 and later) or a normal audio element has played once in a
+   tap (older iOS). wakeAudio() does both, and resumes the context, on every tap; in-app browsers
+   (Messenger, Instagram) also pause it when you come back. Harmless everywhere else. */
+var SILENT = null, woke = false;
+function silentUrl() {
+  if (SILENT) return SILENT;
+  var n = 800, b = new ArrayBuffer(44 + n), v = new DataView(b), w = function (o, t) { for (var i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  for (var i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  SILENT = URL.createObjectURL(new Blob([b], { type:'audio/wav' }));
+  return SILENT;
+}
+export function audioMode(kind) {
+  try { if (navigator.audioSession && navigator.audioSession.type !== kind) navigator.audioSession.type = kind; } catch (e) {}
+}
+export function wakeAudio(ctx) {
+  try { if (navigator.audioSession && navigator.audioSession.type !== 'play-and-record') navigator.audioSession.type = 'playback'; } catch (e) {}
+  if (ctx && ctx.state !== 'running' && ctx.state !== 'closed' && ctx.resume) { try { ctx.resume().catch(function () {}); } catch (e) {} }
+  if (woke) return;
+  woke = true;
+  try {
+    var a = new Audio(silentUrl()); a.setAttribute('playsinline', ''); a.preload = 'auto';
+    var p = a.play(); if (p && p.catch) p.catch(function () { woke = false; });
+  } catch (e) { woke = false; }
+}
+/* Messenger's and Instagram's own browsers on an iPhone: say once where the sound might be */
+export function soundTip(show) {
+  var ua = navigator.userAgent || '';
+  if (!/iPhone|iPad|iPod/.test(ua) || !/FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger/i.test(ua)) return;
+  try { if (sessionStorage.getItem('stackato:soundtip')) return; sessionStorage.setItem('stackato:soundtip', '1'); } catch (e) {}
+  show('No sound? Turn off silent mode, or open this page in Safari (the ⋯ menu, then Open in browser).');
+}
 /* Pressing play: a gain that rises from silence over 5 ms from audio time T, so audio that starts
    mid-waveform doesn't click. Connect the sources to it; it goes to dest. fadeOut() is the other
    end: pausing or stopping takes the gain g down to silence over the same 5 ms, then stops srcs. */
@@ -75,6 +109,7 @@ export function recWorklet(a) {
 }
 /* the chosen input, without any of the browser's voice processing */
 export function openMic() {
+  audioMode('play-and-record');   /* iPhones: a page that says it only plays can't record */
   var base = { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
   var id = savedMic();
   var want = id ? Object.assign({ deviceId:{ exact:id } }, base) : base;
