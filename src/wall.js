@@ -10,10 +10,13 @@ import { decodePeaks, peaksOfBuffer } from './peaks.js';
 import { publicUrl } from './data.js';
 
 var H = null, S = null, BUF = null;
-var SHOW_PARTS = false;   /* new parts on the wall: off while "make the song longer" waits */
+var SHOW_PARTS = false;
+/* Loop: a stack plays round and round (on), or once (off); remembered per browser */
+function savedLoop() { try { return localStorage.getItem('stackato:loop') !== 'off'; } catch (e) { return true; } }
+function keepLoop(on) { try { localStorage.setItem('stackato:loop', on ? 'on' : 'off'); } catch (e) {} }   /* new parts on the wall: off while "make the song longer" waits */
 export function initWall(host) {
   H = host; S = host.S; BUF = host.BUF;
-  S.wcrep = {}; S.wsel = {}; S.wcol = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {}; S.wfull = {};
+  S.wcrep = {}; S.wsel = {}; S.wcol = {}; S.wmode = {}; S.wwait = {}; S.wloop = savedLoop(); S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {}; S.wfull = {};
 }
 
 /* ---------- the stacks ----------
@@ -99,6 +102,7 @@ function wallWhose(r, id) {
   return (p.mine ? 'your ' : p.by + '’s ') + (p.kind === 'part' ? 'new part' : H.stemsOf(p).map(function (x) { return H.lay(x.layer).label; }).join(' + '));
 }
 function wallHtml(r) {
+  var ww = S.wwait[r.id], waiting = ww && S.playing === ww.k ? ww.ids : [];
   var open = !!S.expanded[r.id], T = wallTree(r), sel = S.wsel[r.id] || null, STEP = 0.16;
   /* the rows rise in only right after "Show reactions", not on every redraw */
   if (!open) delete S.wopen[r.id]; else if (!S.wopen[r.id]) S.wopen[r.id] = Date.now();
@@ -139,7 +143,7 @@ function wallHtml(r) {
     var p = n.p || {}, layer = n.isRiff ? r.layer : p.kind === 'part' ? 'part' : p.layer;
     var on = lit[n.id] && (n.isRiff || pc < 0 || j === pc);
     var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (shared ? ' wb-shared' : '') + (on && !shared ? ' wb-lit' : '') +
-      (n.id === sel && !shared && (pc < 0 || j === pc) ? ' wb-picked' : '') + (S.playing === wallKey(r, n.id) || soloed(r, n.id) ? ' wb-on' : '') + (anim && d ? ' wb-rise' : '');
+      (n.id === sel && !shared && (pc < 0 || j === pc) ? ' wb-picked' : '') + (S.playing === wallKey(r, n.id) || soloed(r, n.id) ? ' wb-on' : '') + (anim && d ? ' wb-rise' : '') + (waiting.indexOf(n.id) > -1 ? ' wb-wait' : '');
     var gc = n.isRiff || n.d === 0 ? (n.c0 + 1) + ' / ' + (n.c1 + 2) : String(j + 1);
     if (solo1(sx)) { if (!(n.isRiff || n.d === 0) && j !== PC.core) return ''; gc = n.isRiff || n.d === 0 ? '1 / 2' : '1'; }
     var style = 'grid-column:' + gc + ';grid-row:' + (rows - n.d) + ';--d:' + n.d + ';--c:' + H.lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
@@ -174,20 +178,30 @@ function wallHtml(r) {
     else for (var j = n.c0; j <= n.c1; j++) out += block(n, sx, j, j !== n.c0, pc);
     return out + n.kids.map(function (k) { return all(k, sx, pc); }).join('');
   }
+  /* on top of each stack: play it all at once, or build it up one layer at a time */
+  function duo(sx, j) {
+    var top = wallTop(sx, j); if (!top) return '';
+    var k = wallKey(r, top.id), at = ' data-wr="' + r.id + '" data-post="' + top.id + '" data-wcol="' + j + '"';
+    var allOn = H.tracksOn ? H.tracksOn(top.id) && S.playing !== k : S.playing === k && S.wmode[r.id] !== 'build', buildOn = S.playing === k && S.wmode[r.id] === 'build';
+    var stairs = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true"><path d="M2 13.5h4v-3.5h4V6.5h4V3" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    return '<span class="wduo">' +
+      '<button type="button" data-wplay="all"' + at + ' class="' + (allOn ? 'on' : '') + '" aria-label="' + (allOn ? 'Pause' : 'Play this stack, every layer at once') + '" title="All at once">' + (allOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+      '<button type="button" data-wplay="build"' + at + ' class="' + (buildOn ? 'on' : '') + '" aria-label="' + (buildOn ? 'Pause' : 'Build this stack up, one layer at a time') + '" title="Build up: one layer at a time">' + (buildOn ? '&#10074;&#10074;' : stairs) + '</button></span>';
+  }
   function heads(sx, pc) {
     if (!open || !sx.core) return '';
     if (solo1(sx)) {
       var ci = sx.colInfo[pc] || sx.colInfo[0], sp = ci.starter && ci.starter.p, nm = !sp ? 'The original track' : sp.mine ? 'Your stack' : sp.by + '’s stack';
       return '<div class="wcolhd wcolnav" style="grid-column:1;grid-row:1">' +
         '<button type="button" data-wstep="-1" data-wr="' + r.id + '" aria-label="The stack before"' + (pc > 0 ? '' : ' disabled') + '>&lsaquo;</button>' +
-        '<b class="wl">' + ci.letter + '</b><span>' + H.esc(nm) + '</span>' + (ci.from ? '<em>from ' + ci.from + '</em>' : '') +
+        duo(sx, pc) + '<b class="wl">' + ci.letter + '</b><span>' + H.esc(nm) + '</span>' + (ci.from ? '<em>from ' + ci.from + '</em>' : '') +
         '<small>' + (pc + 1) + ' of ' + sx.cols + '</small>' +
         '<button type="button" data-wstep="1" data-wr="' + r.id + '" aria-label="The next stack"' + (pc < sx.cols - 1 ? '' : ' disabled') + '>&rsaquo;</button></div>';
     }
     return sx.colInfo.map(function (ci, j) {
       if (!ci.starter) return '';
       var p = ci.starter.p, who = p.mine ? 'Your stack' : p.by + '’s stack';
-      return '<div class="wcolhd' + (j === pc ? ' on' : '') + '" style="grid-column:' + (j + 1) + ';grid-row:1"><b class="wl">' + ci.letter + '</b><span>' + H.esc(who) + '</span>' +
+      return '<div class="wcolhd' + (j === pc ? ' on' : '') + '" style="grid-column:' + (j + 1) + ';grid-row:1">' + duo(sx, j) + '<b class="wl">' + ci.letter + '</b><span>' + H.esc(who) + '</span>' +
         (ci.from ? '<em>from ' + ci.from + '</em>' : '') + '</div>';
     }).join('');
   }
@@ -217,6 +231,9 @@ function wallHtml(r) {
     return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + (sx.core && sx.cols === 1 && T.secs.length === 1 ? ' wsec-one' : '') + '" style="--n:' + (solo1(sx) ? 1 : sx.cols) + '">' + timeHead(sx) + grid + cap + '</div>';
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
+  var loopRow = !open ? '' : '<div class="wctl"><span class="wctl-t">' + (S.playing && S.playing.indexOf(r.id + ':wall:') === 0 && S.wmode[r.id] === 'build' ? 'Building up, one layer at a time' : '') + '</span>' +
+    '<button class="wloop' + (S.wloop ? ' on' : '') + '" type="button" data-wloop="1" aria-pressed="' + S.wloop + '" title="' + (S.wloop ? 'Loop is on: the stack keeps playing from the top' : 'Loop is off: the stack plays once') + '">' +
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true"><path d="M3 6.5A4.5 4.5 0 0 1 11.6 5M13 9.5A4.5 4.5 0 0 1 4.4 11" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M11.8 2.2 11.6 5 8.8 4.8M4.2 13.8 4.4 11 7.2 11.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Loop</button></div>';
   var selN = sel && T.nodes[sel], selBar = MOB && open && selN && !(selN.p && selN.p.deleted) ?
     '<div class="wselbar"><span class="wsel-who">' + glyph(selN.isRiff ? r.layer : selN.p.kind === 'part' ? 'part' : selN.p.layer, H.lay(selN.isRiff ? r.layer : selN.p.kind === 'part' ? 'part' : selN.p.layer).c) +
       H.esc(selN.isRiff ? r.by + ' · original track' : (selN.p.mine ? 'You' : selN.p.by) + ' · ' + wallLabel(selN)) + '</span>' + tools(selN) + '</div>' : '';
@@ -228,7 +245,6 @@ function wallHtml(r) {
     var people = [];
     segs.forEach(function (sg, si) { sg.list.forEach(function (x) { if (si && people.some(function (q) { return q.id === x.id; })) return; people.push(x); }); });
     now = '<div class="wmaster"><div class="wm-top">' +
-        '<button class="play' + (mOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + ms + '" aria-label="' + (mOn ? 'Pause' : 'Play the master track') + '">' + (mOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
         '<div class="wm-what"><b>' + (ms === 'riff' ? 'The original track' : 'Up to ' + H.esc(wallWhose(r, ms))) + '</b>' + wallNote(r, ms) +
           '<div class="wm-chips">' + people.map(function (x) { return '<span>' + glyph(x.isPart ? 'part' : x.layer, H.lay(x.isPart ? 'part' : x.layer).c) + H.esc(x.isRiff ? r.by + ' · original' : (x.mine ? 'You' : x.by) + ' · ' + H.chipLabel(x)) + '</span>'; }).join('') + '</div></div></div>' +
       '<div class="wm-wave" data-wseek="' + r.id + '" data-post="' + ms + '" title="Click to play from there">' + segs.map(function (sg, i) {
@@ -287,13 +303,13 @@ function wallHtml(r) {
 
   if (H.project) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<p class="jhint" style="margin:0 0 6px">Click a take to hear its stack in the tracks above. Point at a take to play it, play on it, solo it, comment on it or download it.</p>' +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + selBar + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
+    loopRow + '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + selBar + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (sel && !now ? '<div class="wsel-row">' + selActs(r, sel) + '</div>' : '') + '</div>' + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + H.ava(r.by, r.layer) + '<div class="rwho"><b>' + H.nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + H.lyr(r.layer) : '') +
       '<small>' + H.riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + H.esc(r.title) + '</h2>' + (r.text ? '<p class="rtext">' + H.esc(r.text) + '</p>' : '') +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + selBar + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
+    loopRow + '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + selBar + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a></div>') +
     '</div>' + bar + talk + '</article>';
 }
@@ -316,6 +332,41 @@ function wallDownload(rid, id) {
   wallFiles(r, id).forEach(function (f, i) {
     setTimeout(function () { var a = document.createElement('a'); a.href = f.url; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }, i * 600);
   });
+}
+/* the top take of column j: the stack it stands for */
+function wallTop(sx, j) {
+  var top = null;
+  (function walk(n) { if (n.c0 <= j && n.c1 >= j && n.d > 0 && (!top || n.d > top.d)) top = n; n.kids.forEach(walk); })(sx.root);
+  return top;
+}
+/* a stack, every layer at once: round and round with Loop on, once with it off */
+function wallRun(k, r, list) {
+  if (S.wloop) H.playList(k, r, list);
+  else H.playSeq(k, r, [list], 0, { then:'stop' });
+}
+/* a stack built up: the original track alone, then each take joins in the order it was played
+   (a reply with several instruments joins at once), one time through each; then the whole
+   stack loops (Loop on) or stops. A take that hasn't joined yet shows a flat line. */
+function wallBuild(rid, id) {
+  var r = H.riff(rid), k = wallKey(r, id), list = H.chainOf(r, id === 'riff' ? null : id);
+  var groups = [], segs = [];
+  list.forEach(function (x) {
+    var g = x.isRiff ? 'riff' : String(x.id).split('~')[0];
+    if (!groups.length || groups[groups.length - 1] !== g) groups.push(g);
+    segs.push(null);
+  });
+  segs = groups.map(function (g, i) { var keep = groups.slice(0, i + 1); return list.filter(function (x) { return keep.indexOf(x.isRiff ? 'riff' : String(x.id).split('~')[0]) > -1; }); });
+  S.wsel[rid] = id; S.wcore[rid] = id; S.wmode[rid] = 'build';
+  /* in the project the tracks above switch to this stack too, quietly: the wall plays the build-up */
+  if (H.project) { delete S.wfull[rid]; if (H.tracksOn && H.tracksOn(id)) H.stopTracks(); if (H.pick) H.pick(id, false); }
+  H.playSeq(k, r, segs, 0, { then:S.wloop ? 'last' : 'stop', onSeg:function (i) { wallWait(rid, groups.slice(i + 1), k); } });
+  wallWait(rid, groups.slice(1), k);
+}
+function wallWait(rid, ids, k) {
+  S.wwait[rid] = { k:k, ids:ids };
+  var art = document.getElementById('riff-' + rid); if (!art) return;
+  [].forEach.call(art.querySelectorAll('.wb[data-post]'), function (b) { b.classList.toggle('wb-wait', ids.indexOf(b.dataset.post) > -1); });
+  var t = art.querySelector('.wctl-t'); if (t) t.textContent = ids.length ? 'Building up, one layer at a time' : '';
 }
 /* phones: the next or the stack before, by the arrows or a swipe over the stack; past the last one a swipe goes on to the new parts */
 function wallStep(rid, dir, wrap) {
@@ -352,6 +403,19 @@ document.addEventListener('click', function (e) {
   if (b && S) S.wcol[b.dataset.wr] = +b.dataset.wcol;
   var d = e.target.closest && e.target.closest('[data-wdl]');
   if (d && H) { e.preventDefault(); e.stopPropagation(); wallDownload(d.dataset.wdl, d.dataset.post); return; }
+  var pl = e.target.closest && e.target.closest('[data-wplay]');
+  if (pl && H) {
+    e.preventDefault(); e.stopPropagation();
+    var prid = pl.dataset.wr, pid = pl.dataset.post, pr = H.riff(prid), mode = pl.dataset.wplay;
+    if (!pr) return;
+    if (S.playing === wallKey(pr, pid) && (S.wmode[prid] === 'build') === (mode === 'build')) { H.stop(); delete S.wwait[prid]; H.render(); return; }
+    if (mode === 'build') { wallBuild(prid, pid); H.render(); return; }
+    if (H.project) { if (H.tracksOn(pid) && S.playing !== wallKey(pr, pid)) { H.stopTracks(); return; } wallPick(prid, pid); return; }
+    S.wsel[prid] = pid; S.wcore[prid] = pid; S.wmode[prid] = 'all'; wallRun(wallKey(pr, pid), pr, H.chainOf(pr, pid === 'riff' ? null : pid)); H.render();
+    return;
+  }
+  var lp = e.target.closest && e.target.closest('[data-wloop]');
+  if (lp && H) { e.preventDefault(); e.stopPropagation(); S.wloop = !S.wloop; keepLoop(S.wloop); H.render(); return; }
   var st = e.target.closest && e.target.closest('[data-wstep]');
   if (st && H) { e.preventDefault(); e.stopPropagation(); wallStep(st.dataset.wr, +st.dataset.wstep, st.closest('.wwrap')); }
 }, true);
@@ -541,7 +605,7 @@ function wallPick(rid, id) {
   S.wsel[rid] = id;
   if (S.playing === k) { H.stop(); H.render(); return; }
   var T = wallTree(r), part = T.partOf[id];
-  if (!part) { S.wcore[rid] = id; H.playList(k, r, H.chainOf(r, id === 'riff' ? null : id)); H.render(); return; }
+  if (!part) { S.wcore[rid] = id; S.wmode[rid] = 'all'; wallRun(k, r, H.chainOf(r, id === 'riff' ? null : id)); H.render(); return; }
   var segs = wallSegs(r, id, T);
   H.playSeq(k, r, segs.map(function (sg) { return sg.list; }), part.p.pos === 'before' ? 0 : segs[0].len);
 }
