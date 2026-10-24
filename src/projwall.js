@@ -134,11 +134,15 @@ function playPos() {
   if (!CLOCK || CLOCK.k !== S.playing || !CLOCK.len) return null;
   var t = ac().currentTime - CLOCK.t0; return ((t % CLOCK.len) + CLOCK.len) % CLOCK.len;
 }
-function playSeq(k, r, segs, from) {
+/* segs play one after the other, then again from the top. opt.then 'last' keeps repeating only the
+   last one (a stack built up layer by layer, then looped), 'stop' stops after one time through;
+   opt.onSeg(i) says when segment i starts the first time through (and segs.length at its end) */
+function playSeq(k, r, segs, from, opt) {
+  opt = opt || {};
   from = from || 0;
   quietProject();
   silence(); CLOCK = null;
-  var mine = SEQ;
+  var mine = SEQ, first = true;
   S.playing = k; renderWall();
   (function round() {
     if (S.playing !== k || SEQ !== mine) return;
@@ -146,8 +150,9 @@ function playSeq(k, r, segs, from) {
     segs.forEach(function (seg) { var lead = bufFor(r, seg[0]); total += lead ? lead.duration : 0; });
     if (!total) return;
     CLOCK = { k:k, t0:T0 - from, len:total }; tickHeads();
-    segs.forEach(function (seg) {
+    segs.forEach(function (seg, si) {
       var lead = bufFor(r, seg[0]), len = lead ? lead.duration : 0;
+      if (first && opt.onSeg && skip < len) (function (at, i) { setTimeout(function () { if (S.playing === k && SEQ === mine) opt.onSeg(i); }, Math.max(0, (at - a.currentTime) * 1000)); })(T, si);
       if (skip >= len) { skip -= len; return; }
       seg.forEach(function (x) {
         var b = bufFor(r, x); if (!b || !len) return;
@@ -157,7 +162,11 @@ function playSeq(k, r, segs, from) {
       T += len - skip; skip = 0;
     });
     from = 0;
-    setTimeout(function () { if (S.playing === k && SEQ === mine) round(); }, Math.max(0, (T - a.currentTime) * 1000) - 30);
+    var endAt = Math.max(0, (T - a.currentTime) * 1000) - 30, wasFirst = first, nSeg = segs.length; first = false;
+    if (wasFirst && opt.onSeg) setTimeout(function () { if (S.playing === k && SEQ === mine) opt.onSeg(nSeg); }, endAt + 30);
+    if (wasFirst && opt.then === 'stop') { setTimeout(function () { if (S.playing === k && SEQ === mine) { stop(); renderWall(); } }, endAt + 30); return; }
+    if (wasFirst && opt.then === 'last' && segs.length > 1) { segs = [segs[segs.length - 1]]; }
+    setTimeout(function () { if (S.playing === k && SEQ === mine) round(); }, endAt);
   })();
 }
 /* app.js calls this when the project starts playing */
@@ -395,5 +404,7 @@ export function initProjectWall(app) {
   initWall({ S:S, BUF:BUF, esc:esc, lay:lay, mmss:mmss, ava:ava, lyr:lyr, nameOf:app.nameOf, riffMeta:riffMeta, voteHtml:voteHtml, canDelete:canDelete, delBtn:delBtn,
     riff:riff, postOf:postOf, stemsOf:stemsOf, chainOf:chainOf, chipLabel:chipLabel, bufKey:bufKey,
     ac:ac, load:load, playList:playList, playSeq:playSeq, playPos:playPos, stop:stop, render:renderWall, drawWaves:drawWaves,
-    project:true, pick:function (id, playIt) { A.wallSwitch(id, playIt); } });
+    project:true, pick:function (id, playIt) { A.wallSwitch(id, playIt); },
+    /* the tracks above play this stack, all at once */
+    tracksOn:function (id) { return A.running() && A.S().wallSel === id; }, stopTracks:function () { A.stopAll(true); } });
 }

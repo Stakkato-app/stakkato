@@ -445,6 +445,17 @@ header.top .brand{display:flex}
 .wcolhd .wl{font:800 15px/1 var(--disp);color:var(--ink)}
 .wcolhd span{font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .wcolhd em{font-style:normal;white-space:nowrap}
+.wcolhd .wduo{display:inline-flex;gap:3px;flex:none;overflow:visible;margin-right:2px}
+.wduo button,.wcolnav .wduo button{width:26px;height:26px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper);color:var(--sound-ink);display:inline-grid;place-items:center;padding:0;font:700 10px/1 var(--body);cursor:pointer;flex:none}
+.wduo button:hover{border-color:var(--sound);background:var(--sound-soft)}
+.wduo button.on{background:var(--sound);border-color:var(--sound);color:#fff}
+.wctl{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin:0 0 8px;min-height:32px}
+.wctl-t{flex:1;min-width:0;color:var(--sound-ink);font-size:13px;font-weight:600}
+.wloop{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--line-strong);background:var(--paper);color:var(--muted);font:700 13px/1 var(--body);cursor:pointer}
+.wloop.on{background:var(--sound-soft);border-color:var(--sound);color:var(--sound-ink)}
+.wb.wb-wait canvas{visibility:hidden}
+.wb.wb-wait .wname{position:relative}
+.wb.wb-wait .wname::after{content:"";position:absolute;right:10px;top:50%;width:calc(100% - var(--namew,110px) - 20px);border-top:2px dashed var(--line-strong)}
 .wb .wnm{display:flex;flex-direction:column;line-height:1.15;min-width:0;flex:none;width:calc(var(--namew,104px) - var(--d,0) * var(--wstep))}
 .wb.wb-root .wnm{flex:0 1 auto;width:auto;min-width:var(--namew,104px)}
 .wb .wnm b,.wb .wnm small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
