@@ -1,12 +1,12 @@
-/* The homepage (/): a feed of jams with their threads.
+/* The homepage (/): a grid of jams; each opens its wall (src/wall.js) in a panel.
 
    A jam is a session with an original track. Its thread holds the audio replies (takes;
    takes.reply_to says which take a reply was played on top of) and the written replies
    (thread_comments), and anyone can up- or downvote the jam, a take or a comment
    (thread_votes). Reading needs no sign-in; every write (a comment, a vote, a take, a new
-   jam) asks for an account first (src/auth.js) and carries on once there is one. Playing a take plays it with everything above it in its thread.
+   jam) asks for an account first (src/auth.js) and carries on once there is one. Playing a take plays it with the stack it was played on.
 
-   The markup is built from strings like in app.js; render() redraws the whole list. */
+   The markup is built from strings like in app.js; render() redraws the whole page. */
 
 import './theme.js';
 import { configured } from './supabase.js';
@@ -16,8 +16,9 @@ import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
 import { sendPlayCopy, encodeRender } from './playcopy.js';
+import { initWall, wallHtml, wallTree, wallKey, wallWhose, wallSegs, wallPick, wallSeek, wallSolo, wallHead, wallScrolls, wallFit, wallFullId } from './wall.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
-import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
+import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, wakeAudio, soundTip, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
 
 var TOL = 0.6;                     /* seconds a take may differ from what it plays on (as in app.js) */
@@ -27,7 +28,7 @@ ROLES.forEach(function (r) { LAYERS[r.id] = { label:r.label.toLowerCase(), c:'va
 function lay(id) { return LAYERS[id] || LAYERS.wild; }
 
 var RIFFS = [];
-var S = { tab:'fresh', expanded:{}, fold:{}, vote:{}, playing:null, cmt:{ at:null, text:'' }, loaded:false, failed:null, sure:null };
+var S = { tab:'fresh', expanded:{}, vote:{}, playing:null, loaded:false, failed:null, sure:null };
 var KIND = {};                     /* target id -> { kind, sid } for votes */
 var me = null;                     /* the signed-in account (src/auth.js), or null */
 var AC = null, BUF = {}, SRC = [], FADE = null;
@@ -87,8 +88,8 @@ function build(feed) {
     function carried(ids) {
       return (ids || []).map(function (id) {
         var c = rowOf[id]; if (!c || c.status === 'deleted' || c.role_id === 'part' || c.role_id === 'mix') return null;
-        if (c.id === s.seed_take_id) return Object.assign({ id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', dur:seed.duration_sec }, sound(seed));
-        return Object.assign({ id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', dur:c.duration_sec }, sound(c));
+        if (c.id === s.seed_take_id) return Object.assign({ id:'riff', isRiff:true, by:seed.author_name, layer:LAYERS[s.seed_role] ? s.seed_role : 'seed', dur:seed.duration_sec, peaks:seed.peaks || null }, sound(seed));
+        return Object.assign({ id:c.id, by:c.author_name, uid:c.author_id, layer:LAYERS[c.role_id] ? c.role_id : 'wild', dur:c.duration_sec, peaks:c.peaks || null }, sound(c));
       }).filter(Boolean);
     }
     KIND[s.id] = { kind:'session', sid:s.id };
@@ -112,7 +113,7 @@ function build(feed) {
         return;
       }
       posts.push(Object.assign(base, { parent:t.reply_to || t.section_id || null, section:t.section_id || null, group:t.group_id || null,
-        layer:LAYERS[t.role_id] ? t.role_id : 'wild', inSong:t.status === 'in' && !t.section_id }));
+        layer:LAYERS[t.role_id] ? t.role_id : 'wild' }));
     });
     feed.comments.filter(function (c) { return c.session_id === s.id; }).forEach(function (c) {
       KIND[c.id] = { kind:'comment', sid:s.id };
@@ -153,7 +154,8 @@ function land() {
   var r = LANDING && riff(LANDING.open); if (!r) { LANDING = null; return; }
   var hit = LANDING.tid ? postOf(r, LANDING.tid) || r.posts.filter(function (p) { return (p.stems || []).some(function (x) { return x.id === LANDING.tid; }); })[0] : null;
   LANDING = null;
-  S.expanded[r.id] = true; if (hit) openTo(r, hit);
+  /* back from the project, the jam opens in its panel on the stack you had open */
+  openJam(r.id); if (hit) { S.wsel[r.id] = hit.id; render(); }
   render();
   setTimeout(function () {
     var n = hit ? el('post-' + r.id + '-' + hit.id) : el('riff-' + r.id);
@@ -200,51 +202,40 @@ function vote(k, dir) {
   });
 }
 
-/* ---------- comments: reply with words only ---------- */
-function commentBtn(r, pid, label) {
-  return '<button class="ghost" type="button" data-comment="' + r.id + '" data-post="' + (pid || '') + '">' + (label || 'Comment') + '</button>';
-}
-function commentForm(r, pid) {
-  if (S.cmt.at !== key(r, pid)) return '';
-  var p = pid ? postOf(r, pid) : null, to = !p ? r.by : p.mine ? 'yourself' : p.by;
-  return '<form class="cbox" id="c-form" data-cform="' + key(r, pid) + '">' +
-    '<textarea id="c-text" maxlength="500" placeholder="Say something to ' + esc(to) + '" aria-label="Your comment">' + esc(S.cmt.text) + '</textarea>' +
-    '<div class="crow">' + postingAs() + '<span class="grow"></span>' +
-      '<button class="btn btn-sm" type="button" data-ccancel="1">Cancel</button><button class="btn btn-sm btn-main" type="submit" id="c-go">Post comment</button></div>' +
-    '<p class="err" id="c-err"></p></form>';
-}
-function openComment(rid, pid) {
-  var r = riff(rid), k = key(r, pid || null);
-  if (S.cmt.at === k) { S.cmt.at = null; render(); return; }
-  ensureMe(jamCard(r, 'reply')).then(function () {
-    S.cmt = { at:k, text:'' };
-    if (pid) { S.expanded[rid] = true; openTo(r, postOf(r, pid)); }
-    render();
-    var t = el('c-text'); if (t) t.focus();
-  });
-}
-function postComment() {
-  var text = el('c-text').value.trim();
-  if (!text) { el('c-err').textContent = 'Write something first.'; el('c-text').focus(); return; }
-  var parts = S.cmt.at.split(':'), r = riff(parts[0]), pid = parts[1] === 'riff' ? null : parts[1], p = pid ? postOf(r, pid) : null;
-  el('c-go').disabled = true;
+/* a reply to a comment in the wall */
+document.addEventListener('submit', function (e) {
+  var f = e.target.closest && e.target.closest('[data-wcrepform]'); if (!f) return;
+  e.preventDefault();
+  var rid = f.dataset.wcrepform, r = riff(rid), t = el('wcrep-' + rid), text = t ? t.value.trim() : '', go = f.querySelector('button[type=submit]');
+  if (!r) return;
+  if (!text) { if (t) t.focus(); return; }
+  if (go) go.disabled = true;
   ensureMe('reply').then(function (u) {
-    /* the database writes the account's name over author_name */
+    return db.addThreadComment({ session_id:r.id, reply_to_take:null, reply_to_comment:f.dataset.post, author_id:u.id, author_name:db.accountName(u), body:text });
+  }).then(function () { S.wcrep[rid] = null; if (t) t.value = ''; return reload().then(function () { toast('Your reply is posted.'); }); })
+    .catch(function (err) { if (go) go.disabled = false; toast((err && err.message) || 'That didn’t work, try again.'); });
+});
+/* a comment from the wall: on the song as a whole, on the original track, or on one take */
+document.addEventListener('submit', function (e) {
+  var f = e.target.closest && e.target.closest('[data-wsayform]'); if (!f) return;
+  e.preventDefault();
+  var rid = f.dataset.wsayform, r = riff(rid), t = el('wsay-' + rid), text = t ? t.value.trim() : '';
+  if (!r) return;
+  if (!text) { if (t) t.focus(); toast('Write something first.'); return; }
+  var on = S.wsay[rid] || '', p = on && on !== 'riff' ? postOf(r, on) : null, go = f.querySelector('button[type=submit]');
+  if (go) go.disabled = true;
+  ensureMe('reply').then(function (u) {
     return db.addThreadComment({ session_id:r.id, reply_to_take:p && !p.isComment ? p.id : null, reply_to_comment:p && p.isComment ? p.id : null,
       author_id:u.id, author_name:db.accountName(u), body:text });
-  }).then(function (row) {
-    S.cmt = { at:null, text:'' };
-    S.expanded[r.id] = true; if (pid) S.fold[r.id + ':' + pid] = true;
-    return reload().then(function () {
-      var n = el('post-' + r.id + '-' + row.id); if (n) { n.scrollIntoView({ behavior:'smooth', block:'center' }); n.classList.add('hl'); }
-      toast('Your comment is posted.');
-    });
-  }).catch(function (e) { if (el('c-go')) el('c-go').disabled = false; if (el('c-err')) el('c-err').textContent = (e && e.message) || 'That didn’t work, try again.'; });
-}
-document.addEventListener('input', function (e) {
-  if (e.target.id === 'c-text') S.cmt.text = e.target.value;
+  }).then(function () {
+    if (t) t.value = '';
+    S.wsay[rid] = ''; delete S.wtalk[rid];
+    return reload().then(function () { toast('Your comment is posted.'); });
+  }).catch(function (err) { if (go) go.disabled = false; toast((err && err.message) || 'That didn’t work, try again.'); });
 });
-document.addEventListener('submit', function (e) { if (e.target.id === 'c-form') { e.preventDefault(); postComment(); } });
+document.addEventListener('change', function (e) {
+  if (e.target.dataset && e.target.dataset.wsaywhat) { S.wsay[e.target.dataset.wsaywhat] = e.target.value; var t = el('wsay-' + e.target.dataset.wsaywhat), v = t ? t.value : ''; render(); t = el('wsay-' + e.target.dataset.wsaywhat); if (t) { t.value = v; t.focus(); } }
+});
 document.addEventListener('keydown', function (e) {
   if (e.target.id === 'c-text' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); postComment(); }
 });
@@ -274,10 +265,6 @@ function askOrDelete(k) {
 }
 
 /* ---------- the thread ---------- */
-function mixLink(label, r, tid) {
-  return '<a class="ghost mixlink" href="/s/' + encodeURIComponent(r.slug) + (tid ? '?stack=' + encodeURIComponent(tid) : '') + '">' + label + '</a>';
-}
-function songOf(r) { return r.posts.filter(function (p) { return p.inSong; }); }
 function riff(id) { return RIFFS.filter(function (r) { return r.id === id; })[0]; }
 function postOf(r, id) { return r.posts.filter(function (p) { return p.id === id; })[0]; }
 function kids(r, id) { return r.posts.filter(function (p) { return p.parent === id; }); }
@@ -291,26 +278,46 @@ function stemsOf(p) { return [p].concat((p.stems || []).map(function (x) { retur
 function chainOf(r, pid) {
   var out = [];
   for (var p = pid ? postOf(r, pid) : null; p; p = p.parent ? postOf(r, p.parent) : null) {
-    if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, isPart:true }].concat(p.carry || [], out);
+    if (p.kind === 'part') return [{ id:p.id, by:p.by, mine:p.mine, layer:'part', url:p.url, dur:p.dur, peaks:p.peaks, isPart:true }].concat(p.carry || [], out);
     if (p.layer) out = stemsOf(p).concat(out);
   }
-  return [{ id:'riff', by:r.by, uid:r.uid, layer:r.layer, url:r.url, dur:r.dur, isRiff:true, mine:r.host, amp:r.amp, wet:r.wet, tid:r.tid, sid:r.sid }].concat(out);
+  return [{ id:'riff', by:r.by, uid:r.uid, layer:r.layer, url:r.url, dur:r.dur, peaks:r.peaks, isRiff:true, mine:r.host, amp:r.amp, wet:r.wet, tid:r.tid, sid:r.sid }].concat(out);
 }
 function bufKey(r, p) { return p.isRiff ? r.id + ':riff' : r.id + ':' + p.id; }
 function chipLabel(p) { return p.isRiff ? 'clip' : p.isPart ? 'new part' : lay(p.layer).label; }
-function chainChips(r, c) { return c.map(function (p) { return '<span class="chip"><span class="dot" style="background:' + lay(p.layer).c + '"></span>' + esc(whose(p)) + ' ' + chipLabel(p) + '</span>'; }).join(''); }
 
 /* ---------- audio ---------- */
 function ac() { if (!AC) AC = newContext(); return AC; }
-function load(r, p) {
+/* every tap wakes the sound (iPhones: silent switch, in-app browsers) */
+['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, function () { wakeAudio(AC); }, true); });
+document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-play],[data-jplay],[data-wpick],[data-wsel],[data-wsolo],#transport,.play')) soundTip(toast); }, true);
+
+/* DL: the downloads still running, each with what asked for it (`who`: a playList key, or '*' for
+   anything else). A card left before it plays gives up the ones nothing else needs (dropLoads). */
+var DL = {};
+function load(r, p, who) {
   var k = bufKey(r, p);
-  if (BUF[k] || BUF[k + ':loading'] || !p.url) return Promise.resolve();
+  if (BUF[k] || !p.url) return Promise.resolve();
+  if (BUF[k + ':loading']) { if (DL[k]) { DL[k].who[who || '*'] = 1; return DL[k].p; } return Promise.resolve(); }
   BUF[k + ':loading'] = true;
   BUF[k + ':wet'] = !!p.wet;   /* the stored render, already through the amp */
-  return fetch(p.url).then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
-    .then(function (ab) { return ac().decodeAudioData(ab); })
+  var d = DL[k] = { ctl:window.AbortController ? new AbortController() : null, who:{} };
+  d.who[who || '*'] = 1;
+  d.p = fetch(p.url, d.ctl ? { signal:d.ctl.signal } : {}).then(function (x) { if (!x.ok) throw new Error(x.status); return x.arrayBuffer(); })
+    .then(function (ab) { if (DL[k] === d) delete DL[k]; return ac().decodeAudioData(ab); })
     .then(function (b) { BUF[k] = b; drawWaves(); })
-    .catch(function (e) { console.warn('Could not load audio', p.url, e); });
+    .catch(function (e) {
+      if (DL[k] === d) delete DL[k];
+      if (e && e.name === 'AbortError') { delete BUF[k + ':loading']; return; }   /* a later play loads it again */
+      console.warn('Could not load audio', p.url, e);
+    });
+  return d.p;
+}
+function dropLoads(who) {
+  Object.keys(DL).forEach(function (k) {
+    var d = DL[k]; delete d.who[who];
+    if (!Object.keys(d.who).length && d.ctl) d.ctl.abort();
+  });
 }
 /* What a take's row plays (db.playSource()): with an amp, its stored render (take_renders) when
    there is one, already through the amp (wet); otherwise the dry original, rendered here. */
@@ -337,7 +344,8 @@ function keepRender(r, p, buf) {
 }
 function bufFor(r, p) { return (p.amp && BUF[ampKey(r, p)]) || BUF[bufKey(r, p)]; }
 /* FADE: the gain everything that plays goes through; stopping takes it down over 5 ms first */
-function silence() { if (SRC.length) fadeOut(ac(), FADE, SRC); SRC = []; FADE = null; }
+var SEQ = 0;   /* bumps with every stop or start, so a stack that plays round and round knows it is over */
+function silence() { SEQ++; if (SRC.length) fadeOut(ac(), FADE, SRC); SRC = []; FADE = null; }
 function stop() { silence(); S.playing = null; CLOCK = null; }
 /* CLOCK: when the loop that is playing started and how long it is, for the playhead */
 var CLOCK = null;
@@ -349,7 +357,7 @@ function playList(k, r, c, at) {
   var was = S.playing;
   silence(); CLOCK = null;
   S.playing = k; if (was !== k) render();
-  Promise.all(c.map(function (p) { return load(r, p); })).then(function () {
+  Promise.all(c.map(function (p) { return load(r, p, k); })).then(function () {
     return Promise.all(c.map(function (p) { return amped(r, p); }));
   }).then(function () {
     if (S.playing !== k) return;
@@ -379,39 +387,41 @@ function play(rid, pid, at) {
   if (typeof at !== 'number' && S.playing !== key(r, pid) && sounding(r, pid)) { stop(); render(); return; }
   playList(key(r, pid), r, chainOf(r, pid), at);
 }
-/* the whole song with a new part in it: what the part was made on, then the part (or the other
-   way round for a part before), one after the other, each with what plays on it */
-function wholeKey(r, pid) { return r.id + ':whole:' + pid; }
-function playWhole(rid, pid) {
-  var r = riff(rid), p = postOf(r, pid), k = wholeKey(r, pid);
-  if (!p) return;
-  if (S.playing === k) { stop(); render(); return; }
-  var main = p.parent ? chainOf(r, p.parent) : chainOf(r, null).concat(songOf(r));
-  var onPart = chainOf(r, p.id);
-  r.posts.forEach(function (x) { if (x.section === p.id && x.layer && !x.deleted && !x.isComment && x.uid === p.uid && x.kind !== 'part') onPart = onPart.concat(stemsOf(x)); });
-  var segs = p.pos === 'before' ? [onPart, main] : [main, onPart], all = segs[0].concat(segs[1]);
-  SRC.forEach(function (s) { try { s.stop(); } catch (e) {} }); SRC = []; CLOCK = null;
+
+/* where the playing sound is now, in seconds from its start (null when nothing plays) */
+function playPos() {
+  if (!CLOCK || CLOCK.k !== S.playing || !CLOCK.len || !AC) return null;
+  var t = AC.currentTime - CLOCK.t0; return ((t % CLOCK.len) + CLOCK.len) % CLOCK.len;
+}
+function playSeq(k, r, segs, from) {
+  var all = segs[0].concat(segs[1]);
+  from = from || 0;
+  silence(); CLOCK = null;
+  var mine = SEQ;
   S.playing = k; render();
   Promise.all(all.map(function (x) { return load(r, x); })).then(function () {
     return Promise.all(all.map(function (x) { return amped(r, x); }));
   }).then(function () {
-    if (S.playing !== k) return;
-    var a = ac(); a.resume(); var T = a.currentTime + 0.05;
-    segs.forEach(function (seg) {
-      var lead = bufFor(r, seg[0]), len = lead ? lead.duration : 0;
-      seg.forEach(function (x) {
-        var b = bufFor(r, x); if (!b || !len) return;
-        var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(a.destination);
-        s.start(T); s.stop(T + len); SRC.push(s);
+    (function round() {
+      if (S.playing !== k || SEQ !== mine) return;
+      var a = ac(); a.resume(); var T0 = a.currentTime + 0.05, T = T0, fade = FADE = fadeIn(a, T0, a.destination), skip = from, total = 0;
+      segs.forEach(function (seg) { var lead = bufFor(r, seg[0]); total += lead ? lead.duration : 0; });
+      CLOCK = { k:k, t0:T0 - from, len:total }; tickHeads();
+      segs.forEach(function (seg) {
+        var lead = bufFor(r, seg[0]), len = lead ? lead.duration : 0;
+        if (skip >= len) { skip -= len; return; }   /* a segment before the place you clicked */
+        seg.forEach(function (x) {
+          var b = bufFor(r, x); if (!b || !len) return;
+          var s = a.createBufferSource(); s.buffer = b; s.loop = true; s.connect(fade);
+          s.start(T, skip % b.duration); s.stop(T + len - skip); SRC.push(s);
+        });
+        T += len - skip; skip = 0;
       });
-      T += len;
-    });
-    var end = T - a.currentTime;
-    setTimeout(function () { if (S.playing === k) { stop(); render(); } }, Math.max(0, end * 1000) + 100);
+      from = 0;
+      setTimeout(function () { if (S.playing === k && SEQ === mine) round(); }, Math.max(0, (T - a.currentTime) * 1000) - 30);
+    })();
   });
 }
-function playSong(rid) { var r = riff(rid); playList(rid + ':song', r, chainOf(r, null).concat(songOf(r))); }
-function playMix(rid) { var r = riff(rid); playList(rid + ':mix', r, [{ id:'mix', url:r.mix.url }]); }
 
 /* ---------- seeking: click anywhere in a waveform to play from there ---------- */
 function headOf(cv, cls) {
@@ -426,9 +436,18 @@ function tickHeads() {
   [].forEach.call(document.querySelectorAll('.phead'), function (h) { h.hidden = true; });
   if (!CLOCK || S.playing !== CLOCK.k) return;
   var pos = ((ac().currentTime - CLOCK.t0) % CLOCK.len + CLOCK.len) % CLOCK.len, f = CLOCK.len ? pos / CLOCK.len : 0;
+  wallHead(pos, CLOCK.len);
   [].forEach.call(document.querySelectorAll('canvas[data-wave]'), function (cv) {
+    if (cv.closest('.wm-wave')) return;
     if (S.playing !== cv.dataset.wave && S.playing !== cv.dataset.of) return;
     var h = headOf(cv, 'phead'); h.hidden = false; h.style.left = (cv.offsetLeft + cv.offsetWidth * f) + 'px';
+  });
+  jhoverBack();
+  /* a card: one line over all its lanes */
+  [].forEach.call(document.querySelectorAll('.jwv[data-jseek]'), function (w) {
+    var r = riff(w.dataset.jseek), h = w.querySelector('.jhead'); if (!r || !h || S.playing !== cardKey(r)) return;
+    var cpos = r.dur ? ((ac().currentTime - CLOCK.t0) % r.dur + r.dur) % r.dur : pos;
+    h.hidden = false; h.style.left = (r.dur ? cpos / r.dur : f) * w.clientWidth + 'px';
   });
   headRaf = requestAnimationFrame(tickHeads);
 }
@@ -439,12 +458,16 @@ function seekTarget(cv) {
   var p = postOf(r, pid) || postOf(r, pid.split('~')[0]);   /* a stem of a grouped reply plays its reply */
   return p ? { r:r, pid:p.id } : null;
 }
-/* what a waveform draws: the riff, a post, or a stem of a grouped reply (<post id>~<stem id>) */
+/* what a waveform draws: the riff, a post, a stem of a grouped reply (<post id>~<stem id>) or a
+   track carried into a new part */
 function waveOf(k) {
   var i = k.indexOf(':'), r = riff(k.slice(0, i)), pid = k.slice(i + 1); if (!r) return null;
   if (pid === 'riff') return r;
   var ids = pid.split('~'), p = postOf(r, ids[0]);
-  return p && ids[1] ? (p.stems || []).filter(function (x) { return x.id === ids[1]; })[0] || null : p || null;
+  if (p && ids[1]) return (p.stems || []).filter(function (x) { return x.id === ids[1]; })[0] || null;
+  if (p) return p;
+  for (var j = 0; j < r.posts.length; j++) { var c = (r.posts[j].carry || []).filter(function (x) { return x.id === pid; })[0]; if (c) return c; }
+  return null;
 }
 function lenOf(cv) { var b = BUF[cv.dataset.wave], w = !b && waveOf(cv.dataset.wave); return b ? b.duration : w && w.peaks && w.dur || 0; }
 document.addEventListener('mousemove', function (e) {
@@ -458,22 +481,32 @@ document.addEventListener('mousemove', function (e) {
 document.addEventListener('mouseleave', function () { [].forEach.call(document.querySelectorAll('.shead'), function (h) { h.hidden = true; }); }, true);
 document.addEventListener('click', function (e) {
   var cv = e.target.closest && e.target.closest('canvas[data-wave]'); if (!cv || !lenOf(cv)) return;
+  if (cv.closest('.wb')) {
+    /* a soloed take in the wall: click its waveform to play it from there */
+    if (cv.dataset.of && S.playing === cv.dataset.of) {
+      e.stopImmediatePropagation();
+      var rct = cv.getBoundingClientRect();
+      wallSolo(cv.dataset.of.replace(/:solo$/, ''), null, Math.min(1, Math.max(0, (e.clientX - rct.left) / rct.width)) * lenOf(cv));
+    }
+    return;
+  }
   var t = seekTarget(cv); if (!t) return;
   var rect = cv.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
   play(t.r.id, t.pid, f * lenOf(cv));
 });
 /* a real waveform: the highest and lowest sample in every pixel column, drawn as one shape
-   (from the decoded audio, or from the take's saved peaks while the audio isn't loaded) */
+   (from the decoded audio, or from the take's saved peaks while the audio isn't loaded;
+   `peaks` is the saved string or already decoded, as the master track's sum is) */
 function waveShape(cv, buf, color, peaks) {
   var w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
   if (!w || !h) return;
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   var g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
   g.fillStyle = color;
-  var mid = h / 2, pk = !buf && decodePeaks(peaks);
+  var mid = h / 2, pk = !buf && (typeof peaks === 'string' ? decodePeaks(peaks) : peaks);
   if (!buf && !pk) { g.globalAlpha = .35; g.fillRect(0, mid - 1, w, 2); return; }
   var cols = Math.max(1, Math.floor(w)), hi = [], lo = [], peak = 0, x, i;
-  if (pk) { var c = columns(pk, cols); hi = c.hi; lo = c.lo; peak = 1; }
+  if (pk) { var c = columns(pk, cols); hi = c.hi; lo = c.lo; peak = Math.max.apply(null, hi.concat(lo.map(function (v) { return -v; }))); }
   else {
     var d = buf.getChannelData(0), step = d.length / cols;
     for (x = 0; x < cols; x++) {
@@ -495,8 +528,8 @@ function drawWaves() {
     var w = cv.dataset.of || cv.dataset.wave, i = w.indexOf(':'), wp = w.slice(i + 1);
     var lit = S.playing && (S.playing === cv.dataset.wave || S.playing === cv.dataset.of || sounding(riff(w.slice(0, i)), wp === 'riff' ? null : wp));
     /* a take in a thread wears its instrument's colour; everything turns green while you hear it */
-    var tone = lit ? '--sound' : cv.closest('.take') && cv.dataset.layer ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
-    var b = BUF[cv.dataset.wave], wv = !b && waveOf(cv.dataset.wave);
+    var tone = lit && !cv.closest('.wb, .jcard') ? '--sound' : cv.closest('.wb, .jcard') && cv.dataset.layer && lay(cv.dataset.layer).c.indexOf('var(') === 0 ? lay(cv.dataset.layer).c.slice(4, -1) : '--wave';
+    var b = BUF[cv.dataset.wave], wv = !b && (cv.dataset.wave.indexOf('wmix:') === 0 ? { peaks:BUF[cv.dataset.wave + ':pk'] } : waveOf(cv.dataset.wave));
     waveShape(cv, b, css.getPropertyValue(tone).trim(), wv && wv.peaks);
   });
 }
@@ -508,124 +541,295 @@ function ava(name, layer, sm) {
   return '<span class="ava' + (sm ? ' sm' : '') + (layer ? '' : ' words') + '"' + (layer ? ' style="background:' + lay(layer).c + '"' : '') + ' aria-hidden="true">' +
     esc(String(name).charAt(0).toUpperCase()) + '</span>';
 }
-/* folding: every level of replies opens and closes on its own */
-function folded(k) { return !S.fold[k]; }
-function countDesc(r, id) { return kids(r, id).reduce(function (n, k) { return n + 1 + countDesc(r, k.id); }, 0); }
-function foldBtn(r, id) {
-  var n = countDesc(r, id), k = r.id + ':' + id;
-  return '<button class="fold' + (folded(k) ? '' : ' open') + '" type="button" data-fold="' + k + '" aria-expanded="' + !folded(k) + '">' + (folded(k) ? 'Show ' + n + (n > 1 ? ' replies' : ' reply') : 'Hide replies') + '</button>';
-}
-function kidsHtml(r, p, depth) {
-  var ks = kids(r, p.id);
-  if (!ks.length) return '';
-  return foldBtn(r, p.id) + (folded(r.id + ':' + p.id) ? '' : '<div class="kids">' + ks.map(function (k) { return replyHtml(r, k, depth + 1); }).join('') + '</div>');
-}
-/* open every level above a post, so a link can land on it */
-function openTo(r, p) {
-  var x = p;
-  while (x && x.parent) { S.fold[r.id + ':' + x.parent] = true; x = postOf(r, x.parent); }
-}
-function metaTime(p) { return '<span class="muted">· ' + esc(p.time) + '</span>'; }
-/* a reply in the thread: an avatar, then who and what, the words, the take, what you can do, and its own replies */
-function node(r, p, cls, aside, body, depth) {
-  return '<div class="node' + (cls ? ' ' + cls : '') + '" id="post-' + r.id + '-' + p.id + '">' + aside +
-    '<div class="nbody">' + body + kidsHtml(r, p, depth) + '</div></div>';
-}
-function partHtml(r, p, depth) {
-  var on = sounding(r, p.id), kept = p.status === 'in';
-  return node(r, p, 'upd', '<span class="ava upd-ava" aria-hidden="true">&#8596;</span>',
-    '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b><span class="muted">made the song longer</span>' + (kept ? '<span class="songtag">In the song</span>' : '') + metaTime(p) + '</div>' +
-    (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
-    '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play the new part') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<canvas data-wave="' + r.id + ':' + p.id + '" data-layer="part"></canvas></div><div class="chain">plays ' + (p.pos === 'before' ? 'before' : 'after') + ' the original clip' +
-      ((p.carry || []).length ? ', with ' + chainChips(r, p.carry) : '') + '</div></div>' +
-    '<div class="acts">' + (r.host && r.open && !kept ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
-      '<button class="ghost accent' + (S.playing === wholeKey(r, p.id) ? ' on' : '') + '" type="button" data-whole="' + r.id + '" data-post="' + p.id + '">' + (S.playing === wholeKey(r, p.id) ? '&#10074;&#10074; Stop the song' : '&#9654; Play the whole song') + '</button>' +
-      (r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Play on the new part</button>' : '') +
-      mixLink('Show in the project', r, p.id) + commentBtn(r, p.id, 'Reply') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
-}
-function goneHtml(r, p, depth) {
-  return node(r, p, 'gone', '<span class="ava words" aria-hidden="true"></span>',
-    '<p class="gone-txt">' + (p.isComment ? 'This reply was deleted.' : 'This take was deleted. The replies played on it stay.') + '</p>', depth);
-}
-function replyHtml(r, p, depth) {
-  if (p.deleted) return goneHtml(r, p, depth);
-  if (p.kind === 'part') return partHtml(r, p, depth);
-  var on = sounding(r, p.id);
-  return node(r, p, '', ava(p.mine ? 'You' : p.by, p.layer),
-    '<div class="meta"><b>' + nameOf(p.mine ? 'You' : p.by, p.uid) + '</b>' + (p.layer ? '<span class="muted">added</span>' + stemsOf(p).map(function (x) { return lyr(x.layer); }).join(' + ') : '') +
-      (p.inSong ? '<span class="songtag">In the song</span>' : '') + metaTime(p) + '</div>' +
-    (p.text ? '<p class="bubble">' + esc(p.text) + '</p>' : '') +
-    (p.layer ? '<div class="take' + (on ? ' on' : '') + '"><div class="take-row"><button class="play sm' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" data-post="' + p.id + '" aria-label="' + (on ? 'Stop' : 'Play with everything above it') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      (p.stems && p.stems.length ? '<div class="mixlanes">' + stemsOf(p).map(function (x) { return '<canvas data-wave="' + r.id + ':' + x.id + '" data-of="' + key(r, p.id) + '" data-layer="' + x.layer + '"></canvas>'; }).join('') + '</div>'
-        : '<canvas data-wave="' + r.id + ':' + p.id + '" data-of="' + key(r, p.id) + '" data-layer="' + p.layer + '"></canvas>') + '</div>' +
-      '<div class="chain">on top of ' + chainChips(r, chainOf(r, p.id).slice(0, -stemsOf(p).length)) + '</div></div>' : '') +
-    '<div class="acts">' +
-      (p.layer && r.host && r.open && p.status === 'waiting' && !p.section ? '<button class="btn btn-sm btn-main" type="button" data-letin="' + p.id + '">Add to song</button>' : '') +
-      (p.layer && r.open ? '<button class="ghost accent" type="button" data-reply="' + r.id + '" data-post="' + p.id + '">+ Reply with audio</button>' : '') +
-      commentBtn(r, p.id, 'Reply') + (p.layer ? mixLink('Show in the project', r, p.id) : '') +
-      (canDelete(p.mine) ? delBtn(p.isComment ? 'comment' : 'take', p.id) : '') + voteHtml(p.id, p.likes) + '</div>' + commentForm(r, p.id), depth);
-}
-/* The thread bar: the way into a jam's replies, across the bottom of the card. It shows who
-   replied, what kind of replies there are and the latest one, so it reads as "there's a
-   conversation here" rather than a small link. */
-function threadBar(r, open) {
-  var live = livePosts(r), n = live.length;
-  if (!r.posts.length) return '';
-  var takes = live.filter(function (p) { return p.layer && p.kind !== 'part'; }).length, parts = live.filter(function (p) { return p.kind === 'part'; }).length;
-  var words = n - takes - parts, seen = {}, faces = [];
-  live.forEach(function (p) { var who = p.mine ? 'You' : p.by; if (!seen[who]) { seen[who] = 1; faces.push(ava(who, p.layer && p.kind !== 'part' ? p.layer : null, true)); } });
-  var last = live.slice().sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); })[0];
-  var what = [takes ? takes + (takes > 1 ? ' takes' : ' take') : '', parts ? parts + (parts > 1 ? ' new parts' : ' new part') : '', words ? words + (words > 1 ? ' comments' : ' comment') : ''].filter(Boolean).join(', ');
-  var lastTxt = last ? (last.mine ? 'You' : last.by) + (last.layer && last.kind !== 'part' ? ' added ' + lay(last.layer).label : last.kind === 'part' ? ' added a new part' : ': “' + (last.text.length > 60 ? last.text.slice(0, 57) + '…' : last.text) + '”') + ', ' + last.time : '';
-  return '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '" aria-controls="replies-' + r.id + '">' +
-    (faces.length ? '<span class="faces">' + faces.slice(0, 4).join('') + '</span>' : '') +
-    '<span class="tb-txt"><b>' + (n ? n + (n > 1 ? ' replies' : ' reply') : 'Replies') + '</b>' + (what ? ' · ' + what : '') +
-      (lastTxt && !open ? '<small>Latest: ' + esc(lastTxt) + '</small>' : '') + '</span>' +
-    '<span class="tb-go">' + (open ? 'Hide the thread <i aria-hidden="true">&#9652;</i>' : 'Show the thread <i aria-hidden="true">&#9662;</i>') + '</span></button>';
-}
 function riffMeta(r) {
   return esc(r.time) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + (r.dur ? ' · ' + mmss(r.dur) : '');
 }
-function riffHtml(r) {
-  var on = sounding(r, null), ps = players(r), open = !!S.expanded[r.id], song = songOf(r);
-  var top = r.posts.filter(function (p) { return !p.parent; });
-  var html = '<article class="riff' + (r.host ? ' mine' : '') + '" id="riff-' + r.id + '"><div class="rmain">' +
-    '<div class="rhead">' + ava(r.by, r.layer) + '<div class="rwho"><b>' + nameOf(r.by, r.uid) + (r.host ? ' (you)' : '') + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + lyr(r.layer) : '') +
-      '<small>' + riffMeta(r) + '</small></div></div>' +
-    '<h2 class="rtitle">' + esc(r.title) + (r.song ? '<span class="tag">Became a song</span>' : '') + '</h2>' + (r.text ? '<p class="rtext">' + esc(r.text) + '</p>' : '') +
-    '<div class="well"><button class="play big' + (on ? ' on' : '') + '" type="button" data-play="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play the clip') + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      '<canvas data-wave="' + r.id + ':riff" data-layer="' + r.layer + '"></canvas><span class="wtime">' + mmss(r.dur) + '</span></div>' +
-    '<div class="racts">' + (r.open ? '<button class="btn btn-main" type="button" data-reply="' + r.id + '">Play along</button>' : '') +
-      '<a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open the project</a>' +
-      (song.length ? '<button class="btn btn-soft" type="button" data-playsong="' + r.id + '">' + (S.playing === r.id + ':song' ? '&#10074;&#10074; ' : '&#9654; ') + 'The song · ' + song.length + (song.length > 1 ? ' takes' : ' take') + '</button>' : '') +
-      commentBtn(r, null) + (canDelete(r.host) ? delBtn('jam', r.id, 'Delete jam') : '') +
-      '<span class="grow"></span>' +
-      (ps.length ? '<span class="played"><span class="faces">' + ps.slice(0, 5).map(function (p) { return ava(p.mine ? 'You' : p.by, p.layer, true); }).join('') + '</span>' +
-        ps.length + ' musician' + (ps.length > 1 ? 's' : '') + ' played along</span>' : '<span class="played">Nobody played along yet. Be the first.</span>') +
-      voteHtml(r.id, r.likes) + '</div>' + commentForm(r, null);
-  if (r.song) html += '<div class="became"><p><b>' + esc(r.song.name) + '</b>Released. ' + r.song.musicians + ' musician' + (r.song.musicians > 1 ? 's are' : ' is') + ' on the song.' + (r.mix ? ' ' + esc(r.mix.by) + ' uploaded the mix.' : '') + '</p>' +
-    (r.mix ? '<button class="btn btn-sm btn-sound" type="button" data-playmix="' + r.id + '">' + (S.playing === r.id + ':mix' ? '&#10074;&#10074; Stop' : '&#9654; Play the mix') + '</button>' : '') + '</div>';
-  html += '</div>' + threadBar(r, open);
-  if (open && r.posts.length) html += '<div class="replies" id="replies-' + r.id + '">' + top.map(function (x) { return replyHtml(r, x, 0); }).join('') + '</div>';
-  return html + '</article>';
+/* the wall (src/wall.js) draws with this page's state, helpers and audio */
+initWall({ S:S, BUF:BUF, esc:esc, lay:lay, mmss:mmss, ava:ava, lyr:lyr, nameOf:nameOf, riffMeta:riffMeta, voteHtml:voteHtml, canDelete:canDelete, delBtn:delBtn,
+  riff:riff, postOf:postOf, stemsOf:stemsOf, chainOf:chainOf, chipLabel:chipLabel, bufKey:bufKey,
+  ac:ac, load:load, playList:playList, playSeq:playSeq, playPos:playPos, stop:stop, render:render, drawWaves:drawWaves });
+/* ---------- preview: the homepage as a grid of jams (after Yarne's "A1 · Grid, play on hover") ----------
+   Every jam is a card with its latest stack (or only its original track) as lanes of waveforms.
+   Hold the mouse over a card to hear it; "Play along" opens the jam's wall in a panel in the
+   middle of the screen, over a blurred page, until you close it with the X. */
+S.jmode = 'latest'; S.jhover = true; S.ov = null;
+/* the three steps in a few words, for phones */
+var shortSteps = function () {
+  var sh = [['Upload a clip.', 'It sets the tempo, key and length.'], ['Strangers stack on top.', 'Every take plays on the ones below it.'], ['You shape the song.', 'Pick the best takes; every stack stays.']];
+  [].forEach.call(document.querySelectorAll('.hero .steps li'), function (li, i) {
+    if (!sh[i] || li.querySelector('.st-short')) return;
+    var x = document.createElement('span'), b = document.createElement('b'); x.className = 'st-short';
+    b.textContent = sh[i][0]; x.appendChild(b); x.appendChild(document.createTextNode(' ' + sh[i][1])); li.appendChild(x);
+  });
+};
+shortSteps(); document.addEventListener('DOMContentLoaded', shortSteps);
+var hdrH = function () { var h = document.querySelector('header.top'); if (h) document.documentElement.style.setProperty('--hdrh', h.offsetHeight + 'px'); };
+hdrH(); document.addEventListener('DOMContentLoaded', hdrH); window.addEventListener('resize', hdrH);
+document.addEventListener('DOMContentLoaded', jamTools);
+if (document.readyState !== 'loading') setTimeout(jamTools, 0);
+/* the switches above the grid: what a card plays, and play on hover */
+function jamTools() {
+  if (el('jtools') || !el('list')) return;
+  var d = document.createElement('div'); d.id = 'jtools'; d.className = 'jtools';
+  el('list').parentNode.insertBefore(d, el('list'));
+  drawJamTools();
 }
+function drawJamTools() {
+  var d = el('jtools'); if (!d) return;
+  d.innerHTML = '<div class="jseg" role="group" aria-label="What a card plays"><button type="button" data-jmode="orig" aria-pressed="' + (S.jmode === 'orig') + '">Original track</button>' +
+    '<button type="button" data-jmode="latest" aria-pressed="' + (S.jmode === 'latest') + '">Latest stack</button></div>' +
+    '<button class="jsw" type="button" role="switch" data-jhover="1" aria-checked="' + S.jhover + '"><i></i>Play on hover</button>' +
+    '<span class="jhint">' + (S.jhover ? 'Hold your mouse over a jam to hear it. Click anywhere once first, so your browser lets it play.' : 'Press ▶ on a jam to hear it.') + '</span>';
+}
+/* the newest take of a jam: the top of its latest stack */
+function latestOf(r) {
+  var takes = r.posts.filter(function (p) { return !p.isComment && !p.deleted && p.layer && p.kind !== 'part' && !p.section; });
+  var newest = function (l) { return l.sort(function (a, b) { return String(b.created).localeCompare(String(a.created)); })[0] || null; };
+  /* the newest take, then up to the top of its stack: takes can sit on top of a newer one (restacked jams) */
+  var t = newest(takes.slice()), seen = {};
+  while (t && !seen[t.id]) { seen[t.id] = 1; var up = newest(takes.filter(function (k) { return k.parent === t.id; })); if (!up) break; t = up; }
+  return t;
+}
+function cardKey(r) { return r.id + ':card'; }
+function cardChain(r) { var l = S.jmode === 'latest' ? latestOf(r) : null; return l ? chainOf(r, l.id) : chainOf(r, null); }
+function cardHtml(r) {
+  var chain = cardChain(r), on = S.playing === cardKey(r), n = livePosts(r);
+  var seen = {}, dots = [];
+  r.posts.forEach(function (p) { if (p.layer && !p.isComment && !p.deleted && p.kind !== 'part' && !seen[p.layer]) { seen[p.layer] = 1; dots.push(p.layer); } });
+  var takes = r.posts.filter(function (p) { return p.layer && !p.isComment && !p.deleted; }).length, words = n.filter(function (p) { return p.isComment; }).length;
+  var lanes = S.jmode === 'latest' && chain.length > 1
+    ? chain.slice().reverse().map(function (x) { return '<canvas data-wave="' + (x.isRiff ? r.id + ':riff' : r.id + ':' + x.id) + '" data-layer="' + (x.isPart ? 'part' : x.layer) + '" aria-hidden="true"></canvas>'; }).join('')
+    : '<canvas class="big" data-wave="' + r.id + ':riff" data-layer="' + r.layer + '" aria-hidden="true"></canvas>';
+  var cap = S.jmode === 'latest' ? (chain.length > 1 ? 'Latest stack · ' + chain.length + ' layers' : 'Only the original track so far') : 'Original track';
+  return '<article class="jcard' + (on ? ' on' : '') + '" id="card-' + r.id + '" data-jcard="' + r.id + '">' +
+    '<div class="jcover"><span class="jpill"><i style="background:' + lay(r.layer).c + '"></i>' + esc(r.layer === 'seed' ? 'Original track' : lay(r.layer).label) + '</span>' +
+      (on ? '<span class="jnow">Playing</span>' : '') +
+      '<div class="jwv" data-jseek="' + r.id + '" title="Click to play from there">' + lanes + '<span class="phead jhead" hidden></span><span class="jhover" hidden></span></div>' +
+      '<div class="jbot"><button class="jplay' + (on ? ' on' : '') + '" type="button" data-jplay="' + r.id + '" aria-label="' + (on ? 'Stop' : 'Play ' + esc(r.title)) + '">' + (on ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
+        '<span class="jcap">' + cap + '</span><span class="jdur">' + mmss(r.dur) + '</span></div></div>' +
+    '<div class="jmeta">' + ava(r.by, r.layer) + '<div class="jtext"><h3><button type="button" data-jopen="' + r.id + '">' + esc(r.title) + '</button></h3>' +
+      '<p>' + esc(r.by) + (r.bpm ? ' · ' + r.bpm + ' bpm' : '') + (r.key ? ' · ' + esc(r.key) : '') + '</p>' +
+      '<p><span class="jdots" aria-hidden="true">' + dots.map(function (l) { return '<i style="background:' + lay(l).c + '"></i>'; }).join('') + '</span>' +
+        takes + (takes === 1 ? ' take' : ' takes') + ' · <button class="jwords" type="button" data-jwords="' + r.id + '">' + (words ? words + (words === 1 ? ' comment' : ' comments') : 'Comment') + '</button> · ' + esc(r.time) + '</p></div>' +
+      '<button class="btn btn-main btn-sm" type="button" data-jopen="' + r.id + '">Play along</button></div></article>';
+}
+/* hovering a card's lanes: a white line where a click would start */
+document.addEventListener('mousemove', function (e) {
+  var w = e.target.closest && e.target.closest('[data-jseek]');
+  [].forEach.call(document.querySelectorAll('.jhover:not([hidden])'), function (h) { if (!w || h.parentNode !== w) h.hidden = true; });
+  if (!w) { S.jhx = null; return; }
+  var h = w.querySelector('.jhover'); if (!h) return;
+  var rc = w.getBoundingClientRect(), x = Math.max(0, Math.min(rc.width, e.clientX - rc.left));
+  S.jhx = { rid:w.dataset.jseek, f:x / Math.max(1, rc.width) };
+  h.hidden = false; h.style.left = x + 'px';
+});
+document.addEventListener('mouseleave', function (e) {
+  /* only leaving the lanes themselves (or the window): the other mouseleave events bubble in from every element */
+  if (e.target !== document && e.target !== document.documentElement && !(e.target.matches && e.target.matches('[data-jseek]'))) return;
+  if (e.target.isConnected === false) return;
+  if (e.target.getBoundingClientRect) {   /* a redraw under the mouse also counts as leaving: ignore that */
+    var q = e.target.getBoundingClientRect();
+    if (e.clientX > q.left && e.clientX < q.right && e.clientY > q.top && e.clientY < q.bottom) return;
+  }
+  S.jhx = null; [].forEach.call(document.querySelectorAll('.jhover'), function (h) { h.hidden = true; });
+}, true);
+/* the card redraws when it starts playing: put the line back where the mouse is */
+function jhoverBack() {
+  if (!S.jhx) return;
+  var w = document.querySelector('.jwv[data-jseek="' + S.jhx.rid + '"]'), h = w && w.querySelector('.jhover');
+  if (h && h.hidden) { h.hidden = false; h.style.left = S.jhx.f * w.clientWidth + 'px'; }
+}
+/* a card's lanes are one strip: click anywhere and every take plays from that moment */
+document.addEventListener('click', function (e) {
+  var w = e.target.closest && e.target.closest('[data-jseek]'); if (!w) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  var r = riff(w.dataset.jseek); if (!r) return;
+  var rc = w.getBoundingClientRect(), f = Math.min(.999, Math.max(0, (e.clientX - rc.left) / Math.max(1, rc.width)));
+  S.jpaused = null;
+  playList(cardKey(r), r, cardChain(r), f * (r.dur || 0));
+}, true);
+function cardPlay(rid) {
+  var r = riff(rid); if (!r) return;
+  /* paused by hand: hovering doesn't start it again until the mouse leaves the card */
+  if (S.playing === cardKey(r)) { S.jpaused = rid; stop(); render(); return; }
+  S.jpaused = null;
+  playList(cardKey(r), r, cardChain(r));
+}
+/* the panel: open from the card, close only with the X */
+function overlay() {
+  var o = el('wall-ov');
+  if (!o) {
+    o = document.createElement('div'); o.id = 'wall-ov'; o.className = 'wov'; o.hidden = true;
+    o.innerHTML = '<div class="wov-panel" role="dialog" aria-modal="true" aria-label="The jam"><button class="wov-x" type="button" data-wclose="1" aria-label="Close">&times;</button><div class="wov-body"></div></div>';
+    document.body.appendChild(o);
+  }
+  return o;
+}
+function renderOverlay() {
+  if (!S.ov) return;
+  var r = riff(S.ov); if (!r) return;
+  /* what people are typing survives the redraw, each box by its own id */
+  var b = overlay().querySelector('.wov-body'), keep = {}, foc = document.activeElement && b.contains(document.activeElement) ? document.activeElement.id : null;
+  [].forEach.call(b.querySelectorAll('textarea[id],input[id]'), function (x) { if (x.value) keep[x.id] = x.value; });
+  b.innerHTML = wallHtml(r);
+  Object.keys(keep).forEach(function (id) { var x = el(id); if (x && b.contains(x)) x.value = keep[id]; });
+  if (foc && el(foc)) el(foc).focus();
+}
+function openJam(rid) {
+  var r = riff(rid); if (!r) return;
+  var card = el('card-' + rid), from = card ? card.getBoundingClientRect() : null;
+  if (S.playing) stop();   /* what played from the grid (hover, ▶) stops when the jam opens */
+  S.ov = rid; S.expanded[rid] = true; delete S.wopen[rid];
+  /* the grid played the latest stack: open on that stack */
+  var lt = S.jmode === 'latest' ? latestOf(r) : null;
+  S.wsel[rid] = lt ? lt.id : null;
+  delete S.wscroll[rid];
+  var o = overlay(), panel = o.querySelector('.wov-panel');
+  o.hidden = false; document.body.classList.add('ov-open');
+  render();
+  panel.scrollTop = 0;
+  /* on a phone, turn to the part that stack is in */
+  var pk = panel.querySelector('.wb-picked'), pw = pk && pk.closest('.wwrap'), ps = pk && pk.closest('.wsec');
+  if (pw && ps) { pw.scrollLeft += ps.getBoundingClientRect().left - pw.getBoundingClientRect().left; S.wscroll[rid] = pw.scrollLeft; wallFit(pw); }
+  var to = panel.getBoundingClientRect();
+  if (from && panel.animate) {
+    var sx = from.width / to.width, sy = Math.min(1, from.height / to.height);
+    panel.animate([{ transform:'translate(' + (from.left - to.left) + 'px,' + (from.top - to.top) + 'px) scale(' + sx + ',' + sy + ')', opacity:.4, borderRadius:'18px' },
+                   { transform:'none', opacity:1, borderRadius:'24px' }], { duration:420, easing:'cubic-bezier(.2,.8,.2,1)' });
+    o.animate([{ opacity:0 }, { opacity:1 }], { duration:260, easing:'ease-out' });
+  }
+  o.querySelector('.wov-x').focus({ preventScroll:true });
+}
+function closeJam() {
+  var rid = S.ov, o = el('wall-ov'); if (!o || !rid) return;
+  var panel = o.querySelector('.wov-panel'), card = el('card-' + rid), done = function () {
+    o.hidden = true; document.body.classList.remove('ov-open'); S.ov = null;
+    if (S.playing && S.playing.indexOf(rid + ':') === 0 && S.playing !== cardKey(riff(rid))) stop();
+    render(); if (card) card.querySelector('[data-jopen]').focus({ preventScroll:true });
+  };
+  if (card && panel.animate) {
+    var from = panel.getBoundingClientRect(), to = card.getBoundingClientRect();
+    var a = panel.animate([{ transform:'none', opacity:1 }, { transform:'translate(' + (to.left - from.left) + 'px,' + (to.top - from.top) + 'px) scale(' + (to.width / from.width) + ',' + Math.min(1, to.height / from.height) + ')', opacity:0 }], { duration:300, easing:'cubic-bezier(.4,0,.6,1)' });
+    o.animate([{ opacity:1 }, { opacity:0 }], { duration:300 });
+    a.onfinish = done;
+  } else done();
+}
+/* hovering a +: a see-through take shows where yours would go. It sits right on that take; whatever
+   was already played on it moves over to the left half, the way the column splits once you play. */
+var GHOST = null, GHOSTT = 0;
+function ghostOff() {
+  clearTimeout(GHOSTT);
+  if (!GHOST) return;
+  GHOST.moved.forEach(function (x) { x.style.marginLeft = ''; x.style.marginRight = ''; });
+  var g = GHOST.el; g.classList.remove('on'); setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 180);
+  GHOST = null;
+}
+function ghostOn(btn) {
+  var grid = btn.closest('.wgrid'), cell = btn.closest('.wplus'), tile = cell ? null : btn.closest('.wb');
+  if (!grid) return;
+  var id = cell ? cell.dataset.post : tile && tile.dataset.post;
+  tile = tile || grid.querySelector('.wb[data-post="' + id + '"]');
+  var art = grid.closest('article.riff'), rid = art && art.id.replace(/^riff-/, ''), r = rid && riff(rid);
+  if (!tile || !r) return;
+  if (GHOST && GHOST.id === id) return;
+  ghostOff();
+  var T = wallTree(r), n = T.nodes[id]; if (!n) return;
+  var down = {}; (function walk(x) { x.kids.forEach(function (k) { down[k.id] = 1; walk(k); }); })(n);
+  var gr = grid.getBoundingClientRect(), tr = tile.getBoundingClientRect(), A = tr.left, B = tr.right, half = (B - A) / 2;
+  var moved = [], plus = null;
+  [].forEach.call(grid.querySelectorAll('.wb,.wplus'), function (x) {
+    var pid = x.dataset.post; if (!pid) return;
+    if (x.classList.contains('wplus') && pid === id) { plus = x; return; }
+    if (!down[pid]) return;
+    var q = x.getBoundingClientRect(), nl = A + (q.left - A) / 2, nr = A + (q.right - A) / 2 - 3;
+    x.style.marginLeft = (nl - q.left) + 'px'; x.style.marginRight = (q.right - nr) + 'px'; moved.push(x);
+  });
+  var has = moved.length > 0, g = document.createElement('div');
+  g.className = 'wghost'; g.setAttribute('aria-hidden', 'true');
+  g.innerHTML = '<span>+</span><b>Your take</b> on ' + esc(wallWhose(r, id));
+  var gap = 4;
+  g.style.left = (has ? A + half + 3 : A) - gr.left + 'px';
+  g.style.width = (has ? half - 3 : B - A) + 'px';
+  g.style.height = tr.height + 'px';
+  g.style.top = tr.top - gap - tr.height - gr.top + 'px';
+  /* the + above the take stays visible and clickable on top of the preview (hiding it made the mouse
+     leave it, which took the preview away again: it flickered) */
+  grid.appendChild(g);
+  requestAnimationFrame(function () { g.classList.add('on'); });
+  GHOST = { id:id, el:g, moved:moved, plus:plus, tile:tile };
+}
+/* the preview stays while the mouse is on that take or on what moved aside (their + buttons too:
+   hovering one of those would slide it back from under the mouse); it goes a moment after you leave */
+var GHOSTOFF = 0;
+function inGhost(x) {
+  if (!GHOST || !x || !x.closest) return false;
+  var t = x.closest('.wb,.wplus');
+  return !!t && (t === GHOST.tile || t === GHOST.plus || GHOST.moved.indexOf(t) > -1);
+}
+document.addEventListener('mouseover', function (e) {
+  if (!mouseHover()) return;
+  if (inGhost(e.target)) { clearTimeout(GHOSTOFF); return; }
+  var b = e.target.closest && e.target.closest('.wb .wadd, .wplus button');
+  if (!b) return;
+  clearTimeout(GHOSTOFF); clearTimeout(GHOSTT); GHOSTT = setTimeout(function () { ghostOn(b); }, 140);
+});
+document.addEventListener('mouseout', function (e) {
+  var b = e.target.closest && e.target.closest('.wb .wadd, .wplus button');
+  if (b && !(e.relatedTarget && b.contains(e.relatedTarget))) clearTimeout(GHOSTT);   /* left before it showed */
+  if (!GHOST || inGhost(e.relatedTarget)) return;
+  clearTimeout(GHOSTOFF); GHOSTOFF = setTimeout(ghostOff, 160);
+});
+/* hover: hear a card while the mouse is over it (a real mouse: a tap on a phone also sends mouseover,
+   which would start the card just before the tap's own click pauses it) */
+var TOUCHED = 0, HOVER = null;
+document.addEventListener('touchstart', function () { TOUCHED = Date.now(); }, { capture:true, passive:true });
+function mouseHover() { return Date.now() - TOUCHED > 1000 && !(window.matchMedia && matchMedia('(hover: none)').matches); }
+document.addEventListener('mouseover', function (e) {
+  if (!S.jhover || S.ov || !mouseHover()) return;
+  var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c) return;
+  /* the move that starts a card redraws it, and that move's own mousemove is lost: note the line here */
+  var jw = c.querySelector('.jwv[data-jseek]');
+  if (jw) { var jq = jw.getBoundingClientRect(); if (e.clientX >= jq.left && e.clientX <= jq.right && e.clientY >= jq.top && e.clientY <= jq.bottom) S.jhx = { rid:jw.dataset.jseek, f:(e.clientX - jq.left) / Math.max(1, jq.width) }; }
+  var r = riff(c.dataset.jcard); if (!r || S.playing === cardKey(r) || S.jpaused === r.id) return;
+  if (e.relatedTarget && c.contains(e.relatedTarget)) return;
+  if (HOVER && HOVER.rid === r.id) return;
+  /* a mouse passing over a card on its way somewhere else downloads nothing */
+  clearTimeout(HOVER && HOVER.t);
+  HOVER = { rid:r.id, t:setTimeout(function () {
+    HOVER = null;
+    if (!S.jhover || S.ov || S.playing === cardKey(r) || S.jpaused === r.id) return;
+    playList(cardKey(r), r, cardChain(r));
+  }, 300) };
+});
+document.addEventListener('mouseout', function (e) {
+  if (!S.jhover || S.ov || !mouseHover()) return;
+  var c = e.target.closest && e.target.closest('[data-jcard]'); if (!c || (e.relatedTarget && c.contains(e.relatedTarget))) return;
+  if (!c.isConnected) return;   /* the card was redrawn under the mouse, it wasn't left */
+  if (S.jpaused === c.dataset.jcard) S.jpaused = null;
+  if (HOVER && HOVER.rid === c.dataset.jcard) { clearTimeout(HOVER.t); HOVER = null; }
+  var r = riff(c.dataset.jcard); if (!r) return;
+  dropLoads(cardKey(r));
+  if (S.playing === cardKey(r)) { stop(); render(); }
+});
 function render() {
+  requestAnimationFrame(jhoverBack);
   var list = RIFFS.slice();
   if (S.tab === 'hot') list.sort(function (a, b) { return players(b).length - players(a).length || score(b.likes, b.id) - score(a.likes, a.id); });
   if (S.tab === 'songs') list = list.filter(function (r) { return r.song; });
   if (S.tab === 'fresh') list = list.filter(function (r) { return !r.song; }).concat(list.filter(function (r) { return r.song; }));
   el('list').innerHTML = S.failed ? '<p class="empty">' + esc(S.failed) + '</p>'
     : !S.loaded ? '<p class="empty">Loading the jams…</p>'
-    : list.length ? list.map(riffHtml).join('')
+    : list.length ? list.map(cardHtml).join('')
     : '<p class="empty">' + (S.tab === 'songs' ? 'No songs yet.' : 'No jams yet. <a href="#start">Start the first one.</a>') + '</p>';
   [].forEach.call(document.querySelectorAll('#tabs [data-tab]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tab === S.tab)); });
   /* waveforms draw from the takes' saved peaks; only a take without them (sent before they were
      saved) loads its audio for its waveform, replies once their thread is open */
   list.forEach(function (r) {
-    if (!r.peaks) load(r, { isRiff:true, url:r.url });
+    if (!r.peaks) load(r, { isRiff:true, url:r.url, wet:r.wet });
     if (S.expanded[r.id]) r.posts.forEach(function (p) { if (p.url) stemsOf(p).forEach(function (x) { if (!x.peaks) load(r, x); }); });
   });
+  renderOverlay();
+  wallScrolls();
   drawWaves();
 }
 
@@ -642,6 +846,20 @@ function closeScrims() {
   if (fromStart && startFrom && startFrom.focus && document.contains(startFrom)) startFrom.focus();
 }
 function wantLen(c) { return c[0].dur || 0; }
+/* the pop-up offers the project view too, on the same stack, with the instrument you picked */
+function replyProjLink(r, pid) {
+  var h = el('r-title'), row = h && h.parentNode.classList.contains('r-headrow') ? h.parentNode : null;
+  if (h && !row) { row = document.createElement('div'); row.className = 'r-headrow'; h.parentNode.insertBefore(row, h); row.appendChild(h); }
+  var a = el('r-proj');
+  if (!a) { a = document.createElement('a'); a.id = 'r-proj'; a.className = 'btn btn-sm'; a.textContent = 'Or record in project view'; row.appendChild(a); }
+  a.dataset.slug = r.slug; a.dataset.post = pid || 'seed';
+  a.href = '/s/' + encodeURIComponent(r.slug) + '?stack=' + encodeURIComponent(pid || 'seed');
+}
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('#r-proj'); if (!a) return;
+  var l = el('r-layer') ? el('r-layer').value : '';
+  a.href = '/s/' + encodeURIComponent(a.dataset.slug) + '?stack=' + encodeURIComponent(a.dataset.post) + (l ? '&rec=' + encodeURIComponent(l) : '');
+}, true);
 function openReply(rid, pid) {
   ensureMe(jamCard(riff(rid), 'play')).then(function () { replyPop(rid, pid); });
 }
@@ -651,15 +869,15 @@ function replyPop(rid, pid) {
   var c = chainOf(r, pid), used = c.map(function (p) { return p.layer; });
   var pp = pid ? postOf(r, pid) : null;
   el('r-title').textContent = 'Play along with ' + (!pp ? r.title : pp.kind === 'part' ? 'the new part' : whose(pp) + ' ' + lay(pp.layer).label);
-  MD = { r:r, c:c, mute:{}, raf:0, dur:wantLen(c) };
+  MD = { r:r, c:c, raf:0, dur:wantLen(c) };
+  /* your take on top, under it the stack as one master track with who is in it */
+  var you = '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-slot" id="md-slot"><div class="md-empty" id="md-empty">Your take lands here</div></div><span></span></div>';
+  var master = '<div class="md-master"><div class="md-mchips"><b>The stack</b>' + c.map(function (p) {
+      return '<span><i style="background:' + lay(p.layer).c + '"></i>' + esc(p.isRiff ? r.by : p.mine ? 'You' : p.by) + ' · ' + esc(chipLabel(p)) + '</span>';
+    }).join('') + '</div><div class="md-mwave"><span></span><canvas data-md="0" data-mdmix="1"></canvas><span></span></div></div>';
   el('r-over').innerHTML = '<div class="md-top"><button class="play" type="button" id="md-play" aria-label="Play what you play on">&#9654;</button>' +
       '<span class="md-time" id="md-time">0:00</span><span class="md-hint">' + (r.bpm ? r.bpm + ' bpm' : 'tempo unknown') + (r.key ? ' · ' + esc(r.key) : '') + (r.sig ? ' · ' + esc(r.sig) : '') + '. Play along first, then add your take.</span></div>' +
-    '<div class="md-lanes" id="md-lanes">' + c.map(function (p, i) {
-      return '<div class="md-lane"><span class="md-name"><i style="background:' + lay(p.layer).c + '"></i><span><b>' + esc(p.by) + '</b>' + chipLabel(p) + '</span></span>' +
-        '<canvas data-md="' + i + '"></canvas><button class="md-m" type="button" data-mdmute="' + i + '" aria-pressed="false" aria-label="Mute">M</button></div>';
-    }).join('') +
-    '<div class="md-lane you"><span class="md-name"><i style="background:var(--sound)"></i><span><b>You</b><span id="md-you"></span></span></span><div class="md-slot" id="md-slot"><div class="md-empty" id="md-empty">Your take lands here</div></div><span></span></div>' +
-    '<div class="md-head" id="md-head" hidden></div></div>';
+    '<div class="md-lanes" id="md-lanes">' + you + master + '<div class="md-head" id="md-head" hidden></div></div>';
   el('r-layer').innerHTML = ROLES.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('');
   el('r-layer').value = ROLES.map(function (x) { return x.id; }).filter(function (l) { return used.indexOf(l) < 0; })[0] || 'vocals';
   el('r-err').textContent = ''; el('r-text').value = ''; el('r-file').value = '';
@@ -667,6 +885,7 @@ function replyPop(rid, pid) {
   el('r-as').innerHTML = postingAs();
   el('r-go').disabled = false;
   setRSrc('file');
+  replyProjLink(r, pid);
   openScrim('reply-scrim'); mdYou(); mdDraw(); el('r-layer').focus();
   Promise.all(c.map(function (p) { return load(r, p); })).then(mdDraw);
 }
@@ -675,10 +894,26 @@ function mdYou() { var y = el('md-you'); if (y) y.textContent = (role(el('r-laye
 function mdDraw() {
   if (!MD) return;
   var ink = getComputedStyle(document.documentElement).getPropertyValue('--wave').trim();
+  var mix = document.querySelector('canvas[data-mdmix]');
+  if (mix) {
+    /* the preview's master track: every take of the stack summed, once they're all in */
+    var bs = MD.c.map(function (p) { return BUF[bufKey(MD.r, p)]; });
+    bs.forEach(function (b) { if (b && !MD.dur) MD.dur = b.duration; });
+    if (bs.every(Boolean) && bs.length) {
+      if (!MD.mix) {
+        var n = bs[0].length, out = ac().createBuffer(1, n, bs[0].sampleRate), d = out.getChannelData(0);
+        bs.forEach(function (b) { var x = b.getChannelData(0), m = Math.min(n, x.length); for (var j = 0; j < m; j++) d[j] += x[j]; });
+        MD.mix = out;
+      }
+      waveShape(mix, MD.mix, ink);
+    }
+    el('md-time').textContent = '0:00 / ' + mmss(MD.dur);
+    return;
+  }
   MD.c.forEach(function (p, i) {
     var b = BUF[bufKey(MD.r, p)], cv = document.querySelector('canvas[data-md="' + i + '"]');
     if (b && !MD.dur) MD.dur = b.duration;
-    if (cv) { waveShape(cv, b, ink); cv.style.opacity = MD.mute[i] ? .3 : 1; }
+    if (cv) waveShape(cv, b, ink);
   });
   el('md-time').textContent = '0:00 / ' + mmss(MD.dur);
 }
@@ -687,13 +922,13 @@ function mdPlay() {
   if (S.playing === 'reply') { stop(); mdIdle(); render(); return; }
   stop(); render(); S.playing = 'reply';
   el('md-play').innerHTML = '&#10074;&#10074;'; el('md-play').classList.add('on');
-  var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05, fade = FADE = fadeIn(a, T, a.destination); MD.gains = {};
+  var r = MD.r, a = ac(); a.resume(); var T = a.currentTime + 0.05, fade = FADE = fadeIn(a, T, a.destination);
   var m = mine(), lanes = MD.c.concat(m ? [{ mine:true, buf:m.buf, amp:m.amp }] : []);
   lanes.forEach(function (p, i) {
     var b = p.buf || bufFor(r, p); if (!b) return;
     if (!p.buf) amped(r, p);
     var src = a.createBufferSource(), g = a.createGain(); src.buffer = b; src.loop = true;
-    g.gain.value = MD.mute[i] ? 0 : 1; src.start(T); SRC.push(src); MD.gains[i] = g;
+    src.start(T); SRC.push(src);
     /* a fresh take with an amp is heard through it live; the file itself stays dry */
     var la = p.mine && p.amp ? liveAmp(a, p.amp, peakOf(b)) : null;
     if (la) { src.connect(la.input); la.output.connect(g); SRC.push({ stop:function () { setTimeout(function () { dropAmp(la); }, 50); } }); }
@@ -835,9 +1070,9 @@ function rcStart() {
       cb.copyToChannel(clickSamples(a.sampleRate, countIn, len, bi).subarray(0, cb.length), 0);
       cs.buffer = cb; cs.connect(mg); cs.start(t0); RC.player.push(cs);
     }
-    /* the lanes above, from bar 1 (the ones you muted stay silent) */
+    /* the lanes above, from bar 1 */
     MD.c.forEach(function (p, i) {
-      var b = bufFor(r, p); if (!b || MD.mute[i]) return;
+      var b = bufFor(r, p); if (!b) return;
       var s = a.createBufferSource(); s.buffer = b; s.connect(mg); s.start(songStart); RC.player.push(s);
     });
     RC.chunks = chunks; RC.state = 'recording';
@@ -925,11 +1160,6 @@ el('r-layer').addEventListener('change', function () {
 el('r-over').addEventListener('click', function (e) {
   var b;
   if (e.target.closest('#md-play')) { mdPlay(); return; }
-  if ((b = e.target.closest('[data-mdmute]'))) {
-    var i = +b.dataset.mdmute; MD.mute[i] = !MD.mute[i]; b.setAttribute('aria-pressed', String(!!MD.mute[i]));
-    if (MD.gains && MD.gains[i]) MD.gains[i].gain.value = MD.mute[i] ? 0 : 1;
-    mdDraw();
-  }
 });
 el('r-file').addEventListener('change', function () {
   var f = el('r-file').files[0]; R.file = null; R.buf = null; el('r-err').textContent = '';
@@ -972,7 +1202,7 @@ el('r-go').addEventListener('click', function () {
     closeScrims();
     S.expanded[r.id] = true;
     return reload().then(function () {
-      var nr = riff(r.id); if (nr) { openTo(nr, postOf(nr, row.id)); render(); play(nr.id, row.id); }
+      var nr = riff(r.id); if (nr) { render(); play(nr.id, row.id); }
       setTimeout(function () { var n = el('post-' + r.id + '-' + row.id); if (n) n.scrollIntoView({ behavior:'smooth', block:'center' }); }, 60);
       toast('Your take is posted. Anyone can play along on top of it now.');
     });
@@ -1104,26 +1334,70 @@ document.addEventListener('click', function (e) {
   if ((b = e.target.closest('[data-close]'))) { closeScrims(); return; }
   if ((b = e.target.closest('[data-upopen]'))) { closeScrims(); openScrim('up-scrim'); return; }
   if (e.target.classList && e.target.classList.contains('scrim')) { closeScrims(); return; }
-  if ((b = e.target.closest('[data-whole]'))) { playWhole(b.dataset.whole, b.dataset.post); return; }
-  if ((b = e.target.closest('[data-play]'))) { play(b.dataset.play, b.dataset.post); return; }
-  if ((b = e.target.closest('[data-reply]'))) { openReply(b.dataset.reply, b.dataset.post); return; }
-  if ((b = e.target.closest('[data-comment]'))) { openComment(b.dataset.comment, b.dataset.post); return; }
-  if ((b = e.target.closest('[data-ccancel]'))) { S.cmt.at = null; render(); return; }
-  if ((b = e.target.closest('[data-fold]'))) { S.fold[b.dataset.fold] = !S.fold[b.dataset.fold]; render(); return; }
-  if ((b = e.target.closest('[data-expand]'))) { S.expanded[b.dataset.expand] = !S.expanded[b.dataset.expand]; render(); return; }
-  if ((b = e.target.closest('[data-letin]'))) {
-    b.disabled = true;
-    /* a new part brings the tracks its author sent with it */
-    var lr = RIFFS.filter(function (x) { return postOf(x, b.dataset.letin); })[0], lp = lr && postOf(lr, b.dataset.letin);
-    var withIt = lp && lp.kind === 'part' ? kids(lr, lp.id).filter(function (k) { return k.layer && !k.isComment && k.uid === lp.uid && k.status === 'waiting'; })
-      .reduce(function (a, k) { return a.concat([k.id], (k.stems || []).map(function (x) { return x.id; })); }, []) : [];
-    db.letIn(b.dataset.letin).then(function () {
-      return withIt.reduce(function (p, id) { return p.then(function () { return db.letIn(id); }); }, Promise.resolve());
-    }).then(reload).then(function () { toast('It’s in the song now.'); }).catch(function (x) { b.disabled = false; oops(x); });
+  if ((b = e.target.closest('[data-wclose]'))) { closeJam(); return; }
+  if ((b = e.target.closest('[data-wfull]'))) {
+    var fr = b.dataset.wfull, fRiff = riff(fr), fid = fRiff && wallFullId(fRiff, wallTree(fRiff));
+    if (!fid) return;
+    S.wsel[fr] = fid;
+    wallSeek(fr, fid, 0);
+    var fm = document.querySelector('#riff-' + fr + ' .wmaster'); if (fm) fm.scrollIntoView({ behavior:'smooth', block:'nearest' });
     return;
   }
-  if ((b = e.target.closest('[data-playsong]'))) { playSong(b.dataset.playsong); return; }
-  if ((b = e.target.closest('[data-playmix]'))) { playMix(b.dataset.playmix); return; }
+  if ((b = e.target.closest('[data-wdot]'))) {
+    var dw = document.querySelector('.wwrap[data-wr="' + b.dataset.wdot + '"]'), ds = dw && dw.querySelectorAll('.wsec')[+b.dataset.i];
+    if (ds) dw.scrollTo({ left:dw.scrollLeft + ds.getBoundingClientRect().left - dw.getBoundingClientRect().left, behavior:'smooth' });
+    return;
+  }
+  if ((b = e.target.closest('[data-wseek]'))) { var wr = b.getBoundingClientRect(); wallSeek(b.dataset.wseek, b.dataset.post, (e.clientX - wr.left) / wr.width); return; }
+  if ((b = e.target.closest('[data-jwords]'))) {
+    /* the comments on a card: open the jam with its top comments and the comment box in view */
+    var jr = b.dataset.jwords; delete S.wtalk[jr]; openJam(jr);
+    setTimeout(function () { var t = document.querySelector('#wall-ov .wtalk'); if (t) t.scrollIntoView({ behavior:'smooth', block:'start' }); }, 450);
+    return;
+  }
+  if ((b = e.target.closest('[data-wcreply]'))) {
+    var cr = b.dataset.wcreply; S.wcrep[cr] = S.wcrep[cr] === b.dataset.post ? null : b.dataset.post; render();
+    var ta = el('wcrep-' + cr); if (ta) ta.focus();
+    return;
+  }
+  if ((b = e.target.closest('[data-wcrepx]'))) { S.wcrep[b.dataset.wcrepx] = null; render(); return; }
+  if ((b = e.target.closest('[data-wtalkall]'))) { S.wtalk[b.dataset.wtalkall] = true; render(); return; }
+  if ((b = e.target.closest('[data-jopen]'))) { openJam(b.dataset.jopen); return; }
+  if ((b = e.target.closest('[data-jplay]'))) { cardPlay(b.dataset.jplay); return; }
+  if ((b = e.target.closest('[data-jmode]'))) { S.jmode = b.dataset.jmode; if (S.playing && /:card$/.test(S.playing)) stop(); drawJamTools(); render(); return; }
+  if ((b = e.target.closest('[data-jhover]'))) { S.jhover = !S.jhover; drawJamTools(); return; }
+  if ((b = e.target.closest('[data-wsolo]'))) { wallSolo(b.dataset.wsolo, b.dataset.post); return; }
+  if ((b = e.target.closest('[data-wpick]'))) { wallPick(b.dataset.wpick, b.dataset.post); return; }
+  if ((b = e.target.closest('[data-wplus]'))) {
+    /* + on a take (or above the top of a stack): record or upload a take on it, as on the live site */
+    var pa = b.closest('article.riff'), prid = pa && pa.id.replace(/^riff-/, ''), ptile = b.closest('[data-post]');
+    if (!prid || !riff(prid)) return;
+    ghostOff();
+    var ppid = ptile && ptile.dataset.post !== 'riff' ? ptile.dataset.post : null;
+    openReply(prid, ppid);
+    return;
+  }
+  if ((b = e.target.closest('[data-wtalk]'))) { var wt = b.dataset.wtalk; S.wtalk[wt] = S.wtalk[wt] === false; render(); return; }
+  if ((b = e.target.closest('[data-wshow]'))) {
+    /* a comment about a take: up to the wall, and hear that take's stack */
+    var wr = b.dataset.wshow; S.expanded[wr] = true; wallPick(wr, b.dataset.post);
+    var ww = document.querySelector('#riff-' + wr + ' .wwrap'); if (ww) ww.scrollIntoView({ behavior:'smooth', block:'center' });
+    return;
+  }
+  if ((b = e.target.closest('[data-wsay]')) && !e.target.closest('[data-wpick]')) {
+    /* 💬 on a take: open the comments, about that take */
+    var sr = b.dataset.wsay; S.wtalk[sr] = true; S.wsay[sr] = b.dataset.post; render();
+    var ta = el('wsay-' + sr); if (ta) { ta.scrollIntoView({ behavior:'smooth', block:'center' }); ta.focus({ preventScroll:true }); }
+    return;
+  }
+  if ((b = e.target.closest('[data-wsel]'))) {
+    /* clicking a stack plays it straight away (or switches to it), and the master track shows it */
+    var xr = b.dataset.wsel;
+    if (S.playing !== wallKey(riff(xr), b.dataset.post)) wallPick(xr, b.dataset.post);
+    var fm = document.querySelector('#riff-' + xr + ' .wmaster'); if (fm) fm.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    return;
+  }
+  if ((b = e.target.closest('[data-expand]'))) { S.expanded[b.dataset.expand] = !S.expanded[b.dataset.expand]; render(); return; }
   if ((b = e.target.closest('[data-vote]'))) { vote(b.dataset.vote, +b.dataset.dir); return; }
   if ((b = e.target.closest('[data-del]'))) { askOrDelete(b.dataset.del); return; }
   if ((b = e.target.closest('[data-tab]'))) { e.preventDefault(); S.tab = b.dataset.tab; render(); return; }

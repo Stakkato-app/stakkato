@@ -151,7 +151,7 @@ function card(s, started) {
     '<button class="play' + (on ? ' on' : '') + '" type="button" data-play="' + s.id + '" aria-label="' + (on ? 'Stop ' : 'Play ') + esc(titleOf(s)) + '">' + (on ? I_PAUSE : I_PLAY) + '</button>' +
     '<div class="pf-main"><div class="pf-title"><h3>' + esc(titleOf(s)) + '</h3><span class="song-state' + (released ? '' : ' open') + '">' + (released ? 'Released' : 'Open') + '</span></div>' +
       '<p class="pf-facts">' + facts.join(' · ') + '</p>' + body + '</div>' +
-    '<a class="btn" href="/s/' + encodeURIComponent(s.slug) + '">Open the project</a>' +
+    '<a class="btn" href="/s/' + encodeURIComponent(s.slug) + '">Open in project view</a>' +
   '</article>';
 }
 
