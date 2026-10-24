@@ -10,7 +10,7 @@ import { decodePeaks, peaksOfBuffer } from './peaks.js';
 var H = null, S = null, BUF = null;
 export function initWall(host) {
   H = host; S = host.S; BUF = host.BUF;
-  S.wcrep = {}; S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {};
+  S.wcrep = {}; S.wsel = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {}; S.wfull = {};
 }
 
 /* ---------- the stacks ----------
@@ -138,8 +138,9 @@ function wallHtml(r) {
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
   var now = '';
-  if (open) {
-    var ms = sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
+  /* in the project the tracks above are the master track; the wall shows its own only for "Play the whole song" */
+  if (open && (!H.project || S.wfull[r.id])) {
+    var ms = H.project ? S.wfull[r.id] : sel || 'riff', mk = wallKey(r, ms), mOn = S.playing === mk, segs = wallSegs(r, ms, T);
     wallMix(r, ms, segs);
     var people = [];
     segs.forEach(function (sg, si) { sg.list.forEach(function (x) { if (si && people.some(function (q) { return q.id === x.id; })) return; people.push(x); }); });
@@ -152,7 +153,8 @@ function wallHtml(r) {
           (segs.length > 1 ? '<small>' + H.esc(sg.label) + '</small>' : '') + '</div>';
       }).join('') + '<span class="wm-head" hidden></span></div>' +
       '<div class="wm-acts">' + selActs(r, ms) + '<span>Master track · ' + people.length + (people.length === 1 ? ' track' : ' tracks') + ' together · click a tile above to switch</span><span class="grow"></span>' +
-        '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '">Open this stack in project view</a></div></div>';
+        (H.project ? '<button class="btn btn-sm" type="button" data-wfullclose="' + r.id + '">Hide the master track</button>'
+          : '<a class="btn btn-sm" href="/s/' + encodeURIComponent(r.slug) + (ms === 'riff' ? '?stack=seed' : '?stack=' + encodeURIComponent(ms)) + '">Open this stack in project view</a>') + '</div></div>';
   }
 
   /* talk about this song: every written reply, newest first, with what it is about */
@@ -196,10 +198,14 @@ function wallHtml(r) {
     (talkOpen ? '<div class="wwords">' + (talkMode === 'top' && roots.length > 3 ? '<span class="wtop">Top comments</span>' : '') + shown.map(function (c) { return oneWord(c, false); }).join('') + (talkMode === 'top' && roots.length > 3 ? '<button class="btn btn-sm wall-all" type="button" data-wtalkall="' + r.id + '">Show all ' + roots.length + ' comments</button>' : '') + say + '</div>' : '');
 
   var n = T.takes + T.parts;
-  var bar = n && S.ov !== r.id ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
+  var bar = n && S.ov !== r.id && !H.project ? '<button class="threadbar' + (open ? ' open' : '') + '" type="button" data-expand="' + r.id + '" aria-expanded="' + open + '">' +
     '<span class="tb-txt"><b>' + n + (n > 1 ? ' reactions' : ' reaction') + '</b> · ' + T.takes + (T.takes === 1 ? ' take' : ' takes') + (T.parts ? ', ' + T.parts + (T.parts > 1 ? ' new parts' : ' new part') : '') + '</span>' +
     '<span class="tb-go">' + (open ? 'Hide reactions <i aria-hidden="true">&#9652;</i>' : 'Show reactions <i aria-hidden="true">&#9662;</i>') + '</span></button>' : '';
 
+  if (H.project) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
+    '<p class="jhint" style="margin:0 0 6px">Click a tile to hear its stack in the tracks above. ▶ plays it, S plays only that take.</p>' +
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
+    (sel && !now ? '<div class="wsel-row">' + selActs(r, sel) + '</div>' : '') + '</div>' + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + H.ava(r.by, r.layer) + '<div class="rwho"><b>' + H.nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + H.lyr(r.layer) : '') +
       '<small>' + H.riffMeta(r) + '</small></div></div>' +
@@ -305,7 +311,7 @@ function wallSolo(rid, id, at) {
     if (i > -1) list.splice(i, 1); else list.push(id);
     if (!list.length) {
       var back = S.wback; S.wback = null; S.wsolo[rid] = [];
-      if (back && H.ac()) {
+      if (back && H.ac() && !H.project) {
         /* the master goes on where it would be now, had it kept playing */
         var bs = wallSegs(r, back.master, wallTree(r)), total = bs.reduce(function (n, sg) { return n + sg.len; }, 0);
         var pos = total ? (back.pos + H.ac().currentTime - back.t) % total : 0;
@@ -318,7 +324,7 @@ function wallSolo(rid, id, at) {
     else {
       S.wback = null;
       var pre = rid + ':wall:';
-      if (now !== null && S.playing && S.playing.indexOf(pre) === 0) {
+      if (!H.project && now !== null && S.playing && S.playing.indexOf(pre) === 0) {
         var mid = S.playing.slice(pre.length), segs = wallSegs(r, mid, wallTree(r)), off = 0, si = -1, acc = 0;
         var has = function (sg) { return sg.list.some(function (x) { return id === 'riff' ? x.isRiff : x.id === id; }); };
         segs.forEach(function (sg, j) { if (si < 0 && now >= acc && now < acc + sg.len && has(sg)) { si = j; off = acc; } acc += sg.len; });
@@ -390,6 +396,8 @@ function wallMix(r, id, segs) {
    was made on plays first (or after, for a part before), then the part with its takes, and round again. */
 function wallPick(rid, id) {
   var r = H.riff(rid), k = wallKey(r, id);
+  /* in the project, a tile's ▶ plays its stack in the tracks above */
+  if (H.project) { if (S.playing) H.stop(); delete S.wfull[rid]; S.wsel[rid] = id; H.render(); H.pick(id, true); return; }
   S.wsel[rid] = id;
   if (S.playing === k) { H.stop(); H.render(); return; }
   var T = wallTree(r), part = T.partOf[id];
@@ -398,4 +406,74 @@ function wallPick(rid, id) {
   H.playSeq(k, r, segs.map(function (sg) { return sg.list; }), part.p.pos === 'before' ? 0 : segs[0].len);
 }
 
-export { wallHtml, wallTree, wallKey, wallWhose, wallSegs, wallPick, wallSeek, wallSolo, wallHead, wallScrolls, wallFit, wallFullId };
+/* a real mouse, not a tap (a tap on a phone also sends mouseover) */
+var TOUCHED = 0;
+document.addEventListener('touchstart', function () { TOUCHED = Date.now(); }, { capture:true, passive:true });
+function mouseHover() { return Date.now() - TOUCHED > 1000 && !(window.matchMedia && matchMedia('(hover: none)').matches); }
+/* hovering a +: a see-through take shows where yours would go. It sits right on that take; whatever
+   was already played on it moves over to the left half, the way the column splits once you play. */
+var GHOST = null, GHOSTT = 0;
+function ghostOff() {
+  clearTimeout(GHOSTT);
+  if (!GHOST) return;
+  GHOST.moved.forEach(function (x) { x.style.marginLeft = ''; x.style.marginRight = ''; });
+  var g = GHOST.el; g.classList.remove('on'); setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 180);
+  GHOST = null;
+}
+function ghostOn(btn) {
+  var grid = btn.closest('.wgrid'), cell = btn.closest('.wplus'), tile = cell ? null : btn.closest('.wb');
+  if (!grid) return;
+  var id = cell ? cell.dataset.post : tile && tile.dataset.post;
+  tile = tile || grid.querySelector('.wb[data-post="' + id + '"]');
+  var art = grid.closest('article.riff'), rid = art && art.id.replace(/^riff-/, ''), r = rid && H.riff(rid);
+  if (!tile || !r) return;
+  if (GHOST && GHOST.id === id) return;
+  ghostOff();
+  var T = wallTree(r), n = T.nodes[id]; if (!n) return;
+  var down = {}; (function walk(x) { x.kids.forEach(function (k) { down[k.id] = 1; walk(k); }); })(n);
+  var gr = grid.getBoundingClientRect(), tr = tile.getBoundingClientRect(), A = tr.left, B = tr.right, half = (B - A) / 2;
+  var moved = [], plus = null;
+  [].forEach.call(grid.querySelectorAll('.wb,.wplus'), function (x) {
+    var pid = x.dataset.post; if (!pid) return;
+    if (x.classList.contains('wplus') && pid === id) { plus = x; return; }
+    if (!down[pid]) return;
+    var q = x.getBoundingClientRect(), nl = A + (q.left - A) / 2, nr = A + (q.right - A) / 2 - 3;
+    x.style.marginLeft = (nl - q.left) + 'px'; x.style.marginRight = (q.right - nr) + 'px'; moved.push(x);
+  });
+  var has = moved.length > 0, g = document.createElement('div');
+  g.className = 'wghost'; g.setAttribute('aria-hidden', 'true');
+  g.innerHTML = '<span>+</span><b>Your take</b> on ' + H.esc(wallWhose(r, id));
+  var gap = 4;
+  g.style.left = (has ? A + half + 3 : A) - gr.left + 'px';
+  g.style.width = (has ? half - 3 : B - A) + 'px';
+  g.style.height = tr.height + 'px';
+  g.style.top = tr.top - gap - tr.height - gr.top + 'px';
+  /* the + above the take stays visible and clickable on top of the preview (hiding it made the mouse
+     leave it, which took the preview away again: it flickered) */
+  grid.appendChild(g);
+  requestAnimationFrame(function () { g.classList.add('on'); });
+  GHOST = { id:id, el:g, moved:moved, plus:plus, tile:tile };
+}
+/* the preview stays while the mouse is on that take or on what moved aside (their + buttons too:
+   hovering one of those would slide it back from under the mouse); it goes a moment after you leave */
+var GHOSTOFF = 0;
+function inGhost(x) {
+  if (!GHOST || !x || !x.closest) return false;
+  var t = x.closest('.wb,.wplus');
+  return !!t && (t === GHOST.tile || t === GHOST.plus || GHOST.moved.indexOf(t) > -1);
+}
+document.addEventListener('mouseover', function (e) {
+  if (!mouseHover()) return;
+  if (inGhost(e.target)) { clearTimeout(GHOSTOFF); return; }
+  var b = e.target.closest && e.target.closest('.wb .wadd, .wplus button');
+  if (!b) return;
+  clearTimeout(GHOSTOFF); clearTimeout(GHOSTT); GHOSTT = setTimeout(function () { ghostOn(b); }, 140);
+});
+document.addEventListener('mouseout', function (e) {
+  var b = e.target.closest && e.target.closest('.wb .wadd, .wplus button');
+  if (b && !(e.relatedTarget && b.contains(e.relatedTarget))) clearTimeout(GHOSTT);   /* left before it showed */
+  if (!GHOST || inGhost(e.relatedTarget)) return;
+  clearTimeout(GHOSTOFF); GHOSTOFF = setTimeout(ghostOff, 160);
+});
+
+export { wallHtml, wallTree, wallKey, wallWhose, wallSegs, wallPick, wallSeek, wallSolo, wallHead, wallScrolls, wallFit, wallFullId, ghostOff };

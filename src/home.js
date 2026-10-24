@@ -16,7 +16,7 @@ import { analyse, sureness } from './analysis.js';
 import { ROLES, role } from './roles.js';
 import { peaksOfBuffer, decodePeaks, columns } from './peaks.js';
 import { sendPlayCopy, encodeRender } from './playcopy.js';
-import { initWall, wallHtml, wallTree, wallKey, wallWhose, wallSegs, wallPick, wallSeek, wallSolo, wallHead, wallScrolls, wallFit, wallFullId } from './wall.js';
+import { initWall, wallHtml, wallTree, wallKey, wallWhose, wallSegs, wallPick, wallSeek, wallSolo, wallHead, wallScrolls, wallFit, wallFullId, ghostOff } from './wall.js';
 import { AMPS, renderAmp, liveAmp, dropAmp, preloadAmp } from './amp.js';
 import { AMP_ROLES, savedMic, rememberMic, savedAmp, rememberAmp, savedMon, rememberMon, recAmpFor, recWorklet, openMic, fadeIn, fadeOut, listMics, capture, newContext, wakeAudio, soundTip, rateTip, monitorOn, armMonitor, disarmMonitor, allowInputs, inputLatency, blockPeaks,
          beatInfoFor, clickSamples, assembleTake, bleedNote, quietNote, micError, encodeWav } from './rec.js';
@@ -714,71 +714,6 @@ function closeJam() {
     a.onfinish = done;
   } else done();
 }
-/* hovering a +: a see-through take shows where yours would go. It sits right on that take; whatever
-   was already played on it moves over to the left half, the way the column splits once you play. */
-var GHOST = null, GHOSTT = 0;
-function ghostOff() {
-  clearTimeout(GHOSTT);
-  if (!GHOST) return;
-  GHOST.moved.forEach(function (x) { x.style.marginLeft = ''; x.style.marginRight = ''; });
-  var g = GHOST.el; g.classList.remove('on'); setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 180);
-  GHOST = null;
-}
-function ghostOn(btn) {
-  var grid = btn.closest('.wgrid'), cell = btn.closest('.wplus'), tile = cell ? null : btn.closest('.wb');
-  if (!grid) return;
-  var id = cell ? cell.dataset.post : tile && tile.dataset.post;
-  tile = tile || grid.querySelector('.wb[data-post="' + id + '"]');
-  var art = grid.closest('article.riff'), rid = art && art.id.replace(/^riff-/, ''), r = rid && riff(rid);
-  if (!tile || !r) return;
-  if (GHOST && GHOST.id === id) return;
-  ghostOff();
-  var T = wallTree(r), n = T.nodes[id]; if (!n) return;
-  var down = {}; (function walk(x) { x.kids.forEach(function (k) { down[k.id] = 1; walk(k); }); })(n);
-  var gr = grid.getBoundingClientRect(), tr = tile.getBoundingClientRect(), A = tr.left, B = tr.right, half = (B - A) / 2;
-  var moved = [], plus = null;
-  [].forEach.call(grid.querySelectorAll('.wb,.wplus'), function (x) {
-    var pid = x.dataset.post; if (!pid) return;
-    if (x.classList.contains('wplus') && pid === id) { plus = x; return; }
-    if (!down[pid]) return;
-    var q = x.getBoundingClientRect(), nl = A + (q.left - A) / 2, nr = A + (q.right - A) / 2 - 3;
-    x.style.marginLeft = (nl - q.left) + 'px'; x.style.marginRight = (q.right - nr) + 'px'; moved.push(x);
-  });
-  var has = moved.length > 0, g = document.createElement('div');
-  g.className = 'wghost'; g.setAttribute('aria-hidden', 'true');
-  g.innerHTML = '<span>+</span><b>Your take</b> on ' + esc(wallWhose(r, id));
-  var gap = 4;
-  g.style.left = (has ? A + half + 3 : A) - gr.left + 'px';
-  g.style.width = (has ? half - 3 : B - A) + 'px';
-  g.style.height = tr.height + 'px';
-  g.style.top = tr.top - gap - tr.height - gr.top + 'px';
-  /* the + above the take stays visible and clickable on top of the preview (hiding it made the mouse
-     leave it, which took the preview away again: it flickered) */
-  grid.appendChild(g);
-  requestAnimationFrame(function () { g.classList.add('on'); });
-  GHOST = { id:id, el:g, moved:moved, plus:plus, tile:tile };
-}
-/* the preview stays while the mouse is on that take or on what moved aside (their + buttons too:
-   hovering one of those would slide it back from under the mouse); it goes a moment after you leave */
-var GHOSTOFF = 0;
-function inGhost(x) {
-  if (!GHOST || !x || !x.closest) return false;
-  var t = x.closest('.wb,.wplus');
-  return !!t && (t === GHOST.tile || t === GHOST.plus || GHOST.moved.indexOf(t) > -1);
-}
-document.addEventListener('mouseover', function (e) {
-  if (!mouseHover()) return;
-  if (inGhost(e.target)) { clearTimeout(GHOSTOFF); return; }
-  var b = e.target.closest && e.target.closest('.wb .wadd, .wplus button');
-  if (!b) return;
-  clearTimeout(GHOSTOFF); clearTimeout(GHOSTT); GHOSTT = setTimeout(function () { ghostOn(b); }, 140);
-});
-document.addEventListener('mouseout', function (e) {
-  var b = e.target.closest && e.target.closest('.wb .wadd, .wplus button');
-  if (b && !(e.relatedTarget && b.contains(e.relatedTarget))) clearTimeout(GHOSTT);   /* left before it showed */
-  if (!GHOST || inGhost(e.relatedTarget)) return;
-  clearTimeout(GHOSTOFF); GHOSTOFF = setTimeout(ghostOff, 160);
-});
 /* hover: hear a card while the mouse is over it (a real mouse: a tap on a phone also sends mouseover,
    which would start the card just before the tap's own click pauses it) */
 var TOUCHED = 0, HOVER = null;
