@@ -194,3 +194,21 @@
   #wall .wcolhd{padding:0 2px;font-size:12px}
   #wall .wcolhd em{display:none}
 }
+
+#wall .wselbar{display:none}
+@media (max-width:760px){
+  #wall .wb .wtools{display:none!important}
+  #wall .wsec-core .wgrid{touch-action:pan-y;--wrh-hd:42px}
+  #wall .wcolhd.wcolnav{justify-content:center;gap:8px;padding:0}
+  #wall .wcolnav button{width:34px;height:34px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font:700 18px/1 var(--body);cursor:pointer;flex:none}
+  #wall .wcolnav button:disabled{opacity:.3;cursor:default}
+  #wall .wcolnav small{color:var(--muted);font-size:12px;white-space:nowrap}
+  #wall .wcolnav em{display:inline}
+  #wall .wselbar{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:10px 12px;border-radius:14px;background:color-mix(in srgb,var(--ink) 5%,var(--paper))}
+  #wall .wselbar .wsel-who{display:flex;align-items:center;gap:6px;font-weight:700;font-size:14px;min-width:0}
+  #wall .wselbar .wtools{display:flex;flex-wrap:wrap;gap:6px}
+  #wall .wselbar .wtools button{min-height:38px;min-width:38px;padding:0 12px;border-radius:99px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font:700 13.5px/1 var(--body);cursor:pointer}
+  #wall .wselbar .wtools .wadd{background:var(--action);border-color:var(--action);color:var(--on-action);flex:1 1 auto}
+  #wall .wselbar .wtools .wsolo.on{background:var(--sound);border-color:var(--sound);color:#fff}
+  #wall .wselbar .wtools .wsolo1.on{background:#E5B53B;border-color:#E5B53B;color:#121212}
+}

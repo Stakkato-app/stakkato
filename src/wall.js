@@ -10,6 +10,7 @@ import { decodePeaks, peaksOfBuffer } from './peaks.js';
 import { publicUrl } from './data.js';
 
 var H = null, S = null, BUF = null;
+var SHOW_PARTS = false;   /* new parts on the wall: off while "make the song longer" waits */
 export function initWall(host) {
   H = host; S = host.S; BUF = host.BUF;
   S.wcrep = {}; S.wsel = {}; S.wcol = {}; S.wtalk = {}; S.wsay = {}; S.wopen = {}; S.wscroll = {}; S.wpage = {}; S.wcore = {}; S.wsolo = {}; S.wfull = {};
@@ -51,7 +52,8 @@ function wallTree(r) {
     var par = up(n.p); return par ? par.id : 'riff';
   }
   var before = parts.filter(function (n) { return n.p.pos === 'before'; }).reverse(), after = parts.filter(function (n) { return n.p.pos !== 'before'; });
-  var secs = before.map(function (n) { return { root:n, part:true } }).concat([{ root:root, core:true }], after.map(function (n) { return { root:n, part:true }; }));
+  /* new parts ("make the song longer") are left out of the wall for now: only the original track's stacks show */
+  var secs = SHOW_PARTS ? before.map(function (n) { return { root:n, part:true } }).concat([{ root:root, core:true }], after.map(function (n) { return { root:n, part:true }; })) : [{ root:root, core:true }];
   var maxD = 0;
   secs.forEach(function (sx) {
     var cols = 0;
@@ -82,7 +84,7 @@ function wallTree(r) {
   });
   var partOf = {};
   parts.forEach(function (pn) { (function mark(n) { partOf[n.id] = pn; n.kids.forEach(mark); })(pn); });
-  return { secs:secs, nodes:nodes, maxD:maxD, partOf:partOf, words:words, parentOf:parentOf, parts:parts.length, takes:takes.filter(function (p) { return p.kind !== 'part' && !p.deleted; }).length };
+  return { secs:secs, nodes:nodes, maxD:maxD, partOf:partOf, words:words, parentOf:parentOf, parts:SHOW_PARTS ? parts.length : 0, takes:takes.filter(function (p) { return p.kind !== 'part' && !p.deleted && (SHOW_PARTS || !partOf[p.id]); }).length };
 }
 function wallLabel(n) {
   if (n.isRiff) return 'Original track';   /* its instrument shows as the icon */
@@ -116,11 +118,14 @@ function wallHtml(r) {
     var c = S.wcol[r.id];
     return top.id === sel && c >= top.c0 && c <= top.c1 ? c : top.c0;
   }
+  /* on a phone the original track's section shows one stack at a time: swipe or the arrows for the next */
+  function solo1(sx) { return MOB && open && sx.core && sx.cols > 1; }
+  var PC = {};
   function tools(n, who) {
     var soloOn = S.playing === wallKey(r, n.id), w = T.words[n.id] || 0, dl = wallFiles(r, n.id).length;
     return '<span class="wtools">' +
       '<button class="wsolo' + (soloOn ? ' on' : '') + '" type="button" data-wpick="' + r.id + '" data-post="' + n.id + '" aria-label="' + (soloOn ? 'Pause' : 'Play the stack up to ' + H.esc(wallWhose(r, n.id))) + '" title="' + (soloOn ? 'Pause' : 'Play the stack up to here') + '">' + (soloOn ? '&#10074;&#10074;' : '&#9654;') + '</button>' +
-      (open ? '<button class="wadd" type="button" data-wplus="1" aria-label="Play on top of ' + H.esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+ Play on this</button>' : '') +
+      (open ? '<button class="wadd" type="button" data-wplus="1" data-post="' + n.id + '" aria-label="Play on top of ' + H.esc(wallWhose(r, n.id)) + '" title="Play on top of this take">+ Play on this</button>' : '') +
       '<button class="wsolo1' + (soloed(r, n.id) ? ' on' : '') + '" type="button" data-wsolo="' + r.id + '" data-post="' + n.id + '" aria-pressed="' + soloed(r, n.id) + '" aria-label="Solo: ' + H.esc(wallWhose(r, n.id)) + '" title="Solo: hear only the takes with S on">S</button>' +
       (open ? '<button class="wsay1" type="button" data-wsay="' + r.id + '" data-post="' + n.id + '" aria-label="Comment on ' + H.esc(wallWhose(r, n.id)) + '" title="Comment on this take">&#128172;' + (w ? ' ' + w : '') + '</button>' : '') +
       (dl ? '<button class="wdl" type="button" data-wdl="' + r.id + '" data-post="' + n.id + '" aria-label="Download ' + H.esc(wallWhose(r, n.id)) + '" title="Download ' + (dl > 1 ? 'its ' + dl + ' files' : 'the file') + ' as it was sent">&#8595;</button>' : '') +
@@ -135,7 +140,9 @@ function wallHtml(r) {
     var on = lit[n.id] && (n.isRiff || pc < 0 || j === pc);
     var cls = 'wb' + (n.isRiff ? ' wb-root' : '') + (p.kind === 'part' ? ' wb-part' : '') + (p.deleted ? ' wb-gone' : '') + (shared ? ' wb-shared' : '') + (on && !shared ? ' wb-lit' : '') +
       (n.id === sel && !shared && (pc < 0 || j === pc) ? ' wb-picked' : '') + (S.playing === wallKey(r, n.id) || soloed(r, n.id) ? ' wb-on' : '') + (anim && d ? ' wb-rise' : '');
-    var style = 'grid-column:' + (n.isRiff || n.d === 0 ? (n.c0 + 1) + ' / ' + (n.c1 + 2) : (j + 1)) + ';grid-row:' + (rows - n.d) + ';--d:' + n.d + ';--c:' + H.lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
+    var gc = n.isRiff || n.d === 0 ? (n.c0 + 1) + ' / ' + (n.c1 + 2) : String(j + 1);
+    if (solo1(sx)) { if (!(n.isRiff || n.d === 0) && j !== PC.core) return ''; gc = n.isRiff || n.d === 0 ? '1 / 2' : '1'; }
+    var style = 'grid-column:' + gc + ';grid-row:' + (rows - n.d) + ';--d:' + n.d + ';--c:' + H.lay(layer).c + (anim && d ? ';animation-delay:' + (LAND + d * STEP).toFixed(2) + 's' : '');
     var at = ' data-wsel="' + r.id + '" data-post="' + n.id + '" data-wcol="' + j + '" data-wr="' + r.id + '"';
     if (p.deleted) return '<div class="' + cls + '" style="' + style + '"><span class="wname"><span>Deleted take</span></span></div>';
     var who = n.isRiff ? r.by : (p.mine ? 'You' : p.by);
@@ -156,7 +163,8 @@ function wallHtml(r) {
     if (!open) return '';
     rows = rowsOf(sx);
     if (n.kids.length) return n.kids.map(function (k) { return plusCells(k, sx); }).join('');
-    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" data-post="' + n.id + '" style="grid-column:' + (n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';--d:' + (n.d + 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
+    if (solo1(sx) && n.c0 !== PC.core) return '';
+    return '<div class="wplus' + (anim ? ' wp-rise' : '') + '" data-post="' + n.id + '" style="grid-column:' + (solo1(sx) ? 1 : n.c0 + 1) + ';grid-row:' + (rows - n.d - 1) + ';--d:' + (n.d + 1) + ';animation-delay:' + (LAND + (T.maxD + 2) * STEP).toFixed(2) + 's">' +
       '<button type="button" data-wplus="1" aria-label="Play on the stack up to ' + H.esc(wallWhose(r, n.id)) + '">+</button></div>';
   }
   /* every take in each column it is part of: its own column first, then again in the stacks that branched off above it */
@@ -168,6 +176,14 @@ function wallHtml(r) {
   }
   function heads(sx, pc) {
     if (!open || !sx.core) return '';
+    if (solo1(sx)) {
+      var ci = sx.colInfo[pc] || sx.colInfo[0], sp = ci.starter && ci.starter.p, nm = !sp ? 'The original track' : sp.mine ? 'Your stack' : sp.by + '’s stack';
+      return '<div class="wcolhd wcolnav" style="grid-column:1;grid-row:1">' +
+        '<button type="button" data-wstep="-1" data-wr="' + r.id + '" aria-label="The stack before"' + (pc > 0 ? '' : ' disabled') + '>&lsaquo;</button>' +
+        '<b class="wl">' + ci.letter + '</b><span>' + H.esc(nm) + '</span>' + (ci.from ? '<em>from ' + ci.from + '</em>' : '') +
+        '<small>' + (pc + 1) + ' of ' + sx.cols + '</small>' +
+        '<button type="button" data-wstep="1" data-wr="' + r.id + '" aria-label="The next stack"' + (pc < sx.cols - 1 ? '' : ' disabled') + '>&rsaquo;</button></div>';
+    }
     return sx.colInfo.map(function (ci, j) {
       if (!ci.starter) return '';
       var p = ci.starter.p, who = p.mine ? 'Your stack' : p.by + '’s stack';
@@ -193,13 +209,17 @@ function wallHtml(r) {
   var secHtml = T.secs.map(function (sx, i) {
     if (!open && !sx.core) return '';
     var pc = open ? pickedCol(sx) : -1;
-    var frame = open && sx.cols > 1 && pc > -1 ? '<div class="wcolframe" style="grid-column:' + (pc + 1) + ';grid-row:1 / ' + rowsOf(sx) + '" aria-hidden="true"></div>' : '';
-    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + sx.cols + ',minmax(0,1fr));grid-template-rows:' + (open ? 'var(--wrh-hd,30px) ' : '') + 'repeat(' + (rowsOf(sx) - (open ? 1 : 0)) + ',var(--wrh,44px))">' + frame + heads(sx, pc) + plusCells(sx.root, sx) + all(sx.root, sx, pc) + '</div>';
+    if (solo1(sx)) { if (pc < 0) pc = Math.min(Math.max(0, S.wcol[r.id] || 0), sx.cols - 1); PC.core = pc; }
+    var frame = open && sx.cols > 1 && pc > -1 && !solo1(sx) ? '<div class="wcolframe" style="grid-column:' + (pc + 1) + ';grid-row:1 / ' + rowsOf(sx) + '" aria-hidden="true"></div>' : '';
+    var grid = '<div class="wgrid" style="grid-template-columns:repeat(' + (solo1(sx) ? 1 : sx.cols) + ',minmax(0,1fr));grid-template-rows:' + (open ? 'var(--wrh-hd,30px) ' : '') + 'repeat(' + (rowsOf(sx) - (open ? 1 : 0)) + ',var(--wrh,44px))">' + frame + heads(sx, pc) + plusCells(sx.root, sx) + all(sx.root, sx, pc) + '</div>';
     var cap = !open ? '' : '<small>Builds up from here &uarr;</small>';
     var arrow = open && i > 0 ? '<div class="warrow" aria-hidden="true">&rarr;</div>' : '';
-    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + (sx.core && sx.cols === 1 && T.secs.length === 1 ? ' wsec-one' : '') + '" style="--n:' + sx.cols + '">' + timeHead(sx) + grid + cap + '</div>';
+    return arrow + '<div class="wsec' + (sx.core ? ' wsec-core' : '') + (!open ? ' wsec-shut' : '') + (sx.core && sx.cols === 1 && T.secs.length === 1 ? ' wsec-one' : '') + '" style="--n:' + (solo1(sx) ? 1 : sx.cols) + '">' + timeHead(sx) + grid + cap + '</div>';
   }).join('');
   var playingStack = sel && S.playing === wallKey(r, sel);
+  var selN = sel && T.nodes[sel], selBar = MOB && open && selN && !(selN.p && selN.p.deleted) ?
+    '<div class="wselbar"><span class="wsel-who">' + glyph(selN.isRiff ? r.layer : selN.p.kind === 'part' ? 'part' : selN.p.layer, H.lay(selN.isRiff ? r.layer : selN.p.kind === 'part' ? 'part' : selN.p.layer).c) +
+      H.esc(selN.isRiff ? r.by + ' · original track' : (selN.p.mine ? 'You' : selN.p.by) + ' · ' + wallLabel(selN)) + '</span>' + tools(selN) + '</div>' : '';
   var now = '';
   /* in the project the tracks above are the master track; the wall shows its own only for "Play the whole song" */
   if (open && (!H.project || S.wfull[r.id])) {
@@ -267,13 +287,13 @@ function wallHtml(r) {
 
   if (H.project) return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<p class="jhint" style="margin:0 0 6px">Click a take to hear its stack in the tracks above. Point at a take to play it, play on it, solo it, comment on it or download it.</p>' +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + selBar + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (sel && !now ? '<div class="wsel-row">' + selActs(r, sel) + '</div>' : '') + '</div>' + talk + '</article>';
   return '<article class="riff" id="riff-' + r.id + '"><div class="rmain">' +
     '<div class="rhead">' + H.ava(r.by, r.layer) + '<div class="rwho"><b>' + H.nameOf(r.by, r.uid) + '</b> started a jam' + (r.layer !== 'seed' ? ' · ' + H.lyr(r.layer) : '') +
       '<small>' + H.riffMeta(r) + '</small></div></div>' +
     '<h2 class="rtitle">' + H.esc(r.title) + '</h2>' + (r.text ? '<p class="rtext">' + H.esc(r.text) + '</p>' : '') +
-    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
+    '<div class="wwrap" data-wr="' + r.id + '"><div class="wrow">' + secHtml + '</div></div>' + selBar + wallDots(r, T, open) + wallFullBtn(r, T, open) + now +
     (open ? '' : '<div class="racts"><a class="btn" href="/s/' + encodeURIComponent(r.slug) + '">Open in project view</a></div>') +
     '</div>' + bar + talk + '</article>';
 }
@@ -297,12 +317,43 @@ function wallDownload(rid, id) {
     setTimeout(function () { var a = document.createElement('a'); a.href = f.url; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }, i * 600);
   });
 }
+/* phones: the next or the stack before, by the arrows or a swipe over the stack; past the last one a swipe goes on to the new parts */
+function wallStep(rid, dir, wrap) {
+  var r = H.riff(rid); if (!r) return;
+  var T = wallTree(r), sx = T.secs.filter(function (x) { return x.core; })[0];
+  if (!sx || sx.cols < 2) return;
+  var cur = Math.min(Math.max(0, S.wcol[rid] || 0), sx.cols - 1);
+  var sel = S.wsel[rid], sn = sel && T.nodes[sel];
+  if (sn && !T.partOf[sel] && !(S.wcol[rid] >= sn.c0 && S.wcol[rid] <= sn.c1)) cur = sn.c0;
+  var j = cur + dir;
+  if (j < 0 || j >= sx.cols) { if (wrap) wrap.scrollBy({ left:dir * wrap.clientWidth, behavior:'smooth' }); return; }
+  var top = null;
+  (function walk(n) { if (n.c0 <= j && n.c1 >= j && n.d > 0 && (!top || n.d > top.d)) top = n; n.kids.forEach(walk); })(sx.root);
+  S.wcol[rid] = j;
+  if (!top) return;
+  if (H.project || S.playing) { wallPick(rid, top.id); return; }
+  S.wsel[rid] = top.id; S.wcore[rid] = top.id; H.render();
+}
+var SWIPE = null;
+document.addEventListener('touchstart', function (e) {
+  var g = e.target.closest && e.target.closest('.wsec-core .wgrid');
+  SWIPE = g && e.touches.length === 1 ? { x:e.touches[0].clientX, y:e.touches[0].clientY, g:g } : null;
+}, { passive:true });
+document.addEventListener('touchend', function (e) {
+  if (!SWIPE || !H) return;
+  var t = e.changedTouches[0], dx = t.clientX - SWIPE.x, dy = t.clientY - SWIPE.y, w = SWIPE.g.closest('.wwrap[data-wr]');
+  SWIPE = null;
+  if (!w || Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  wallStep(w.dataset.wr, dx < 0 ? 1 : -1, w);
+}, { passive:true });
 /* the column you click in is the stack you picked (a take can be in several) */
 document.addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('[data-wcol]');
   if (b && S) S.wcol[b.dataset.wr] = +b.dataset.wcol;
   var d = e.target.closest && e.target.closest('[data-wdl]');
-  if (d && H) { e.preventDefault(); e.stopPropagation(); wallDownload(d.dataset.wdl, d.dataset.post); }
+  if (d && H) { e.preventDefault(); e.stopPropagation(); wallDownload(d.dataset.wdl, d.dataset.post); return; }
+  var st = e.target.closest && e.target.closest('[data-wstep]');
+  if (st && H) { e.preventDefault(); e.stopPropagation(); wallStep(st.dataset.wr, +st.dataset.wstep, st.closest('.wwrap')); }
 }, true);
 /* what the person on top of the stack said about their take (only that one take) */
 function wallNote(r, id) {
